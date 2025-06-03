@@ -9,7 +9,7 @@ Created on Tue Jun  3 14:10:16 2025
 # Evaluate termination criteria
 # =============================================================================
 
-class maxiter:
+class Maxiter:
     """
     Maximum iterations termination criterion 
     """
@@ -23,7 +23,7 @@ class maxiter:
             return True
         return False
     
-class convergence:
+class Convergence:
     def __init__(self):
         pass
     
