@@ -10,7 +10,6 @@ Created on Tue Jun  3 14:10:01 2025
 #   * Re-crossover with elite for very infeasible solutions
 # =============================================================================
 
-from crossover_mutation import crossover, mutation
 
 def feasibility(*args, **kwargs):
     """
