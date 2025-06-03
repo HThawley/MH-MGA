@@ -16,52 +16,48 @@ from elite_selection import tournament
 from fitness import fitness
 from generate_offspring import generate_offspring
 from initiate import initiate_populations
+from feasibility import feasibility 
+
 
 #%%
 
 class Problem:
     def __init__(
             self,
-            fitness, # fitness function
+            objective, # at the moment this is the optimal cost, later it will be objective function for co-optimisation
             bounds, # [lb[:], ub[:]]
 
             *args, 
             
-            vectorized = False, # whether fitness function accepts vectorsied array of points
-            fitness_args = (),
-            fitness_kwargs = {}, 
+            # vectorized = False, # whether fitness function accepts vectorsied array of points
             
             **kwargs,
             ):
         
-        # fitness function
-        assert utils.isfunclike(fitness)
         
-        if vectorized is True:
-            self.func = fitness
-        else: 
-            def fitness_wrapper(xn, *args, **kwargs):
-                """
-                wrapper for fitness function to allow passing 2d array of points
+        # if vectorized is True:
+        #     self.func = fitness
+        # else: 
+        #     def fitness_wrapper(xn, *args, **kwargs):
+        #         """
+        #         wrapper for fitness function to allow passing 2d array of points
                 
-                xn.shape = (ndim, ...)
-                """
-                result = np.empty(xn.shape[1])
-                for i, x in enumerate(xn):
-                    result[i] = fitness(x, *args, **kwargs)
-                return result
-            self.func = fitness_wrapper
+        #         xn.shape = (ndim, ...)
+        #         """
+        #         result = np.empty(xn.shape[1])
+        #         for i, x in enumerate(xn):
+        #             result[i] = fitness(x, *args, **kwargs)
+        #         return result
+        #     self.func = fitness_wrapper
                 
+        self.objective = objective
+        
         # `bounds` is a tuple containing (lb, ub)
-        # lb
         self.lb, self.ub = bounds 
         assert utils.islistlike(self.lb)
         assert utils.islistlike(self.ub)
         assert len(self.lb) == len(self.ub)
         self.ndim = len(self.lb)
-        
-
-            
         
         
     def Initiate(
@@ -77,7 +73,7 @@ class Problem:
         self.maxpop = maxpop
 
         # self.population is 3d array of shape (nniche, maxpop, ndim)        
-        self.population = initiate_populations(x0, self.nniche, self.maxpop, self.ndim, self.bounds)
+        self.population = initiate_populations(self.nniche, self.maxpop, *self.bounds, )
         assert (self.population.max(axis=2) <= self.ub).all()
         assert (self.population.max(axis=2) >= self.lb).all()
         
@@ -112,6 +108,8 @@ class Problem:
         while self.maxiter(): 
             self.Loop()
         
+        self.Terminate()
+        
     def Loop(self):
         
         # select parents
@@ -127,39 +125,28 @@ class Problem:
             
             )
         
-
-        # =============================================================================
-        # Generate offspring
-        # =============================================================================
-
-        # =============================================================================
-        # Crossover and mutations 
-        # =============================================================================
-
-        # =============================================================================
-        # Feasibility
-        #   * Re-crossover with elite for very infeasible solutions
-        # =============================================================================
-
-        # =============================================================================
-        # Calculate fitness 
-        # =============================================================================
-
-        # =============================================================================
-        # Evaluate termination criteria
-        # =============================================================================
+        self.population = feasibility(
+            self.population, 
+            self.slack
+            )
         
+        self.fitness = fitness(
+            self.population, 
+            )
+
+    def Terminate(self):
+        run_statistics(self.population)
+        self.noptima = return_noptima(self.population)
+        return self.noptima
         
 #%% 
 if __name__ == "__main__":
-    def add(*args):
-        return sum(args)
-        
         
     problem = Problem(
-        fitness = add, 
+        objective = 9.,
+        fitness = fitness, 
         bounds = (np.zeros(3), np.ones(3)),
-        
         vectorized = False,
+        
         )
 
