@@ -10,7 +10,6 @@ import pandas as pd
 
 import utils 
 
-from crossover_mutation import crossover, mutation
 from termination_criteria import Maxiter, Convergence
 from post_process import return_noptima, run_statistics
 from elite_selection import tournament
@@ -67,50 +66,88 @@ class Problem:
         
     def Initiate(
             self, 
-            n_niche, 
+            nniche: int, 
+            maxpop: int, 
+            
             *args, 
             x0 = None,
             **kwargs,
             ):
+        self.nniche = nniche
+        self.maxpop = maxpop
+
+        # self.population is 3d array of shape (nniche, maxpop, ndim)        
+        self.population = initiate_populations(x0, self.nniche, self.maxpop, self.ndim, self.bounds)
+        assert (self.population.max(axis=2) <= self.ub).all()
+        assert (self.population.max(axis=2) >= self.lb).all()
         
-        self.population = initiate_populations(x0, n_niche)
         
-        
-        
-    def Step(self, **kwargs):
+    def Step(
+            self, 
+            maxiter: int|float = np.inf,
+            maxpop: int = 100, 
+            nelite: int = 10,
+            tournsize: int = 4,
+            slack: float = np.inf,
+            
+            ):
         """
         Options: 
-            maxiter - maximum number of iterations allowed for the step
-            maxpop  - maximum number of individuals in a niche
-            max
+            maxiter   - maximum number of iterations allowed for the step
+            maxpop    - maximum number of individuals in a niche
+            nelite    - number of elites kept 
+                            (passed on to deap.toolbox.selTournament as k)
+            tournsize - number of individuals in each tournament 
+                            (passed on to deap.toolbox.selTournament as tournsize)
+            slack     - near-optimal fitness relaxation in range (1, np.inf)
         """
         
         # print(kwargs.items())
-
-        if "maxiter" in kwargs.keys():
-            assert isinstance(kwargs["maxiter"], int)
-            self.maxiter = Maxiter(kwargs["maxiter"])
-        else:
-            self.maxiter = Maxiter(np.inf)
-        
-        if "maxpop" in kwargs.keys():
-            assert isinstance(kwargs["maxpop"], int)
-            self.maxpop = kwargs["maxpop"]
-        else: 
-            
-        
-        if "slack" in kwargs.keys():
-            assert isinstance(kwargs["slack"], float)
-            self.slack = kwargs["slack"]
-        else: 
-            self.slack = np.inf
+        self.maxiter = Maxiter(maxiter)
+        self.maxpop = maxpop
+        self.nelite = nelite
+        self.tournsize = tournsize
+        self.slack = slack
         
         while self.maxiter(): 
-            
             self.Loop()
         
     def Loop(self):
         
+        # select parents
+        self.population = tournament(
+            self.population, 
+            self.nelite, 
+            self.tournsize, 
+            )
+        
+        # generate offspring
+        self.population = generate_offspring(
+            self.population, 
+            
+            )
+        
+
+        # =============================================================================
+        # Generate offspring
+        # =============================================================================
+
+        # =============================================================================
+        # Crossover and mutations 
+        # =============================================================================
+
+        # =============================================================================
+        # Feasibility
+        #   * Re-crossover with elite for very infeasible solutions
+        # =============================================================================
+
+        # =============================================================================
+        # Calculate fitness 
+        # =============================================================================
+
+        # =============================================================================
+        # Evaluate termination criteria
+        # =============================================================================
         
         
 #%% 
