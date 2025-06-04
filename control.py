@@ -72,8 +72,8 @@ class Problem:
 
         # self.population is 3d array of shape (nniche, maxpop, ndim)        
         self.population = initiate_populations(self.nniche, self.maxpop, *self.bounds, )
-        assert (self.population.max(axis=(0,1)) <= self.ub).all()
-        assert (self.population.max(axis=(0,1)) >= self.lb).all()
+        # assert (self.population.max(axis=(0,1)) <= self.ub).all()
+        # assert (self.population.min(axis=(0,1)) >= self.lb).all()
         
         
     def Step(
@@ -82,6 +82,10 @@ class Problem:
             maxpop: int = 100, 
             nelite: int = 10,
             tournsize: int = 4,
+            mutation: float|tuple[float] = (0.5, 1.5), 
+            gaussian_mu: float = 0.0, 
+            gaussian_sigma: float = 0.1, 
+            crossover: float|tuple[float] = 0.4, 
             slack: float = np.inf,
             
             ):
@@ -101,6 +105,10 @@ class Problem:
         self.maxpop = maxpop
         self.nelite = nelite
         self.tournsize = tournsize
+        self.mutation = mutation
+        self.gaussian_sigma = list(gaussian_sigma 
+                                   * (self.ub - self.lb)) # adjust sigma for unnormalised bounds
+        self.crossover = crossover
         self.slack = slack
         
         while self.maxiter(): 
@@ -109,6 +117,24 @@ class Problem:
         self.Terminate()
         
     def Loop(self):
+        
+        if hasattr(self.mutation, "__iter__"):
+            assert len(self.mutation) == 2
+            self.mutationInst = np.random.uniform(*self.mutation)
+        else: 
+            assert isinstance(self.mutation, float)
+            self.mutationInst = self.mutation
+        if hasattr(self.crossover, "__iter__"):
+            assert len(self.crossover) == 2
+            self.crossoverInst = np.random.uniform(*self.crossover)
+        else: 
+            assert isinstance(self.crossover, float)
+            self.crossoverInst = self.crossover
+        
+        
+        self.fitness = feasibility(
+            self.population
+            )
         
         # select parents
         self.population = tournament(
@@ -120,7 +146,11 @@ class Problem:
         # generate offspring
         self.population = generate_offspring(
             self.population, 
-            
+            self.nelite, 
+            self.maxpop,
+            self.mutationInst,
+            self.gaussian_sigma,
+            self.crossoverInst,
             )
         
         self.population = feasibility(
