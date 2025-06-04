@@ -25,13 +25,14 @@ class Problem:
     def __init__(
             self,
             objective, # at the moment this is the optimal cost, later it will be objective function for co-optimisation
+            optimum, # at the moment this is the coordinates of optimum cost, later it will be dynamically updated during co-optimisation
             bounds, # [lb[:], ub[:]]
 
-            *args, 
+            # *args, 
             
             # vectorized = False, # whether fitness function accepts vectorsied array of points
             
-            **kwargs,
+            # **kwargs,
             ):
         
         
@@ -53,7 +54,7 @@ class Problem:
         self.objective = objective
         
         # `bounds` is a tuple containing (lb, ub)
-        self.lb, self.ub = bounds 
+        self.lb, self.ub = self.bounds = bounds 
         assert utils.islistlike(self.lb)
         assert utils.islistlike(self.ub)
         assert len(self.lb) == len(self.ub)
@@ -64,18 +65,15 @@ class Problem:
             self, 
             nniche: int, 
             maxpop: int, 
-            
-            *args, 
-            x0 = None,
-            **kwargs,
+            # x0 = None,
             ):
         self.nniche = nniche
         self.maxpop = maxpop
 
         # self.population is 3d array of shape (nniche, maxpop, ndim)        
         self.population = initiate_populations(self.nniche, self.maxpop, *self.bounds, )
-        assert (self.population.max(axis=2) <= self.ub).all()
-        assert (self.population.max(axis=2) >= self.lb).all()
+        assert (self.population.max(axis=(0,1)) <= self.ub).all()
+        assert (self.population.max(axis=(0,1)) >= self.lb).all()
         
         
     def Step(
@@ -140,13 +138,31 @@ class Problem:
         return self.noptima
         
 #%% 
-if __name__ == "__main__":
-        
-    problem = Problem(
-        objective = 9.,
-        fitness = fitness, 
-        bounds = (np.zeros(3), np.ones(3)),
-        vectorized = False,
-        
-        )
 
+
+    
+if __name__ == "__main__":
+    
+    def Objective(x):
+        return sum(np.arange(len(x))*x)
+    
+    lb = 1*np.ones(3)
+    ub = 3*np.ones(3)
+    objective = Objective(lb)
+    
+    problem = Problem(
+        objective = objective,
+        optimum = lb,
+        bounds = (lb, ub),
+        )
+    
+    problem.Initiate(4, 10)
+    
+    raise KeyboardInterrupt
+    problem.Step(
+        maxiter=10, 
+        maxpop=10, 
+        nelite=4,
+        tournsize=2,
+        slack=np.inf,
+        )
