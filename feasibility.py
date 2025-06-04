@@ -80,65 +80,48 @@ def population_feasibility(
 # --- FITNESS ------
 ###
 
-
-def find_centroids(population):
-    
-    centroids = []
-
-    # Iterate over each niche and calculate the centroid
-    for niche in population:
-        num_indiv = len(niche)  # Number of individuals in the niche
-        num_vars_indiv = len(niche[0])  # Number of decision variables per individual
-        
-        # Calculate the centroid for each decision variable
-        # TODO: check that the formula below (taken from the Jacob's repo) 
-        # is actually what we want.
-        centroid = [
-            sum(individual[i] for individual in niche) / 
-            num_indiv for i in range(num_vars_indiv)
-            ]
-        centroids.append(centroid)  
-
-    return np.array(centroids)
-
-# WORK-IN-PROGRESS/not ready: simplify/improve this fitness function taken from Jacob's repo
 def fitness(population):
+    """
+    Calculates the fitness of each individual as the minimum (per-variable)
+    distance from the centroids of all the other niches besides the one 
+    where the individual itself sits, and including the 'optimal' niche. 
+    """
+
+    def find_centroids(population):
     
-    distances = []
-    minimal_distances = []
-    fitness_SP = {}
+        centroids = []
+
+        # Iterate over each niche and calculate the centroid
+        for niche in population:
+            num_indiv = len(niche)  # Number of individuals in the niche
+            num_vars_indiv = len(niche[0])  # Number of decision variables per individual
+            
+            # Calculate the centroid for each decision variable
+            # TODO: check that the formula below (taken from the Jacob's repo) 
+            # is actually what we want.
+            centroid = [
+                sum(individual[i] for individual in niche) / 
+                num_indiv for i in range(num_vars_indiv)
+                ]
+            centroids.append(centroid)  
+
+        return np.array(centroids)
 
     centroids = find_centroids(population)
 
-    # Step 1: Calculate per-variable distances for each individual in each niche
     for q, population in enumerate(population):
         
-        niche_distances = []
+        niche_min_indiv_distances = []
 
         for indiv in population[q]:
             indiv_distances = []
             for p, centroid in enumerate(centroids):
                 if p != q:  # Skip the centroid of the same subpopulation
-                    per_var_distances = [abs(indiv[i] - centroid[i]) for i in range(len(indiv))]
-                    indiv_distances.append(per_var_distances)
+                    ind_dist_from_centroids = [abs(indiv[i] - centroid[i]) for i in range(len(indiv))]
+                    indiv_distances.append(ind_dist_from_centroids)
+            min_indiv_distances = [min(distance[i] for distance in indiv_distances) for i in range(len(indiv_distances[0]))]
             
-            niche_distances.append(indiv_distances)
-        
-        distances.append(niche_distances)
+            niche_min_indiv_distances.append(min_indiv_distances)
+            niche_indiv_fitness = [(min(individual),) for individual in niche_min_indiv_distances]
 
-    # Step 2: Calculate Minimal Distances per Variable
-    for subpopulation_distances in distances:
-        subpopulation_minimal = []
-        
-        for individual_distances in subpopulation_distances:
-            min_distance_per_variable = [min(distance[i] for distance in individual_distances) for i in range(len(individual_distances[0]))]
-            subpopulation_minimal.append(min_distance_per_variable)
-        
-        minimal_distances.append(subpopulation_minimal)
-
-    # Step 3: Calculate Fitness SP for each individual
-    for sp_index, subpopulation in enumerate(minimal_distances, start=1):
-        fitness_values = [(min(individual),) for individual in subpopulation]
-        fitness_SP[sp_index] = fitness_values
-
-    return fitness_SP
+    return niche_indiv_fitness
