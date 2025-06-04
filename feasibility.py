@@ -12,42 +12,38 @@ Created on Tue Jun  3 14:10:01 2025
 
 import numpy as np
 
+
+def original_objective(values): 
+    
+    # For the first test, ndim=2 and works for a function with two decision variables
+    z = sum(np.sin(19*np.pi*values[i]) + values[i]/1.7 for i in range(ndim)) + 2
+    
+    return z
+
+
 def feasibility(
-        ndim,
         values,
         optimal_values,
+        slack,
+        original_objective,
         **kwargs
         ):
     """
-    Try to make very infeasible solutions more feasible 
-        (but not necessarily guarenteed to be feasible) 
-    Re-crossover/mutation
+    Measures the distance from the near-optimality region. 
+    The aim is to penalise infeasibility as part of the 
+    fitness function proportionally to such a distance.
+    The slack is given as a fractional value.   
     """
-    
-    def original_assessed_function(ndim, values): 
         
-        # For the first test, ndim=2 and works for a function with two decision variables
-        try: 
-            len(range(ndim)) == len(values)
-            z = sum(np.sin(19*np.pi*values[i]) + values[i]/1.7 for i in range(ndim)) + 2
-        except:
-            print("The dimension size does not matche the length of the values")
-        
-        return z
+    try: 
+        len(values) == len(optimal_values)
+        dist_from_optimum = (
+            original_objective(values)
+            - original_objective(optimal_values)
+            )/original_objective(optimal_values)
+    except:
+        print("The size of the values is not the same between the optimum and the assessed individual")
     
+    dist_from_slack = dist_from_optimum - slack
     
-    def distance_from_optimum(ndim,values,optimal_values):
-        """Measures the distance from the near-optimality region."""
-        
-        try: 
-            len(values) == len(optimal_values)
-            dist_from_optimum = (
-                original_assessed_function(ndim, values)
-                - original_assessed_function(ndim, optimal_values)
-                )/original_assessed_function(ndim, optimal_values)
-        except:
-            print("The size of the values is not the same between the optimum and the assessed individual")
-        
-        return abs(dist_from_optimum)
-    
-    return
+    return abs(dist_from_slack)
