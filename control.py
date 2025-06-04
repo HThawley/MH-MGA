@@ -12,11 +12,10 @@ import utils
 
 from termination_criteria import Maxiter, Convergence
 from post_process import return_noptima, run_statistics
-from elite_selection import tournament
-from fitness import fitness
+from elite_selection import select_parents
 from generate_offspring import generate_offspring
 from initiate import initiate_populations
-from feasibility import feasibility 
+from feasibility import fitness 
 
 
 #%%
@@ -24,10 +23,11 @@ from feasibility import feasibility
 class Problem:
     def __init__(
             self,
+            func,
             objective, # at the moment this is the optimal cost, later it will be objective function for co-optimisation
             optimum, # at the moment this is the coordinates of optimum cost, later it will be dynamically updated during co-optimisation
             bounds, # [lb[:], ub[:]]
-
+            
             # *args, 
             
             # vectorized = False, # whether fitness function accepts vectorsied array of points
@@ -50,7 +50,7 @@ class Problem:
         #             result[i] = fitness(x, *args, **kwargs)
         #         return result
         #     self.func = fitness_wrapper
-                
+        self.func = func
         self.objective = objective
         
         # `bounds` is a tuple containing (lb, ub)
@@ -70,23 +70,29 @@ class Problem:
         self.nniche = nniche
         self.maxpop = maxpop
 
-        # self.population is 3d array of shape (nniche, maxpop, ndim)        
+        # self.population is list of lists like a 3d array of shape (nniche, maxpop, ndim)        
         self.population = initiate_populations(self.nniche, self.maxpop, *self.bounds, )
         # assert (self.population.max(axis=(0,1)) <= self.ub).all()
         # assert (self.population.min(axis=(0,1)) >= self.lb).all()
         
+        self.population = fitness(
+            self.population,
+            self.func, 
+            self.slack, 
+            self.objective,
+            )
         
     def Step(
             self, 
-            maxiter: int|float = np.inf,
-            maxpop: int = 100, 
-            nelite: int = 10,
-            tournsize: int = 4,
-            mutation: float|tuple[float] = (0.5, 1.5), 
-            gaussian_mu: float = 0.0, 
-            gaussian_sigma: float = 0.1, 
-            crossover: float|tuple[float] = 0.4, 
-            slack: float = np.inf,
+            maxiter: int|float = np.inf, # max no of iterations in this step
+            maxpop: int = 100, # max no of individuals in each niche
+            elitek: int = 5, # number of parents selected as absolute best
+            tournk: int = 10, # number of parents selected via tournament
+            tournsize: int = 4, # tournament size parameter
+            mutation: float|tuple[float] = (0.5, 1.5), # mutation probability
+            sigma: float = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
+            crossover: float|tuple[float] = 0.4, # crossover probability
+            slack: float = np.inf, # noptimal slack in range (1.0, inf)
             
             ):
         """
@@ -100,16 +106,19 @@ class Problem:
             slack     - near-optimal fitness relaxation in range (1, np.inf)
         """
         
-        # print(kwargs.items())
         self.maxiter = Maxiter(maxiter)
         self.maxpop = maxpop
-        self.nelite = nelite
+        self.elitek = elitek
+        self.tournk = tournk
         self.tournsize = tournsize
         self.mutation = mutation
-        self.gaussian_sigma = list(gaussian_sigma 
-                                   * (self.ub - self.lb)) # adjust sigma for unnormalised bounds
+        self.sigma = list(sigma 
+                          * (self.ub - self.lb)) # adjust sigma for unnormalised bounds
         self.crossover = crossover
         self.slack = slack
+        
+        assert self.elitek + self.tournk < maxpop, "elitek + tournk should be less than maxpop"
+        assert self.tournk < self.tournsize, "tournsize should be less than tournk"
         
         while self.maxiter(): 
             self.Loop()
@@ -132,35 +141,31 @@ class Problem:
             self.crossoverInst = self.crossover
         
         
-        self.fitness = feasibility(
-            self.population
-            )
-        
         # select parents
-        self.population = tournament(
+        self.population = select_parents(
             self.population, 
-            self.nelite, 
+            self.elitek, 
+            self.tournk, 
             self.tournsize, 
             )
-        
+
         # generate offspring
         self.population = generate_offspring(
             self.population, 
-            self.nelite, 
+            self.elitek + self.tournk, 
             self.maxpop,
             self.mutationInst,
-            self.gaussian_sigma,
+            self.sigma,
             self.crossoverInst,
             )
         
-        self.population = feasibility(
-            self.population, 
-            self.slack
+        self.population = fitness(
+            self.population,
+            self.func, 
+            self.slack, 
+            self.objective,
             )
         
-        self.fitness = fitness(
-            self.population, 
-            )
 
     def Terminate(self):
         run_statistics(self.population)
@@ -192,7 +197,11 @@ if __name__ == "__main__":
     problem.Step(
         maxiter=10, 
         maxpop=10, 
-        nelite=4,
+        elitek=4,
+        tournk=4,
         tournsize=2,
+        mutation=(0.5, 1.5), 
+        sigma=0.1,
+        crossover=0.5, 
         slack=np.inf,
         )

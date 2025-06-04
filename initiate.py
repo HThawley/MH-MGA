@@ -33,9 +33,7 @@ def initiate_populations(
     toolbox.register("individual", create_deap_individual)
 
     # A 'niche' is a list of the created individuals with the desired attributes
-    toolbox.register("niche", tools.initRepeat, list, toolbox.individual)
-
     # Create a list of niches (as many as the desired alternatives)
-    niches_list = [toolbox.niche(n=maxpop) for _ in range(nniche)]
-    return niches_list
+    population = [tools.initRepeat(list, toolbox.individual, n=maxpop) for _ in range(nniche)]
+    return population
     

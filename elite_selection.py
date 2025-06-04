@@ -5,23 +5,20 @@ Created on Tue Jun  3 14:08:20 2025
 @author: hmtha
 """
 
-# =============================================================================
-# Select Elites (tournament function)
-#   * hyperparameterise no. in tournament?
-# =============================================================================
 
 from deap_objects import creator, base, toolbox
-# =============================================================================
-# TODO: include elitism
-# =============================================================================
-def tournament(
+
+def select_parents(
         population, 
-        nelite, 
+        elitek,
+        tournk, 
         tournsize,
         ):
     
-    toolbox.register("select", tools.selTournament, k=nelite, tournsize=tournsize) 
-
-    elites = [toolbox.select(niche) for niche in niches_list]
+    # order irrelevant
+    parents = [
+        tools.selBest(niche, k=elitek) + 
+        tools.selTournament(niche, k=tournk, tournsize=tournsize) 
+        for niche in population]
         
-    return elites
+    return parents

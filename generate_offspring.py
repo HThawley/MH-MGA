@@ -22,10 +22,10 @@ def apply_bounds(ind, lb, ub):
 
 def generate_offspring(
         parents, 
-        nelite, 
+        nparents, 
         maxpop,
         mutation,
-        gaussian_sigma, 
+        sigma, 
         crossover, ## Do we need this?? Depends on cx method
         lb,     # lower bounds on decision variables
         ub,     # upper bounds on decision variables
@@ -38,10 +38,10 @@ def generate_offspring(
     ## cxOnePoint used for testing 
     ## TODO: choose cx method
     toolbox.register("mate", tools.cxOnePoint)
-    toolbox.register("mutate", tools.mutGaussian, mu=0.0, sigma=gaussian_sigma, indpb=mutation)
+    toolbox.register("mutate", tools.mutGaussian, mu=0.0, sigma=sigma, indpb=mutation)
     toolbox.register("apply_bounds", apply_bounds, lb=lb, ub=ub)
     # clone parents as the deap functions work in-place
-    offspring = [[toolbox.clone(niche[idx%nelite]) for idx in range(maxpop)] for niche in parents]
+    offspring = [[toolbox.clone(niche[idx%nparents]) for idx in range(maxpop)] for niche in parents]
     
     
     for niche in offspring:

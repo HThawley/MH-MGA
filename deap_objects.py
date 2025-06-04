@@ -7,6 +7,7 @@ Created on Wed Jun  4 10:22:59 2025
 
 from deap import base
 from deap import creator
+# import numpy as np
 
 # For now, we only initialise the co-evolving near-optimal niches. 
 # The optimum is given as a starting point. In principle, the optimum could be 
@@ -17,7 +18,13 @@ from deap import creator
 creator.create("Fitness", base.Fitness, weights=(1.0,)) 
 
 # Hence, we can create a list object for individuals to be evaluated based on the above fitness
-creator.create("Individual", list, fitness=creator.Fitness) 
+creator.create(
+    "Individual", 
+    list, 
+    fitness=creator.Fitness, 
+    # objective=np.inf,
+    # feasibility=False,
+    ) 
 
 # We create a toolbox to register attributes we want the individuals to have and
 # create the actual instances of the individuals to be packaged into niches
