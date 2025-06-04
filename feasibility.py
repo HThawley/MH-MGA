@@ -116,7 +116,7 @@ def fitness(population):
         for indiv in population[q]:
             indiv_distances = []
             for p, centroid in enumerate(centroids):
-                if p != q:  # Skip the centroid of the same subpopulation
+                if p != q:  # Skip the centroid of the same niche
                     ind_dist_from_centroids = [abs(indiv[i] - centroid[i]) for i in range(len(indiv))]
                     indiv_distances.append(ind_dist_from_centroids)
             min_indiv_distances = [min(distance[i] for distance in indiv_distances) for i in range(len(indiv_distances[0]))]
