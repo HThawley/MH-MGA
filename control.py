@@ -180,6 +180,8 @@ class Problem:
             tools.selTournament(niche, k=self.tournk, tournsize=self.tournsize) 
             for niche in self.population]
             
+    
+        
     def _generate_offspring(self):
         nparents = len(self.population[0])
         # clone parents as the deap functions work in-place
@@ -217,23 +219,48 @@ class Problem:
         distance from the centroids of all the other niches besides the one 
         where the individual itself sits, and including the 'optimal' niche. 
         """
-        centroids = find_centroids(np.array(self.population))
+        self.centroids = find_centroids(np.array(self.population))
+        self.fitnesses = np.empty((self.population.shape[0], 
+                                   self.population.shape[1]))
         
-        for n, niche in enumerate(self.population):
-            for ind in niche: 
-                ind.fitness = min((np.abs(np.array(ind) - centroid).min() 
-                                   for c, centroid in enumerate(centroids)
-                                   if n != c))
+        for n in range(self.nniche):
+            for i in range(self.maxpop): 
+                self.fitnesses[n, i] = min((np.abs(self.population[n, i] - self.centroids[c]).min() 
+                                            for c in range(self.nniche)
+                                            if n != c))
                 
                 ##TODO: 
     # =============================================================================
     #             We want the cost penalty to be similar in scale to the fitnesses 
     #               Need an adjsutment 
     # =============================================================================
-                cost = self.func(np.array(ind))
+                cost = self.func(self.population[n, i])
                 if cost > self.noptimal_threshold:
-                    ind.fitness += cost 
+                    self.population[n, i] += cost 
+        
+    #     for n, niche in enumerate(self.population):
+    #         for ind in niche: 
+    #             ind.fitness = min((np.abs(np.array(ind) - centroid).min() 
+    #                                for c, centroid in enumerate(centroids)
+    #                                if n != c))
+                
+    #             ##TODO: 
+    # # =============================================================================
+    # #             We want the cost penalty to be similar in scale to the fitnesses 
+    # #               Need an adjsutment 
+    # # =============================================================================
+    #             cost = self.func(np.array(ind))
+    #             if cost > self.noptimal_threshold:
+    #                 ind.fitness += cost 
                     
+        
+@njit
+def selBest(niche, fitnesses, k):
+    elite = np.empty((k, niche.shape[1]))
+    elite_fitness = np.empty(k)
+    
+    for 
+    
 
 @njit
 def find_centroids(population):
