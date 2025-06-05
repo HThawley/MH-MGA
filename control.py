@@ -57,7 +57,6 @@ class Problem:
             # **kwargs,
             ):
         
-        
         self.func = func
         self.objective = objective
         
@@ -83,17 +82,24 @@ class Problem:
         self._fitness()
     
     def _initiate_population(self, x0):
-        if hasattr(x0, "__call__"):
-            def create_individual():
-                ind = creator.Individual(x0(lb, ub).tolist()) # Create an instance of creator.Individual 
-                return ind
         
-            toolbox.register("individual", create_individual)
+        if hasattr(x0, "__call__"):
+            self.population = np.empty((self.nniche, self.maxpop, self.ndim))
+            for i in range(self.nniche):
+                for j in range(self.maxpop):
+                    self.population[i, j, :] = x0(self.lb, self.ub)
+        
+        # if hasattr(x0, "__call__"):
+        #     def create_individual():
+        #         ind = creator.Individual(x0(lb, ub).tolist()) # Create an instance of creator.Individual 
+        #         return ind
+        
+        #     toolbox.register("individual", create_individual)
             
-            # A 'niche' is a list of the created individuals with the desired attributes
-            # Create a list of niches (as many as the desired alternatives)
-            self.population = [tools.initRepeat(list, toolbox.individual, n=self.maxpop) 
-                               for _ in range(self.nniche)]
+        #     # A 'niche' is a list of the created individuals with the desired attributes
+        #     # Create a list of niches (as many as the desired alternatives)
+        #     self.population = [tools.initRepeat(list, toolbox.individual, n=self.maxpop) 
+        #                        for _ in range(self.nniche)]
 
         else:
             assert isinstance(x0, np.ndarray)
@@ -174,11 +180,19 @@ class Problem:
         pass
 
     def _select_parents(self):
-        # order irrelevant
-        self.population = [
-            tools.selBest(niche, k=self.elitek) + 
-            tools.selTournament(niche, k=self.tournk, tournsize=self.tournsize) 
-            for niche in self.population]
+        self.population = np.dstack(
+            tuple(np.vstack(
+                (selBest(self.population[n], self.fitness[n], self.elitek), 
+                 selTournament(self.population[n], self.fitness[n], self.tournk, self.tournsize))
+                ).T
+             for n in range(self.nniche)
+             )
+            ).T
+        
+        # self.population = [
+        #     tools.selBest(niche, k=self.elitek) + 
+        #     tools.selTournament(niche, k=self.tournk, tournsize=self.tournsize) 
+        #     for niche in self.population]
             
     
         
@@ -220,14 +234,14 @@ class Problem:
         where the individual itself sits, and including the 'optimal' niche. 
         """
         self.centroids = find_centroids(np.array(self.population))
-        self.fitnesses = np.empty((self.population.shape[0], 
-                                   self.population.shape[1]))
+        self.fitness = np.empty((self.population.shape[0], 
+                                 self.population.shape[1]))
         
         for n in range(self.nniche):
             for i in range(self.maxpop): 
-                self.fitnesses[n, i] = min((np.abs(self.population[n, i] - self.centroids[c]).min() 
-                                            for c in range(self.nniche)
-                                            if n != c))
+                self.fitness[n, i] = min((np.abs(self.population[n, i] - self.centroids[c]).min() 
+                                          for c in range(self.nniche)
+                                          if n != c))
                 
                 ##TODO: 
     # =============================================================================
@@ -236,7 +250,7 @@ class Problem:
     # =============================================================================
                 cost = self.func(self.population[n, i])
                 if cost > self.noptimal_threshold:
-                    self.population[n, i] += cost 
+                    self.fitness[n, i] += cost 
         
     #     for n, niche in enumerate(self.population):
     #         for ind in niche: 
@@ -252,14 +266,75 @@ class Problem:
     #             cost = self.func(np.array(ind))
     #             if cost > self.noptimal_threshold:
     #                 ind.fitness += cost 
-                    
-        
+             
 @njit
-def selBest(niche, fitnesses, k):
-    elite = np.empty((k, niche.shape[1]))
-    elite_fitness = np.empty(k)
+def cxOnePoint(ind1, ind2):
+    index1 = np.random.randint(0, len(ind1))
+    index2 = len(ind1)
+    _do_cx(ind1, ind2, index1, index2)
     
-    for 
+@njit
+def cxTwoPoint(ind1, ind2):
+    # +1 / -1 adjustments are made to ensure there is always a crossover 
+    # only valid for ndim >= 3
+    index1 = np.random.randint(0, len(ind1)-1)
+    index2 = np.random.randint(index1+1, len(ind1))
+    _do_cx(ind1, ind2, index1, index2)
+
+@njit
+def _do_cx(ind1, ind2, index1, index2):
+    buffer = 0.0
+    # modify in place
+    for i in range(index1, index2):
+        buffer = ind1[i]
+        ind1[i] = ind2[i]
+        ind2[i] = buffer 
+        
+
+@njit
+def selTournament(niche, fitnesses, n, tournsize):
+    
+    selected = np.empty((n, niche.shape[1]))
+    selected_fitness = np.empty(n)
+    
+    indices = np.empty(tournsize, np.int64)
+    for m in range(n):
+        indices[:] = np.random.randint(0, niche.shape[0], size=tournsize)
+            
+        selected_index = indices[fitnesses[indices].argmin()]
+        selected_fitness[m] = fitnesses[selected_index]
+        selected[m, :] = niche[selected_index, :]
+    
+    return selected # , selected_fitness
+    
+@njit
+def selBest(niche, fitnesses, n):
+    # holds coordinates of best n individuals (in order)
+    selected = np.empty((n, niche.shape[1]))
+    # holds fitnesses of best n individuals (in order)
+    selected_fitness = np.full(n, np.inf, np.float64)
+    # holds indices of best n individuals (in order)
+    indices = np.empty(n, np.int64)
+    
+    # loop through individuals
+    for i in range(niche.shape[0]):
+        # loop through n
+        for j in range(n):
+            # if individual is better than the current jth best
+            if fitnesses[i] < selected_fitness[j]:
+                # move each current elite up the chain, losing the nth
+                for k in range(n-1, j-1, -1):
+                    selected_fitness[k] = selected_fitness[k-1]
+                    indices[k] = indices[k-1]
+                # add the current individual 
+                selected_fitness[j] = fitnesses[i]
+                indices[j] = i
+                break
+    # coordinates
+    for j in range(n):
+        selected[j, :] = niche[indices[j], :]
+    
+    return selected # , selected_fitness
     
 
 @njit
