@@ -14,6 +14,10 @@ from termination_criteria import Maxiter, Convergence
 
 
 #%%
+# =============================================================================
+# TODO: update fitness so as not to calculate it for optimum niche
+# TODO: Update maximise logic to differentiate maximising fitness and maximising objective
+# =============================================================================
 
 class Problem:
     def __init__(
@@ -48,7 +52,8 @@ class Problem:
         
         self.nniche = nniche
         self.popsize = popsize
-        self.noptimal_threshold = -np.inf if self.maximize else np.inf
+        self.noptimal_obj = -np.inf if self.maximize else np.inf
+
 
         ## Initiate population
         # self.population is list of lists like a 3d array of shape (nniche, popsize, ndim)        
@@ -63,20 +68,38 @@ class Problem:
         self.Evaluate_feasibility()
         self.Evaluate_fitness()
     
+    def Instantiate_working_arrays(self):
+        """ 
+        For fast njit functions it helps to work on arrays in place and therfore
+        avoid allocating memory 
+        """
+        self.objective = np.empty((self.nniche, self.popsize), dtype=np.float64)
+        self.feasibility = np.empty((self.nniche, self.popsize), dtype=np.bool_)
+        self.fitness = np.empty((self.nniche, self.popsize), dtype=np.float64)
+        self.parents = np.empty((self.nniche, self.tournk + self.elitek, self.ndim), 
+                                dtype=np.float64)
+        self.centroids = np.empty((self.nniche, self.ndim), np.float64)
+
+        
     def Initiate_population(self, x0):
+        self.population = np.empty((self.nniche, self.popsize, self.ndim))
+        self.objective = np.empty((self.nniche, self.popsize), dtype=np.float64)
+        self.feasibility = np.empty((self.nniche, self.popsize), dtype=np.bool_)
+        self.fitness = np.empty((self.nniche, self.popsize), dtype=np.float64)
+        self.centroids = np.empty((self.nniche, self.ndim), np.float64)
+
         if hasattr(x0, "__call__"):
-            self.population = np.empty((self.nniche, self.popsize, self.ndim))
             for i in range(self.nniche):
                 for j in range(self.popsize):
                     self.population[i, j, :] = x0(self.lb, self.ub)
 
         else:
             assert isinstance(x0, np.ndarray)
-            assert x0.shape[0] == self.nniche
-            assert x0.shape[1] == self.popsize
-            assert x0.shape[2] == self.ndim
-                
-            self.population = x0.copy()
+            assert x0.shape == (self.nniche, self.popsize, self.ndim)
+            
+            for i in range(self.nniche):
+                for j in range(self.popsize):
+                    self.population[i, j, :] = x0[i, j]
         
     def Step(
             self, 
@@ -107,12 +130,14 @@ class Problem:
         self.slack = slack
         
         if self.maximize:
-            self.noptimal_threshold = self.optimal_obj * (1-(self.slack - 1))
+            self.noptimal_obj = self.optimal_obj * (1-(self.slack - 1))
         else: 
-            self.noptimal_threshold = self.optimal_obj*self.slack
+            self.noptimal_obj = self.optimal_obj*self.slack
         
         assert self.elitek + self.tournk <= popsize, "elitek + tournk should be weakly less than popsize"
         assert self.popsize > self.tournsize, "tournsize should be less than popsize"
+        
+        self.Instantiate_working_arrays()
         
         while not self.maxiter(): 
             self.Loop()
@@ -147,81 +172,52 @@ class Problem:
     def Terminate(self):
         self.Run_statistics()
         self.Return_noptima()
-        return self.noptima, self.nfitness
+        return self.noptima, self.nfitness, self.nobjective, self.nfeasibility
 
     def Update_optimum(self):
-        if self.cost.max() < self.optimal_obj:
-            return 
+    # =============================================================================
+    # This can be njitted and refactored for speed up
+    # =============================================================================
+        if self.maximize:
+            if self.objective.max() > self.optimal_obj:
+                for n in range(self.nniche):
+                    if self.objective[n].max() < self.optimal_obj:
+                        continue
+                    self.optimal_obj = self.objective[n].max()
+                    self.optimum = self.population[n, self.objective[n].argmax(), :]
         else: 
-            for n in range(self.nniche):
-                if self.cost[n].max() < self.optimal_obj:
-                    continue
-                self.optimal_obj = self.cost[n].max()
-                self.optimum = self.population[n, self.cost[n].argmax(), :]
+            if self.objective.min() < self.optimal_obj:
+                for n in range(self.nniche):
+                    if self.objective[n].min() < self.optimal_obj:
+                        continue
+                    self.optimal_obj = self.objective[n].min()
+                    self.optimum = self.population[n, self.objective[n].argmin(), :]
 
     def Return_noptima(self):
-        self.noptima = [selBest(
-            self.population[n], 
-            self.fitness[n], 
-            self.feasibility[n], 
-            self.cost[n],
-            1, 
-            self.maximize
-            )[0] for n in range(self.nniche)]
-        self.nfitness = [self.fitness[n].max() for n in range(self.nniche)]
+        if self.maximize:
+            nindex = [self.objective[0].argmax()]
+            nindex += [self.fitness[n].argmax() for n in range(1, self.nniche)]
+            
+        else:
+            nindex = [self.objective[0].argmax()]
+            nindex += [self.fitness[n].argmax() for n in range(1, self.nniche)]
+            
+        self.noptima = [self.population[0, nindex[0]]]
+        self.noptima += [self.population[n, nindex[n]] for n in range(1, self.nniche)]
+        
+        self.nfitness = [self.fitness[nindex[n]] for n in range(self.nniche)]
+        self.nobjective = [self.objective[nindex[n]] for n in range(self.nniche)]
+        self.nfeasibility = [self.feasibility[nindex[n]] for n in range(self.nniche)]
+        
     
     def Run_statistics(self):
         """TODO"""
         pass
 
     def Select_parents(self):
-        self.parents = np.dstack(
-            (np.vstack(
-                (selBest(
-                    self.population[0], 
-                    self.cost[0], 
-                    self.feasibility[0], 
-                    self.cost[0],
-                    self.elitek, 
-                    self.maximize
-                     ), 
-                 selTournament(
-                     self.population[0], 
-                     self.cost[0], 
-                     self.feasibility[0], 
-                     self.cost[0],
-                     self.tournk, 
-                     self.tournsize, 
-                     self.maximize
-                     )
-                 )
-                ).T,
-                )
-            +
-            tuple(np.vstack(
-                (selBest(
-                    self.population[n], 
-                    self.fitness[n], 
-                    self.feasibility[n], 
-                    self.cost[n],
-                    self.elitek, 
-                    self.maximize
-                    ), 
-                 selTournament(
-                     self.population[n], 
-                     self.fitness[n], 
-                     self.feasibility[n], 
-                     self.cost[n],
-                     self.tournk, 
-                     self.tournsize, 
-                     self.maximize
-                     )
-                 )
-                ).T
-             for n in range(1, self.nniche)
-             )
-            ).T
-        
+        _select_parents(
+                self.parents, self.population, self.fitness, self.objective, 
+                self.feasibility, self.elitek, self.tournk, self.tournsize)
         
     def Generate_offspring(self):
         nparents = self.parents.shape[1]
@@ -254,64 +250,113 @@ class Problem:
                     )
                 apply_bounds(ind, self.lb, self.ub)
                 # Mark children's fitness as invalid (were retained in cloning)
-                
+
+
+    
     def Evaluate_fitness(self):
         """
         Calculates the fitness of each individual as the minimum (per-variable)
         distance from the centroids of all the other niches besides the one 
         where the individual itself sits, and including the 'optimal' niche. 
         """
-        self.centroids = find_centroids(np.array(self.population))
-        self.fitness = np.empty((self.population.shape[0], 
-                                 self.population.shape[1]))
+        find_centroids(self.centroids, self.population)
         
-        for n in range(self.nniche):
-            for i in range(self.popsize): 
-                
-                self.fitness[n, i] = min((euclideanDistance(self.population[n, i], 
-                                                            self.centroids[c]) for c in range(self.nniche)
-                                                           if n != c))
-                
-                ##TODO: 
-                # =============================================================================
-                #   We want the cost penalty to be similar in scale to the fitness 
-                #       Need an adjsutment 
-                # =============================================================================
-                if not self.feasibility[n, i]:
-                    if self.maximize: 
-                        self.fitness[n, i] -= abs(self.cost[n, i])*1000 
-                    else:
-                        self.fitness[n, i] += abs(self.cost[n, i])*1000
+        # =============================================================================
+        #  TODO: We want the objective penalty to be similar in scale to the fitness 
+        #       Need an adjsutment 
+        #  TODO: what if objective crosses +/- ??? 0 would be a stable point which is bad
+        # =============================================================================
+        if self.maximize: 
+            _evaluate_fitness_max(
+                self.fitness, self.population, self.centroids, self.objective, self.feasibility)
+        else:
+            _evaluate_fitness_min(
+                self.fitness, self.population, self.centroids, self.objective, self.feasibility)
 
     def Evaluate_objective(self):
         """
         Calculates the objective function for each individual
         """
-        self.cost = np.empty((self.population.shape[0], 
-                              self.population.shape[1]))
         for n in range(self.nniche):
             for i in range(self.popsize):
-                self.cost[n, i] = self.func(self.population[n, i])
-                ##TODO: what if cost crosses +/- ???
-                    # 0 would be a stable point which is bad
+                self.objective[n, i] = self.func(self.population[n, i])
+
                         
     def Evaluate_feasibility(self):
-        self.feasibility = np.ones((self.population.shape[0], 
-                                    self.population.shape[1]), 
-                                   dtype=np.bool_)
-        for n in range(self.nniche):
-            for i in range(self.popsize):
-                ##TODO: what if cost crosses +/- ???
-                    # 0 would be a stable point which is bad
-                if self.maximize: 
-                    if self.cost[n, i] < self.noptimal_threshold:
-                        self.feasibility[n, i] = False
-                else: 
-                    if self.cost[n, i] > self.noptimal_threshold:
-                        self.feasibility[n, i] = False
-        
+        _evaluate_feasibility(
+            self.feasibility, self.population, self.objective, self.noptimal_obj, self.maximize)
+    
+@njit
+def _evaluate_fitness_max(fitness, population, centroids, objective, feasibility):
+    for i in range(population.shape[0]):
+        for j in range(population.shape[1]):
+            fitness[i, j] = np.inf
+            for c in range(population.shape):
+                if i == c: 
+                    continue
+                fitness[i, j] = min(
+                    fitness[i, j], 
+                    euclideanDistance(population[i, j], centroids[c])
+                    )
+            if not feasibility[i, j]:
+                fitness[i, j] -= abs(objective[i, j])*1000 
 
+@njit
+def _evaluate_fitness_min(fitness, population, centroids, objective, feasibility):
+    for i in range(population.shape[0]):
+        for j in range(population.shape[1]):
+            fitness[i, j] = np.inf
+            for c in range(population.shape):
+                if i == c: 
+                    continue
+                fitness[i, j] = min(
+                    fitness[i, j], 
+                    euclideanDistance(population[i, j], centroids[c])
+                    )
+            if not feasibility[i, j]:
+                fitness[i, j] += abs(objective[i, j])*1000 
+    
+@njit
+def _select_parents(
+        parents, population, fitness, objective, feasibility, elitek, tournk, tournsize, maximize):
+    if maximize:
+        parents[0, :elitek, :] = selBest_max(
+            population[0, :, :], objective[0, :], elitek)
+        # decompose tournament
+        parents[0, elitek:, :] = selTournament_max(
+            population[0, :, :], objective[0, :], tournk, tournsize)
         
+        for i in range(1, parents.shape[0]):
+            parents[i, :elitek, :] = selBest_fallback_max(
+                population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], elitek)
+            parents[i, elitek:, :] = selTournament_fallback_max(
+                population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], tournk, tournsize)
+    else:
+        parents[0, :elitek, :] = selBest_min(
+            population[0, :, :], fitness[0, :], elitek)
+        # decompose tournament
+        parents[0, elitek:, :] = selTournament_min(
+            population[0, :, :], fitness[0, :], tournk, tournsize)
+        
+        for i in range(1, parents.shape[0]):
+            parents[i, :elitek, :] = selBest_fallback_min(
+                population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], elitek)
+            parents[i, elitek:, :] = selTournament_fallback_min(
+                population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], tournk, tournsize)
+
+            
+            
+@njit
+def _evaluate_feasibility(feasibility, population, objective, noptimal_obj, maximize):
+    if maximize:
+        for i in range(population.shape[0]):
+            for j in range(population.shape[1]):
+                feasibility[n, i] = objective[i, j] > noptimal_obj
+    else: 
+        for i in range(population.shape[0]):
+            for j in range(population.shape[1]):
+                feasibility[n, i] = objective[i, j] < noptimal_obj
+    
 @njit
 def euclideanDistance(p1, p2):
     """Euclidean distance"""
@@ -352,104 +397,178 @@ def cxTwoPoint(ind1, ind2):
     index2 = np.random.randint(index1+1, len(ind1))
     _do_cx(ind1, ind2, index1, index2)
 
+@njit 
+def _selT_draw_indices(indices, n, size):
+    indices[:] = np.random.randint(0, n, size=size)
+
 @njit
-def selTournament(niche, fitness, feasibility, cost, n, tournsize, maximize):
-    
-    selected = np.empty((n, niche.shape[1]))
-    selected_value = np.empty(n)
-    
+def _selT_fallback(selection, indices, feasibility, objective, fitness):
+    _feas = 0
+    for i in indices:
+        if feasibility[i]:
+            _feas += 1
+    _feas /= len(indices)
+    if _feas < 0.5: # majority infeasible
+        for j in range(len(indices)): 
+            selection[j] = objective[indices[j]]
+    else: 
+        for j in range(len(indices)):
+            selection[j] = fitness[indices[j]]
+
+@njit
+def selTournament_fallback_max(niche, fitness, feasibility, objective, n, tournsize, maximize):
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    # selected_value = np.empty(n, np.float64)
     indices = np.empty(tournsize, np.int64)
-    if maximize:
-        for m in range(n):            
-            indices[:] = np.random.randint(0, niche.shape[0], size=tournsize)
-                
-            if feasibility[indices].sum() < tournsize / 2: # majority infeasible
-                selection = cost
-            else: 
-                selection = fitness
-            
-            selected_index = indices[selection[indices].argmax()]
-            selected_value[m] = selection[selected_index]
-            selected[m, :] = niche[selected_index, :]
-    else:
-        for m in range(n):
-            indices[:] = np.random.randint(0, niche.shape[0], size=tournsize)
-                
-            if feasibility[indices].sum() < tournsize / 2: # majority infeasible
-                selection = cost
-            else: 
-                selection = fitness
-            
-            selected_index = indices[selection[indices].argmin()]
-            selected_value[m] = selection[selected_index]
-            selected[m, :] = niche[selected_index, :]
+    selection = np.empty(tournsize, np.int64)
+    
+    for m in range(n):            
+        _selT_draw_indices(indices, niche.shape[0], tournsize)
+        _selT_fallback(selection, indices, feasibility, objective, fitness)
+        
+        selected_index = indices[selection.argmax()]
+        # selected_value[m] = selection.max()
+        selected[m, :] = niche[selected_index, :]
     
     return selected # , selected_value
-    
+
 @njit
-def selBest(niche, fitness, feasibility, cost, n, maximize):
-    # holds coordinates of best n individuals (in order)
-    selected = np.empty((n, niche.shape[1]))
-    fill = -np.inf if maximize else np.inf
-    # holds fitness of best n individuals (in order)
-    selected_value = np.full(n, fill, np.float64)
-    # holds indices of best n individuals (in order)
-    indices = np.empty(n, np.int64)
+def selTournament_fallback_min(niche, fitness, feasibility, objective, n, tournsize, maximize):
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    # selected_value = np.empty(n, np.float64)
+    indices = np.empty(tournsize, np.int64)
+    selection = np.empty(tournsize, np.int64)
     
-    if feasibility.sum() < len(feasibility) / 2: # majority infeasible
-        selection = cost
-    else: 
-        selection = fitness
+    for m in range(n):            
+        _selT_draw_indices(indices, niche.shape[0], tournsize)
+        _selT_fallback(selection, indices, feasibility, objective, fitness)
+        
+        selected_index = indices[selection.argmin()]
+        # selected_value[m] = selection.min()
+        selected[m, :] = niche[selected_index, :]
     
-    if maximize:
-        # loop through individuals
-        for i in range(niche.shape[0]):
-            # loop through n
-            for j in range(n):
-                # if individual is better than the current jth best
-                if selection[i] > selected_value[j]:
-                    # move each current elite up the chain, losing the nth
-                    for k in range(n-1, j, -1): 
-                        selected_value[k] = selected_value[k-1]
-                        indices[k] = indices[k-1]
-                    # add the current individual 
-                    selected_value[j] = selection[i]
-                    indices[j] = i
-                    break
-    else:
-        # loop through individuals
-        for i in range(niche.shape[0]):
-            # loop through n
-            for j in range(n):
-                # if individual is better than the current jth best
-                if selection[i] < selected_value[j]:
-                    # move each current elite up the chain, losing the nth
-                    for k in range(n-1, j, -1):
-                        selected_value[k] = selected_value[k-1]
-                        indices[k] = indices[k-1]
-                    # add the current individual 
-                    selected_value[j] = selection[i]
-                    indices[j] = i
-                    break
+    return selected # , selected_value
+
+@njit
+def selTournament_max(niche, fitness, n, tournsize, maximize):
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    # selected_value = np.empty(n, np.float64)
+    indices = np.empty(tournsize, np.int64)
+    
+    for m in range(n):            
+        _selT_draw_indices(indices, niche.shape[0], tournsize)
                 
-    # coordinates
+        selected_index = indices[fitness[indices].argmax()]
+        # selected_value[m] = fitness[selected_index]
+        selected[m, :] = niche[selected_index, :]
+    
+    return selected # , selected_value
+
+@njit
+def selTournament_min(niche, fitness, n, tournsize, maximize):
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    # selected_value = np.empty(n, np.float64)
+    indices = np.empty(tournsize, np.int64)
+    
+    for m in range(n):            
+        _selT_draw_indices(indices, niche.shape[0], tournsize)
+        
+        selected_index = indices[fitness[indices].argmin()]
+        # selected_value[m] = fitness[selected_index]
+        selected[m, :] = niche[selected_index, :]
+    
+    return selected # , selected_value
+
+@njit
+def _selBest_fallback(feasibility, fitness, objective):
+    _feas = 0
+    for i in range(len(feasibility)):
+        if feasibility[i]: 
+            _feas+=1
+    _feas /= len(feasibility)
+    return objective if _feas < 0.5 else fitness
+
+@njit
+def _selBest_chain(i, j, n, selected_value, indices, selection):
+    for k in range(n-1, j, -1): 
+        selected_value[k] = selected_value[k-1]
+        indices[k] = indices[k-1]
+    selected_value[j] = selection[i]
+    indices[j] = i
+
+@njit
+def selBest_fallback_min(niche, fitness, feasibility, objective, n):
+    selected = np.empty((n, niche.shape[1]))
+    indices = np.empty(n, np.int64)
+    selected_value = np.full(n, np.inf, np.float64)
+    
+    selection = _selBest_fallback(feasibility, fitness, objective)
+    
+    for i in range(niche.shape[0]):
+        for j in range(n):
+            if selection[i] < selected_value[j]:
+                _selBest_chain(i, j, n, selected_value, indices, selection)
+                break
     for j in range(n):
         selected[j, :] = niche[indices[j], :]
-    
-    return selected # , selected_value
-    
+    return selected # , selected_value  
 
 @njit
-def find_centroids(population):
-    centroids = np.empty((population.shape[0], population.shape[2]))
+def selBest_fallback_max(niche, fitness, feasibility, objective, n):
+    selected = np.empty((n, niche.shape[1]))
+    indices = np.empty(n, np.int64)
+    selected_value = np.full(n, -np.inf, np.float64)
+    
+    selection = _selBest_fallback(feasibility, fitness, objective)
+    
+    for i in range(niche.shape[0]):
+        for j in range(n):
+            if selection[i] > selected_value[j]:
+                _selBest_chain(i, j, n, selected_value, indices, selection)
+                break
+    for j in range(n):
+        selected[j, :] = niche[indices[j], :]
+    return selected # , selected_value
 
+@njit
+def selBest_min(niche, fitness, n):
+    selected = np.empty((n, niche.shape[1]))
+    indices = np.empty(n, np.int64)
+    selected_value = np.full(n, np.inf, np.float64)
+    
+    for i in range(niche.shape[0]):
+        for j in range(n):
+            if fitness[i] < selected_value[j]:
+                _selBest_chain(i, j, n, selected_value, indices, fitness)
+                break
+    for j in range(n):
+        selected[j, :] = niche[indices[j], :]
+    return selected # , selected_value
+
+@njit
+def selBest_max(niche, fitness, n):
+    selected = np.empty((n, niche.shape[1]))
+    indices = np.empty(n, np.int64)
+    selected_value = np.full(n, -np.inf, np.float64)
+    
+    for i in range(niche.shape[0]):
+        for j in range(n):
+            if fitness[i] > selected_value[j]:
+                _selBest_chain(i, j, n, selected_value, indices, fitness)
+                break
+    for j in range(n):
+        selected[j, :] = niche[indices[j], :]
+    return selected # , selected_value
+
+
+@njit
+def find_centroids(centroids, population):
     for i in range(population.shape[0]):
         for j in range(population.shape[1]):
             for k in range(population.shape[2]):
                 centroids[i, k] += population[i, j, k]
     centroids /= population.shape[1]
 
-    return centroids       
 
 @njit
 def _dither(lower, upper, distribution=np.random.uniform):
@@ -514,7 +633,8 @@ if __name__ == "__main__":
         crossover=0.4, 
         slack=1.12,
         )
-    noptima, nfitness = problem.Terminate()
-    for n in range(NNICHE): print(noptima[n], nfitness[n])
+    noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
+    for n in range(NNICHE): 
+        print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
     
 # B (0.021, 0.974), C (0.974, 0.021), and D (0.443, 0.549) (or E (0.549, 0.443))
