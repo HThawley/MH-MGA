@@ -12,32 +12,6 @@ import utils
 
 from termination_criteria import Maxiter, Convergence
 
-#%%
-
-from deap import base
-from deap import creator
-from deap import tools
-
-# For now, we only initialise the co-evolving near-optimal niches. 
-# The optimum is given as a starting point. In principle, the optimum could be 
-# a niche in itself, with its specific fitness function, and become part
-# of the same meta-heuristic search as the one that looks for the near-optimal solutions.
-
-# To initialise niches, we first need to create a DEAP fitness object to assign to it
-creator.create("Fitness", base.Fitness, weights=(1.0,)) 
-
-# Hence, we can create a list object for individuals to be evaluated based on the above fitness
-creator.create(
-    "Individual", 
-    list, 
-    fitness=creator.Fitness, 
-    # objective=np.inf,
-    # feasibility=False,
-    ) 
-
-# We create a toolbox to register attributes we want the individuals to have and
-# create the actual instances of the individuals to be packaged into niches
-toolbox = base.Toolbox()
 
 #%%
 
@@ -62,6 +36,7 @@ class Problem:
         
         # `bounds` is a tuple containing (lb, ub)
         self.lb, self.ub = self.bounds = bounds 
+        self.centre = np.mean(self.ub, self.lb)
         assert utils.islistlike(self.lb)
         assert utils.islistlike(self.ub)
         assert len(self.lb) == len(self.ub)
@@ -88,18 +63,6 @@ class Problem:
             for i in range(self.nniche):
                 for j in range(self.maxpop):
                     self.population[i, j, :] = x0(self.lb, self.ub)
-        
-        # if hasattr(x0, "__call__"):
-        #     def create_individual():
-        #         ind = creator.Individual(x0(lb, ub).tolist()) # Create an instance of creator.Individual 
-        #         return ind
-        
-        #     toolbox.register("individual", create_individual)
-            
-        #     # A 'niche' is a list of the created individuals with the desired attributes
-        #     # Create a list of niches (as many as the desired alternatives)
-        #     self.population = [tools.initRepeat(list, toolbox.individual, n=self.maxpop) 
-        #                        for _ in range(self.nniche)]
 
         else:
             assert isinstance(x0, np.ndarray)
@@ -107,9 +70,7 @@ class Problem:
             assert x0.shape[1] == self.maxpop
             assert x0.shape[2] == self.ndim
                 
-            self.population = [[creator.Individual(x0[i, j]) 
-                                for j in range(self.maxpop)] 
-                               for i in range(self.nniche)]
+            self.population = x0.copy()
         
     def Step(
             self, 
@@ -169,18 +130,18 @@ class Problem:
     def Terminate(self):
         self._run_statistics()
         self._return_noptima()
-        return self.noptima, self.fitnesses
+        return self.noptima, self.nfitnesses
 
     def _return_noptima(self):
-        self.noptima = [tools.selBest(niche, 1)[0] for niche in self.population]
-        self.fitnesses = [noptimum.fitness for noptimum in self.noptima]
+        self.noptima = [selBest(niche, 1)[0] for niche in self.population]
+        self.nfitnesses = [self.fitnesses.min() for niche in self.population]
     
     def _run_statistics(self):
         """TODO"""
         pass
 
     def _select_parents(self):
-        self.population = np.dstack(
+        self.parents = np.dstack(
             tuple(np.vstack(
                 (selBest(self.population[n], self.fitness[n], self.elitek), 
                  selTournament(self.population[n], self.fitness[n], self.tournk, self.tournsize))
@@ -189,17 +150,15 @@ class Problem:
              )
             ).T
         
-        # self.population = [
-        #     tools.selBest(niche, k=self.elitek) + 
-        #     tools.selTournament(niche, k=self.tournk, tournsize=self.tournsize) 
-        #     for niche in self.population]
-            
-    
         
     def _generate_offspring(self):
-        nparents = len(self.population[0])
-        # clone parents as the deap functions work in-place
-        self.population = [[toolbox.clone(niche[idx%nparents]) for idx in range(self.maxpop)] for niche in self.population]
+        nparents = self.parents.shape[1]
+        # clone parents to make a new population
+        self.population = np.empty((self.nniche, self.maxpop, self.ndim))
+        for i in range(self.nniche):
+            for j in range(self.maxpop):
+                for k in range(self.ndim):
+                    self.population[i, j, k] = self.parents[i, j%nparents, k]
         
         for niche in self.population:
             # shuffle parents for mating
@@ -212,20 +171,18 @@ class Problem:
                     # mate
                     ## cxOnePoint used for testing 
                     ## TODO: choose cx method
-                    tools.cxOnePoint(ind1, ind2)
+                    cxOnePoint(ind1, ind2)
         
             for ind in niche:
                 # Apply mutation
-                tools.mutGaussian(
+                mutGaussian(
                     ind, 
-                    mu=0.0, 
+                    mu=self.centre, 
                     sigma=self.sigma, 
                     indpb=self.mutationInst
                     )
                 apply_bounds(ind)
                 # Mark children's fitness as invalid (were retained in cloning)
-                del ind.fitness.values
-                ind.fitness.valid = False
                 
     def _fitness(self):
         """
@@ -252,21 +209,15 @@ class Problem:
                 if cost > self.noptimal_threshold:
                     self.fitness[n, i] += cost 
         
-    #     for n, niche in enumerate(self.population):
-    #         for ind in niche: 
-    #             ind.fitness = min((np.abs(np.array(ind) - centroid).min() 
-    #                                for c, centroid in enumerate(centroids)
-    #                                if n != c))
-                
-    #             ##TODO: 
-    # # =============================================================================
-    # #             We want the cost penalty to be similar in scale to the fitnesses 
-    # #               Need an adjsutment 
-    # # =============================================================================
-    #             cost = self.func(np.array(ind))
-    #             if cost > self.noptimal_threshold:
-    #                 ind.fitness += cost 
-             
+   
+@njit
+def mutGaussian(ind, mu, sigma, indpb):
+    """Gaussian mutation for NumPy arrays."""
+    for i in range(len(ind)):
+        if np.random.random() < indpb:
+            ind[i] += np.random.normal(mu[i], sigma[i])
+    return ind
+          
 @njit
 def cxOnePoint(ind1, ind2):
     index1 = np.random.randint(0, len(ind1))
@@ -353,7 +304,8 @@ def find_centroids(population):
 def _dither(lower, upper, distribution=np.random.uniform):
     return distribution(lower, upper)
 
-# this cannot be njitted as deap.individual is not compatible
+# this cannot be njitted as individual is not compatible
+@njit
 def apply_bounds(ind, lb, ub):
     for i in range(len(ind)):
         ind[i] = min(ub[i], max(lb[i], ind[i]))
