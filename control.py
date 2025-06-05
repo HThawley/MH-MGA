@@ -492,12 +492,12 @@ if __name__ == "__main__":
     #                [0.443, 0.549]])
     # x0 = np.dstack(tuple(np.repeat(alternatives[n], 100).reshape(2, 100).T for n in range(3))).transpose(2, 0, 1)
     
-    
+    NNICHE = 9
     
     problem = Problem(
         func=Objective,
         bounds = (lb, ub),
-        nniche = 4, 
+        nniche = NNICHE, 
         popsize = 1000,
         maximize = True, 
         # x0 = x0,
@@ -515,6 +515,6 @@ if __name__ == "__main__":
         slack=1.12,
         )
     noptima, nfitness = problem.Terminate()
-    for n in range(4): print(noptima[n], nfitness[n])
+    for n in range(NNICHE): print(noptima[n], nfitness[n])
     
 # B (0.021, 0.974), C (0.974, 0.021), and D (0.443, 0.549) (or E (0.549, 0.443))
