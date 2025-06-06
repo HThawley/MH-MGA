@@ -15,7 +15,7 @@ class Maxiter:
     """
     def __init__(self, maxiter):
         self.maxiter = maxiter
-        self.iter = 0
+        self.iter = -1
         
     def __call__(self):
         self.iter += 1 
