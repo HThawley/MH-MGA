@@ -5,6 +5,7 @@ Created on Tue Mar 11 09:02:17 2025
 
 @author: u6942852
 """
+on_switch = True
 
 from datetime import datetime as dt
 from datetime import timedelta as td
@@ -16,7 +17,6 @@ import pandas as pd
 
 
 spec = [
-        ('on_switch', boolean),
         ('functions', int64[:]), 
         ('times', float64[:,:]),
         ('compile', float64[:,:]),
@@ -27,10 +27,7 @@ spec = [
 
 @jitclass(spec)
 class Timekeeper:
-    def __init__(self, on_switch=True):
-        self.on_switch = on_switch
-        if self.on_switch is False:
-            return
+    def __init__(self):
         self.functions = np.zeros(1, dtype=np.int64)
         self.times = np.zeros((1, 3), dtype=np.float64)
         self.calls = np.zeros(1, dtype=np.int64)
@@ -56,10 +53,10 @@ class Timekeeper:
             self.times[index] += time
         self.calls[index] += 1
     
-def PrintTimekeeper(path=None, console=True, combine=False):
-    tk = globals()['timekeeper']
-    if tk.on_switch is False:
+def PrintTimekeeper(path=None, console=True, combine=False, on_switch=True):
+    if not on_switch:
         return
+    tk = globals()['timekeeper']
     names = globals()['timekeeper_names']
     if console is True:
         print("Timekeeper","="*50, sep='\n')
@@ -111,18 +108,19 @@ def time_delta(start, end):
         delta[:] = np.array([d.days, d.seconds, d.microseconds], np.float64)
     return delta
 
-def keeptime(name=None):
+def keeptime(name=None, on_switch=True):
     def decorator(func):
+        if not on_switch:
+            return func
+        
         jit = isinstance(func, CPUDispatcher)
         try: 
-            tk = globals()['timekeeper']
+            globals()['timekeeper']
         except KeyError:
-            raise KeyError("Please declare an instance of timekeeper `timekeeper=Timekeeper()`")
-        
-        if tk.on_switch is False:
-            return func
-                    
-        index = tk.Add_func(jit)
+            globals()['timekeeper']=Timekeeper()
+            # raise KeyError("Please declare an instance of timekeeper `timekeeper=Timekeeper()`")
+                            
+        index = globals()['timekeeper'].Add_func(jit)
         
         if name is not None:
             try:
@@ -144,13 +142,14 @@ def keeptime(name=None):
             def wrapper(*args, **kwargs):
                 start=dt_now()
                 ret=func(*args, **kwargs)
-                globals()['timekeeper'].Update(index, time_delta(start, dt_now()))
+                globals()["timekeeper"].Update(index, time_delta(start, dt_now()))
                 return ret
         return wrapper
     return decorator
 
-timekeeper=Timekeeper(on_switch=True)
+timekeeper=Timekeeper()
 # timekeeper_names={}
+
 
 if __name__=='__main__':
     from time import sleep
