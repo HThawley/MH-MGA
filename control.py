@@ -14,8 +14,8 @@ from scipy.spatial.distance import cdist
 import utils 
 
 from termination_criteria import Maxiter, Convergence
-from timekeeper import keeptime, PrintTimekeeper, timekeeper
-
+from timekeeper import keeptime, PrintTimekeeper, Timekeeper
+timekeeper = Timekeeper(True)
 #%%
 # =============================================================================
 # TODO: update fitness so as not to calculate it for optimum niche
@@ -268,7 +268,6 @@ class Problem:
         """TODO"""
         pass
 
-    @keeptime("Select_parents")
     def Select_parents(self):
         _select_parents(
                 self.parents, self.population, self.fitness, self.objective, 
@@ -311,7 +310,6 @@ class Problem:
                 # Mark children's fitness as invalid (were retained in cloning)
         self.population[0][0] = self.optimum
 
-    @keeptime("Evaluate_fitness")        
     def Evaluate_fitness(self):
         """
         Calculates the fitness of each individual as the minimum (per-variable)
@@ -341,11 +339,11 @@ class Problem:
             for i in range(self.popsize):
                 self.objective[n, i] = self.func(self.population[n, i])
 
-    @keeptime("Evaluate_feasibility")        
     def Evaluate_feasibility(self):
         _evaluate_feasibility(
             self.feasibility, self.population, self.objective, self.noptimal_obj, self.maximize)
     
+@keeptime("Evaluate_fitness_max")        
 @njit
 def _evaluate_fitness_max(fitness, population, centroids, objective, feasibility):
     for i in range(population.shape[0]):
@@ -361,6 +359,7 @@ def _evaluate_fitness_max(fitness, population, centroids, objective, feasibility
             if not feasibility[i, j]:
                 fitness[i, j] -= abs(objective[i, j])*1000 
 
+@keeptime("Evaluate_fitness_max")        
 @njit
 def _evaluate_fitness_min(fitness, population, centroids, objective, feasibility):
     for i in range(population.shape[0]):
@@ -375,7 +374,8 @@ def _evaluate_fitness_min(fitness, population, centroids, objective, feasibility
                     )
             if not feasibility[i, j]:
                 fitness[i, j] += abs(objective[i, j])*1000 
-    
+
+@keeptime("Select_parents")
 @njit
 def _select_parents(
         parents, population, fitness, objective, feasibility, elitek, tournk, tournsize, maximize):
@@ -409,7 +409,8 @@ def _select_parents(
         #     population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], elitek, maximize)
         # parents[i, elitek:, :] = selTournament_fallback(
         #     population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], tournk, tournsize, maximize)
-    
+
+@keeptime("Evaluate_feasibility")        
 @njit
 def _evaluate_feasibility(feasibility, population, objective, noptimal_obj, maximize):
     if maximize:
