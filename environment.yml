@@ -1,0 +1,8 @@
+name: mh_mga
+channels:
+    - conda-forge
+dependencies:
+    - python=3.12    
+    - pandas
+    - numba
+    - matplotlib
