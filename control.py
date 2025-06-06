@@ -123,6 +123,10 @@ class Problem:
             slack: float = np.inf, # noptimal slack in range (1.0, inf)
             new_niche: int = 0, 
             ):
+        # if new_niche is an int in (0, inf), then generate {new_niche}
+        #     points - use delaunay for as many as possible and random generation if not
+        # if new_niche is an int in (-inf, 0) then generate up to 
+        #     {abs(new_niche)} points using delaunay exclusively 
         
         if new_niche > 0:
             self.Add_niche(new_niche)
@@ -192,6 +196,11 @@ class Problem:
                 continue
     
         best = radii.argsort()
+        best = best[~np.isinf(radii)]
+        
+        if new_niche < 0: 
+            new_niche = min(len(best), -new_niche)
+        
         sigma = 0.1*(self.ub-self.lb)
         for i in range(new_niche):
             self.population[self.nniche+new_niche-1, 0] = candidates[best[-(i+1)]]
