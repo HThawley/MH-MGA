@@ -8,6 +8,7 @@ Created on Tue Jun  3 14:04:52 2025
 
 import numpy as np 
 from numba import njit
+from datetime import datetime as dt
 
 from scipy.spatial import Delaunay, ConvexHull
 from scipy.spatial.distance import cdist
@@ -35,12 +36,13 @@ class Problem:
             popsize: int,
             x0 = np.random.uniform, # callable|np.ndarray
             maximize = False,
-            # vectorized = False, # whether fitness function accepts vectorsied array of points
+            vectorized = False, # whether objective function accepts vectorsied array of points
             
             # **kwargs,
             ):
         
         self.func = func
+        self.vectorized = vectorized
 
         assert isinstance(maximize, bool)
         self.maximize = maximize
@@ -122,6 +124,7 @@ class Problem:
             crossover: float|tuple[float] = 0.4, # crossover probability
             slack: float = np.inf, # noptimal slack in range (1.0, inf)
             new_niche: int = 0, 
+            disp_rate: int = 0,
             ):
         # if new_niche is an int in (0, inf), then generate {new_niche}
         #     points - use delaunay for as many as possible and random generation if not
@@ -155,9 +158,21 @@ class Problem:
         assert self.popsize > self.tournsize, "tournsize should be less than popsize"
         
         self.Instantiate_working_arrays()
-        
-        while not self.maxiter(): 
-            self.Loop()
+        if disp_rate > 0:
+            time_start = dt.now()
+            _i=0
+            while not self.maxiter(): 
+                self.Loop()
+                _i+=1
+                print("\r",
+                      f"iteration {_i}. Current_best: {[round(float(max(obj)),2) for obj in self.objective]}. Time: {dt.now()-time_start}."
+                      , end="\r")
+                if _i % disp_rate == 0:
+                    print(
+    f"iteration {_i}. Current_best: {[round(float(max(obj)), 2) for obj in self.objective]}. Time: {dt.now()-time_start}.")
+        else: 
+            while not self.maxiter(): 
+                self.Loop()
     
     @keeptime("Add_niche", on_switch)
     def Add_niche(self, new_niche):
@@ -346,9 +361,13 @@ class Problem:
         """
         Calculates the objective function for each individual
         """
-        for n in range(self.nniche):
-            for i in range(self.popsize):
-                self.objective[n, i] = self.func(self.population[n, i])
+        if self.vectorized:
+            for n in range(self.nniches):
+                self.objective[n, :] = self.func(self.population[n, :])
+        else: 
+            for n in range(self.nniche):
+                for i in range(self.popsize):
+                    self.objective[n, i] = self.func(self.population[n, i])
 
     def Evaluate_feasibility(self):
         _evaluate_feasibility(
@@ -368,7 +387,7 @@ def _evaluate_fitness_max(fitness, population, centroids, objective, feasibility
                     euclideanDistance(population[i, j], centroids[c])
                     )
             if not feasibility[i, j]:
-                fitness[i, j] -= abs(objective[i, j])*1000 
+                fitness[i, j] -= (abs(objective[i, j])*1000 + 1000)
 
 @keeptime("Evaluate_fitness_min", on_switch)        
 @njit
@@ -384,7 +403,7 @@ def _evaluate_fitness_min(fitness, population, centroids, objective, feasibility
                     euclideanDistance(population[i, j], centroids[c])
                     )
             if not feasibility[i, j]:
-                fitness[i, j] += abs(objective[i, j])*1000 
+                fitness[i, j] += (abs(objective[i, j])*1000 + 1000)
 
 @keeptime("Select_parents", on_switch)
 @njit
@@ -694,6 +713,7 @@ if __name__ == "__main__":
         sigma=1.0,
         crossover=0.4, 
         slack=1.12,
+        disp_rate=10,
         )
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
     for n in range(problem.nniche): 
@@ -711,6 +731,7 @@ if __name__ == "__main__":
         crossover=0.4, 
         slack=1.12,
         new_niche=1,
+        disp_rate=20,
         )
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
     for n in range(problem.nniche): 
