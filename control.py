@@ -20,9 +20,9 @@ from timekeeper import timekeeper, keeptime, PrintTimekeeper
 on_switch=False
 
 #%%
+
 # =============================================================================
 # TODO: update fitness so as not to calculate it for optimum niche
-# TODO: Update maximise logic to differentiate maximising fitness and maximising objective
 # =============================================================================
 
 class Problem:
@@ -37,12 +37,13 @@ class Problem:
             x0 = np.random.uniform, # callable|np.ndarray
             maximize = False,
             vectorized = False, # whether objective function accepts vectorsied array of points
-            
+            fargs = (),
             # **kwargs,
             ):
         
         self.func = func
         self.vectorized = vectorized
+        self.fargs = fargs
 
         assert isinstance(maximize, bool)
         self.maximize = maximize
@@ -51,7 +52,10 @@ class Problem:
         self.lb, self.ub = self.bounds = bounds 
         self.centre = (self.ub - self.lb) / 2 + self.lb
         self.optimum = self.centre.copy()
-        self.optimal_obj = func(self.optimum)
+        if self.vectorized:
+            self.optimal_obj = func(np.array([self.optimum]), *self.fargs)[0]
+        else:
+            self.optimal_obj = func(self.optimum, *self.fargs)
         
         assert utils.islistlike(self.lb)
         assert utils.islistlike(self.ub)
@@ -165,11 +169,12 @@ class Problem:
                 self.Loop()
                 _i+=1
                 print("\r",
-                      f"iteration {_i}. Current_best: {[round(float(max(obj)),2) for obj in self.objective]}. Time: {dt.now()-time_start}."
+                      f"iteration {_i}. Current_best: {[round(float(min(obj)),2) for obj in self.objective]}. Time: {dt.now()-time_start}."
                       , end="\r")
                 if _i % disp_rate == 0:
                     print(
-    f"iteration {_i}. Current_best: {[round(float(max(obj)), 2) for obj in self.objective]}. Time: {dt.now()-time_start}.")
+    f"iteration {_i}. Current_best: {[round(float(min(obj)), 2) for obj in self.objective]}. Time: {dt.now()-time_start}.")
+
         else: 
             while not self.maxiter(): 
                 self.Loop()
@@ -268,7 +273,7 @@ class Problem:
         else: 
             if self.objective.min() < self.optimal_obj:
                 for n in range(self.nniche):
-                    if self.objective[n].min() < self.optimal_obj:
+                    if self.objective[n].min() > self.optimal_obj:
                         continue
                     self.optimal_obj = self.objective[n].min()
                     self.optimum = self.population[n, self.objective[n].argmin(), :]
@@ -280,8 +285,8 @@ class Problem:
             nindex += [self.fitness[n].argmax() for n in range(1, self.nniche)]
             
         else:
-            nindex = [self.objective[0].argmax()]
-            nindex += [self.fitness[n].argmax() for n in range(1, self.nniche)]
+            nindex = [self.objective[0].argmin()]
+            nindex += [self.fitness[n].argmin() for n in range(1, self.nniche)]
             
         self.noptima = [self.population[0, nindex[0]]]
         self.noptima += [self.population[n, nindex[n]] for n in range(1, self.nniche)]
@@ -347,7 +352,6 @@ class Problem:
         # =============================================================================
         #  TODO: We want the objective penalty to be similar in scale to the fitness 
         #       Need an adjsutment 
-        #  TODO: what if objective crosses +/- ??? 0 would be a stable point which is bad
         # =============================================================================
         if self.maximize: 
             _evaluate_fitness_max(
@@ -362,12 +366,12 @@ class Problem:
         Calculates the objective function for each individual
         """
         if self.vectorized:
-            for n in range(self.nniches):
-                self.objective[n, :] = self.func(self.population[n, :])
+            for n in range(self.nniche):
+                self.objective[n] = self.func(self.population[n], *self.fargs)
         else: 
             for n in range(self.nniche):
                 for i in range(self.popsize):
-                    self.objective[n, i] = self.func(self.population[n, i])
+                    self.objective[n, i] = self.func(self.population[n, i], *self.fargs)
 
     def Evaluate_feasibility(self):
         _evaluate_feasibility(
@@ -395,7 +399,7 @@ def _evaluate_fitness_min(fitness, population, centroids, objective, feasibility
     for i in range(population.shape[0]):
         for j in range(population.shape[1]):
             fitness[i, j] = np.inf
-            for c in range(population.shape):
+            for c in range(population.shape[0]):
                 if i == c: 
                     continue
                 fitness[i, j] = min(
@@ -661,6 +665,7 @@ def apply_bounds(ind, lb, ub):
         ind[i] = max(lb[i], ind[i])
         ind[i] = min(ub[i], ind[i])
     return ind
+
 #%% 
 
 
