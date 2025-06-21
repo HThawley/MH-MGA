@@ -17,12 +17,34 @@ import utils
 
 from termination_criteria import Maxiter, Convergence
 from timekeeper import timekeeper, keeptime, PrintTimekeeper
-on_switch=False
+on_switch=True
 
 #%%
 
 # =============================================================================
+# TODO: Restart capability
+
+# TODO: track metrics 
+    # TODO: stagnation criteria for optimisation 
+    # TODO: volume additions
+        # Of optima of niches? Is this only relevant when finding extrema?
+        # Maybe we can track extrema separately? But difficult in high D 
+    # TODO: Saving data for a plot of convergence over time 
+
+# TODO: hyperparameter tuning skeleton
+    # To be done after track metrics as metrics needed for termination
+    
+# TODO: Add co-optimisation as a kwarg rather than hard coded
+
+# TODO: Adding new niches with the delanuay triangulation disableable
+
 # TODO: update fitness so as not to calculate it for optimum niche
+    # Low priority - fitness is an inexpensive calculation
+
+# =============================================================================
+
+# =============================================================================
+# Musing: very low population very high niches?? how does that behave
 # =============================================================================
 
 class Problem:
@@ -38,6 +60,9 @@ class Problem:
             maximize = False,
             vectorized = False, # whether objective function accepts vectorsied array of points
             fargs = (),
+            
+            known_optimum = None, # None or np.array([coords])
+                    
             # **kwargs,
             ):
         
@@ -51,11 +76,16 @@ class Problem:
         # `bounds` is a tuple containing (lb, ub)
         self.lb, self.ub = self.bounds = bounds 
         self.centre = (self.ub - self.lb) / 2 + self.lb
-        self.optimum = self.centre.copy()
+        if known_optimum is None: 
+            self.optimum = self.centre.copy()
+        else: 
+            self.optimum = known_optimum
         if self.vectorized:
             self.optimal_obj = func(np.array([self.optimum]), *self.fargs)[0]
         else:
             self.optimal_obj = func(self.optimum, *self.fargs)
+
+        
         
         assert utils.islistlike(self.lb)
         assert utils.islistlike(self.ub)
@@ -66,7 +96,6 @@ class Problem:
         self.nniche = nniche
         self.popsize = popsize
         self.noptimal_obj = -np.inf if self.maximize else np.inf
-
 
         ## Initiate population
         # self.population is list of lists like a 3d array of shape (nniche, popsize, ndim)        
@@ -109,11 +138,19 @@ class Problem:
 
         else:
             assert isinstance(x0, np.ndarray)
-            assert x0.shape == (self.nniche, self.popsize, self.ndim)
+            assert x0.ndim == 3
+            assert x0.shape[0] == self.nniche
+            assert x0.shape[1] == 1 or x0.shape >= self.popsize 
+            assert x0.shape[2] == self.ndim
             
-            for i in range(self.nniche):
-                for j in range(self.popsize):
-                    self.population[i, j, :] = x0[i, j]
+            if x0.shape[1] > 1:
+                utils.njit_deepcopy(self.population, x0[:, :self.popsize, :])
+            
+            else: # x0.shape[1] == 1
+                sigma = 0.01*(self.ub-self.lb)
+                clone_parents(self.population, x0)
+                mutGaussian_vec(self.population, sigma, 0.8, True)
+                apply_bounds_vec(self.population, self.lb, self.ub)
     
     @keeptime("Step", on_switch)
     def Step(
@@ -168,12 +205,16 @@ class Problem:
             while not self.maxiter(): 
                 self.Loop()
                 _i+=1
-                print("\r",
-                      f"iteration {_i}. Current_best: {[round(float(min(obj)),2) for obj in self.objective]}. Time: {dt.now()-time_start}."
-                      , end="\r")
+                if self.maximize:
+                    best = [round(float(max(obj)),2) for obj in self.objective]
+                else:
+                    best = [round(float(min(obj)),2) for obj in self.objective]
+                # print("\r",
+                #       f"iteration {_i}. Current_best: {best}. Time: {dt.now()-time_start}."
+                #       , end="\r")
                 if _i % disp_rate == 0:
                     print(
-    f"iteration {_i}. Current_best: {[round(float(min(obj)), 2) for obj in self.objective]}. Time: {dt.now()-time_start}.")
+    f"iteration {_i}. Current_best: {best}. Time: {dt.now()-time_start}.")
 
         else: 
             while not self.maxiter(): 
@@ -223,11 +264,13 @@ class Problem:
         
         sigma = 0.1*(self.ub-self.lb)
         for i in range(new_niche):
-            self.population[self.nniche+new_niche-1, 0] = candidates[best[-(i+1)]]
+            nn_idx = self.nniche+new_niche-1
+            self.population[nn_idx, 0] = candidates[best[-(i+1)]]
             for j in range(1, self.popsize):
-                self.population[self.nniche+new_niche-1, j] = self.population[self.nniche+new_niche-1, 0]
-                mutGaussian(self.population[self.nniche+new_niche-1, j], sigma, 0.8)
-                apply_bounds(self.population[self.nniche+new_niche-1, j], self.lb, self.ub)
+                self.population[nn_idx, j] = self.population[nn_idx, 0]
+                
+        mutGaussian_vec(self.population, sigma, 0.8, True)        
+        apply_bounds_vec(self.population, self.lb, self.ub)
         self.nniche += new_niche
         return 
         
@@ -309,13 +352,9 @@ class Problem:
         # =============================================================================
         # TODO: offload to njit        
         # =============================================================================
-        nparents = self.parents.shape[1]
         # if necessary, clone parents to make a new population
         self.population = np.empty((self.nniche, self.popsize, self.ndim))
-        for i in range(self.nniche):
-            for j in range(self.popsize):
-                for k in range(self.ndim):
-                    self.population[i, j, k] = self.parents[i, j%nparents, k]
+        clone_parents(self.population, self.parents)
         
         for niche in self.population:
             # shuffle parents for mating
@@ -329,16 +368,9 @@ class Problem:
                     ## cxOnePoint used for testing 
                     ## TODO: choose cx method
                     cxOnePoint(ind1, ind2)
-        
-            for ind in niche:
-                # Apply mutation
-                mutGaussian(
-                    ind, 
-                    sigma=self.sigma, 
-                    indpb=self.mutationInst
-                    )
-                apply_bounds(ind, self.lb, self.ub)
-                # Mark children's fitness as invalid (were retained in cloning)
+        mutGaussian_vec(self.population, self.sigma, self.mutationInst)
+        apply_bounds_vec(self.population, self.lb, self.ub)
+
         self.population[0][0] = self.optimum
 
     def Evaluate_fitness(self):
@@ -470,8 +502,20 @@ def mutGaussian(ind, sigma, indpb):
     """Gaussian mutation for NumPy arrays."""
     for i in range(len(ind)):
         if np.random.random() < indpb:
-            ind[i] += np.random.normal(ind[i], sigma[i])
+            ind[i] = np.random.normal(ind[i], sigma[i])
     return ind
+
+@njit
+def mutGaussian_vec(population, sigma, indpb, ignore_first=True):
+    if ignore_first is True:
+        start=1
+    else: 
+        start=0
+    for i in range(population.shape[0]):
+        for j in range(start, population.shape[1]):
+            for k in range(population.shape[2]):
+                if np.random.random() < indpb:
+                    population[i, j, k] = np.random.normal(population[i, j, k], sigma[k])
 
 @njit
 def _do_cx(ind1, ind2, index1, index2):
@@ -666,6 +710,24 @@ def apply_bounds(ind, lb, ub):
         ind[i] = min(ub[i], ind[i])
     return ind
 
+@njit
+def apply_bounds_vec(population, lb, ub):
+    for i in range(population.shape[0]):
+        for j in range(population.shape[1]):
+            for k in range(population.shape[2]):
+                population[i, j, k] = min(ub[k], max(lb[k], population[i, j, k]))
+                
+@njit
+def clone_parents(population, parents):
+    nparents = parents.shape[1]
+    for i in range(population.shape[0]):
+        for j in range(population.shape[1]):
+            jn = j%nparents
+            for k in range(population.shape[2]):
+                population[i, j, k] = parents[i, jn, k]
+    
+
+
 #%% 
 
 
@@ -699,13 +761,19 @@ if __name__ == "__main__":
     #                [0.443, 0.549]])
     # x0 = np.dstack(tuple(np.repeat(alternatives[n], 100).reshape(2, 100).T for n in range(3))).transpose(2, 0, 1)
     
+    x0 = np.array([[[0.97374456, 0.97345396]], 
+                    [[0.02255059, 0.97683429]],
+                    [[0.97812274, 0.02309379]], 
+                    # [[0.76559229, 0.34602654]],
+                    ])
+    
     problem = Problem(
         func=Objective,
         bounds = (lb, ub),
         nniche = 3, 
         popsize = 100,
         maximize = True, 
-        # x0 = x0,
+        x0 = x0,
         )
 
     problem.Step(
@@ -718,24 +786,24 @@ if __name__ == "__main__":
         sigma=1.0,
         crossover=0.4, 
         slack=1.12,
-        disp_rate=10,
+        disp_rate=25,
         )
-    noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
-    for n in range(problem.nniche): 
-        print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
+    # noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
+    # for n in range(problem.nniche): 
+    #     print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
     # PrintTimekeeper()
     print('-'*20)
     problem.Step(
-        maxiter=100, 
+        maxiter=200, 
         popsize=100, 
         elitek=0.2,
         tournk=0.8,
         tournsize=2,
-        mutation=0.1, 
+        mutation=0.05, 
         sigma=1.0,
         crossover=0.4, 
         slack=1.12,
-        new_niche=1,
+        # new_niche=1,
         disp_rate=20,
         )
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
