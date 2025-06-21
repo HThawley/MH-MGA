@@ -10,14 +10,11 @@ import numpy as np
 from numba import njit
 from datetime import datetime as dt
 
-from scipy.spatial import Delaunay, ConvexHull
-from scipy.spatial.distance import cdist
-
-import utils 
+from scipy.spatial import Delaunay
 
 from termination_criteria import Maxiter, Convergence
 from timekeeper import timekeeper, keeptime, PrintTimekeeper
-on_switch=True
+on_switch=False
 
 #%%
 
@@ -31,12 +28,15 @@ on_switch=True
         # Maybe we can track extrema separately? But difficult in high D 
     # TODO: Saving data for a plot of convergence over time 
 
+# TODO: when returning noptima, return the most most fit that is feasible
+
+# TODO: reconsider infeasibility penalties??
+
 # TODO: hyperparameter tuning skeleton
     # To be done after track metrics as metrics needed for termination
     
-# TODO: Add co-optimisation as a kwarg rather than hard coded
-
-# TODO: Adding new niches with the delanuay triangulation disableable
+# TODO: offload intense bits of Add_niches to njit
+# TODO: offload intense bits of Generate_offspring to njit
 
 # TODO: update fitness so as not to calculate it for optimum niche
     # Low priority - fitness is an inexpensive calculation
@@ -75,22 +75,22 @@ class Problem:
         
         # `bounds` is a tuple containing (lb, ub)
         self.lb, self.ub = self.bounds = bounds 
+        assert islistlike(self.lb)
+        assert islistlike(self.ub)
+        assert len(self.lb) == len(self.ub)
+        self.ndim = len(self.lb)
+
         self.centre = (self.ub - self.lb) / 2 + self.lb
         if known_optimum is None: 
             self.optimum = self.centre.copy()
         else: 
-            self.optimum = known_optimum
+            assert islistlike(known_optimum)
+            self.optimum = np.array(known_optimum)
+            assert len(self.optimum) == self.ndim
         if self.vectorized:
             self.optimal_obj = func(np.array([self.optimum]), *self.fargs)[0]
         else:
             self.optimal_obj = func(self.optimum, *self.fargs)
-
-        
-        
-        assert utils.islistlike(self.lb)
-        assert utils.islistlike(self.ub)
-        assert len(self.lb) == len(self.ub)
-        self.ndim = len(self.lb)
         
         assert nniche >= 2
         self.nniche = nniche
@@ -100,9 +100,7 @@ class Problem:
         ## Initiate population
         # self.population is list of lists like a 3d array of shape (nniche, popsize, ndim)        
         self.Initiate_population(x0)
-        
-        assert (np.array(self.population).max(axis=(0,1)) <= self.ub).all(), "initial population exceeds bounds"
-        assert (np.array(self.population).min(axis=(0,1)) >= self.lb).all(), "initial population exceeds bounds"
+        apply_bounds_vec(self.population, self.lb, self.ub)
         
         # evaluate fitness of initial population
         self.Evaluate_objective()
@@ -144,7 +142,7 @@ class Problem:
             assert x0.shape[2] == self.ndim
             
             if x0.shape[1] > 1:
-                utils.njit_deepcopy(self.population, x0[:, :self.popsize, :])
+                njit_deepcopy(self.population, x0[:, :self.popsize, :])
             
             else: # x0.shape[1] == 1
                 sigma = 0.01*(self.ub-self.lb)
@@ -165,6 +163,7 @@ class Problem:
             crossover: float|tuple[float] = 0.4, # crossover probability
             slack: float = np.inf, # noptimal slack in range (1.0, inf)
             new_niche: int = 0, 
+            new_niche_heuristic: bool = True,
             disp_rate: int = 0,
             ):
         # if new_niche is an int in (0, inf), then generate {new_niche}
@@ -172,6 +171,7 @@ class Problem:
         # if new_niche is an int in (-inf, 0) then generate up to 
         #     {abs(new_niche)} points using delaunay exclusively 
         
+        self.new_niche_heuristic = new_niche_heuristic
         if new_niche > 0:
             self.Add_niche(new_niche)
 
@@ -229,7 +229,7 @@ class Problem:
                 for k in range(self.ndim):
                     self.population[i, j, k] = old_pop[i, j, k]
         
-        if self.nniche < self.ndim + 1 or self.ndim == 1:
+        if self.nniche < self.ndim + 1 or self.ndim == 1 or self.new_niche_heuristic is False:
             for i in range(self.nniche, self.nniche + new_niche):
                 for j in range(self.popsize):
                     for k in range(self.ndim):
@@ -325,11 +325,10 @@ class Problem:
     def Return_noptima(self):
         if self.maximize:
             nindex = [self.objective[0].argmax()]
-            nindex += [self.fitness[n].argmax() for n in range(1, self.nniche)]
-            
-        else:
+        else: 
             nindex = [self.objective[0].argmin()]
-            nindex += [self.fitness[n].argmin() for n in range(1, self.nniche)]
+            
+        nindex += list(best_nindex(self.fitness, self.feasibility))
             
         self.noptima = [self.population[0, nindex[0]]]
         self.noptima += [self.population[n, nindex[n]] for n in range(1, self.nniche)]
@@ -349,10 +348,6 @@ class Problem:
     
     @keeptime("Generate_offspring", on_switch)
     def Generate_offspring(self):
-        # =============================================================================
-        # TODO: offload to njit        
-        # =============================================================================
-        # if necessary, clone parents to make a new population
         self.population = np.empty((self.nniche, self.popsize, self.ndim))
         clone_parents(self.population, self.parents)
         
@@ -408,6 +403,47 @@ class Problem:
     def Evaluate_feasibility(self):
         _evaluate_feasibility(
             self.feasibility, self.population, self.objective, self.noptimal_obj, self.maximize)
+   
+def islistlike(obj):
+    if not hasattr(obj, "__iter__"):
+        return False
+    if not hasattr(obj, "__len__"):
+        return False
+    return True
+
+def isfunclike(obj):
+    if not hasattr(obj, "__call__"):
+        return False
+    return True
+
+@njit 
+def best_nindex(fitness, feasibility):
+    # first niche reserved for optimisation
+    indices = np.zeros(fitness.shape[0] - 1, np.int64)
+    for i in range(len(indices)):
+        i_o = i + 1 
+        if feasibility[i_o].any():
+            best = -np.inf
+            for j in range(fitness.shape[1]):
+                if feasibility[i_o, j] is True: 
+                    if fitness[i_o, j] > best:
+                        best = fitness[i_o, j]
+                        indices[i-1] = j
+        else: 
+            best = -np.inf
+            for j in range(fitness.shape[1]):
+                if fitness[i_o, j] > best:
+                    best = fitness[i_o, j]
+                    indices[i-1] = j
+    return indices
+
+@njit 
+def njit_deepcopy(new, old):
+    flat_new = new.ravel()
+    flat_old = old.ravel()
+    
+    for i in range(flat_old.shape[0]):
+        flat_new[i] = flat_old[i]
     
 @keeptime("Evaluate_fitness_max", on_switch)        
 @njit
