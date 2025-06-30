@@ -19,7 +19,14 @@ on_switch=False
 #%%
 
 # =============================================================================
-# TODO: Restart capability
+# TODO: update selection tournaments (fallback)
+    # TODO: seltournament should select on fitness/objective on a draw-by-draw 
+        # basis not a niche by niche basis 
+    # TODO: selBest should always prioritise feasible solutions
+    
+# TODO: Consider staging noptimal slack lowering
+    # for population stability when "annealing" (lowering noptimal slack)
+    # progressively reduce it to maintain population stability?
 
 # TODO: track metrics 
     # TODO: stagnation criteria for optimisation 
@@ -40,6 +47,10 @@ on_switch=False
 
 # TODO: update fitness so as not to calculate it for optimum niche
     # Low priority - fitness is an inexpensive calculation
+
+
+# --T-O-D-O--: Restart capability
+    # Actually, this should be problem specific and implemented via the `x0` kwarg
 
 # =============================================================================
 
@@ -96,6 +107,8 @@ class Problem:
         self.nniche = nniche
         self.popsize = popsize
         self.noptimal_obj = -np.inf if self.maximize else np.inf
+
+        self.start_time = dt.now()
 
         ## Initiate population
         # self.population is list of lists like a 3d array of shape (nniche, popsize, ndim)        
@@ -159,12 +172,13 @@ class Problem:
             tournk: int|float = 0.9, # number of parents selected via tournament
             tournsize: int = 4, # tournament size parameter
             mutation: float|tuple[float] = (0.5, 1.5), # mutation probability
-            sigma: float = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
+            sigma: float|tuple[float] = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
             crossover: float|tuple[float] = 0.4, # crossover probability
             slack: float = np.inf, # noptimal slack in range (1.0, inf)
             new_niche: int = 0, 
             new_niche_heuristic: bool = True,
             disp_rate: int = 0,
+            callback = None
             ):
         # if new_niche is an int in (0, inf), then generate {new_niche}
         #     points - use delaunay for as many as possible and random generation if not
@@ -177,6 +191,7 @@ class Problem:
 
         self.maxiter = Maxiter(maxiter)
         self.popsize = popsize
+        self.callback = callback
         
         assert elitek!=-1 or tournk !=-1, "only 1 of elitek and tournk may be -1"
         self.elitek = elitek if isinstance(elitek, int) else int(elitek*self.popsize)
@@ -200,7 +215,6 @@ class Problem:
         
         self.Instantiate_working_arrays()
         if disp_rate > 0:
-            time_start = dt.now()
             _i=0
             while not self.maxiter(): 
                 self.Loop()
@@ -210,11 +224,11 @@ class Problem:
                 else:
                     best = [round(float(min(obj)),2) for obj in self.objective]
                 # print("\r",
-                #       f"iteration {_i}. Current_best: {best}. Time: {dt.now()-time_start}."
+                #       f"iteration {_i}. Current_best: {best}. Time: {dt.now()-self.start_time}."
                 #       , end="\r")
                 if _i % disp_rate == 0:
                     print(
-    f"iteration {_i}. Current_best: {best}. Time: {dt.now()-time_start}.")
+    f"iteration {_i}. Current_best: {best}. Time: {dt.now()-self.start_time}.")
 
         else: 
             while not self.maxiter(): 
@@ -277,16 +291,9 @@ class Problem:
     @keeptime("Loop", on_switch)        
     def Loop(self):
         
-        if hasattr(self.mutation, "__iter__"):
-            self.mutationInst = _dither(*self.mutation)
-        else: 
-            assert isinstance(self.mutation, float)
-            self.mutationInst = self.mutation
-        if hasattr(self.crossover, "__iter__"):
-            self.crossoverInst = _dither(*self.crossover)
-        else: 
-            assert isinstance(self.crossover, float)
-            self.crossoverInst = self.crossover
+        self.mutationInst = dither_instance(self.mutation)
+        self.crossoverInst = dither_instance(self.crossover)
+        self.sigmaInst = dither_instance(self.sigma)
         
         self.Select_parents()
         self.Generate_offspring()
@@ -363,7 +370,7 @@ class Problem:
                     ## cxOnePoint used for testing 
                     ## TODO: choose cx method
                     cxOnePoint(ind1, ind2)
-        mutGaussian_vec(self.population, self.sigma, self.mutationInst)
+        mutGaussian_vec(self.population, self.sigmaInst, self.mutationInst)
         apply_bounds_vec(self.population, self.lb, self.ub)
 
         self.population[0][0] = self.optimum
@@ -412,9 +419,8 @@ def islistlike(obj):
     return True
 
 def isfunclike(obj):
-    if not hasattr(obj, "__call__"):
-        return False
-    return True
+    # Add other conditions?
+    return callable(obj)
 
 @njit 
 def best_nindex(fitness, feasibility):
@@ -733,6 +739,12 @@ def find_centroids(centroids, population):
             for k in range(population.shape[2]):
                 centroids[i, k] += population[i, j, k]
     centroids /= population.shape[1]
+
+def dither_instance(parameter):
+    if hasattr(parameter, "__iter__"):
+        return _dither(*parameter)
+    else:
+        return parameter
 
 @njit
 def _dither(lower, upper, distribution=np.random.uniform):
