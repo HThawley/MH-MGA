@@ -13,7 +13,7 @@ from collections.abc import Callable
 from scipy.spatial import Delaunay
 import warnings
 
-from termination_criteria import MultiCriteriaConvergence, ConvergenceCriterion, Maxiter, GradientStagnation
+from termination_criteria import MultiConvergence, Convergence, Maxiter, GradientStagnation
 
 from timekeeper import timekeeper, keeptime, PrintTimekeeper
 on_switch=False
@@ -58,31 +58,36 @@ class Problem:
             func,
             bounds, # [lb[:], ub[:]]
             
-            nniche: int, 
-            popsize: int,
             x0: Callable[..., ...]|np.ndarray|str = "uniform", 
+
             maximize = False,
             vectorized = False, # whether objective function accepts vectorsied array of points
             fargs = (),
+            fkwargs = {},
             
             known_optimum = None, # None or np.array([coords])
             random_seed = None,
             # **kwargs,
             ):
+        self._initiated = False
+        
         self.rng = np.random.default_rng(random_seed)
         self.stable = random_seed != None
         if random_seed is not None and callable(x0):
             warnings.warn("""random_seed was supplied but a generator was supplied to `x0` 
                           which may be random but is not seeded. Try passing the name of 
                           a `numpy.random.Generator` distribution as a string""", UserWarning)
-            
+        
         self.func = func
         self.vectorized = vectorized
         self.fargs = fargs
+        self.fkwargs = fkwargs
+        self.x0 = x0
 
         assert isinstance(maximize, bool)
         self.maximize = maximize
-        
+        self.noptimal_obj = -np.inf if self.maximize else np.inf
+
         # `bounds` is a tuple containing (lb, ub)
         self.lb, self.ub = self.bounds = bounds 
         assert islistlike(self.lb)
@@ -103,17 +108,23 @@ class Problem:
         else:
             self.optimal_obj = func(self.optimum, *self.fargs)
         
+    def Initiate(
+            self, 
+            nniche: int, 
+            popsize: int,
+            ):
+        
         assert nniche >= 2
         self.nniche = nniche
         self.popsize = popsize
-        self.noptimal_obj = -np.inf if self.maximize else np.inf
 
         self.start_time = dt.now()
         self._step = 0
 
         ## Initiate population
         # self.population is list of lists like a 3d array of shape (nniche, popsize, ndim)        
-        self.Initiate_population(x0)
+        self.Initiate_population(self.x0)
+        del self.x0
         apply_bounds_vec(self.population, self.lb, self.ub)
         
         # evaluate fitness of initial population
@@ -121,7 +132,8 @@ class Problem:
         self.Update_optimum()
         self.Evaluate_feasibility()
         self.Evaluate_fitness()
-    
+        
+        self._initiated = True
         
     @keeptime("Initiate_population", on_switch)
     def Initiate_population(self, x0):
@@ -243,7 +255,7 @@ class Problem:
             elitek: int|float = 0.1, # number of parents selected as absolute best
             tournk: int|float = 0.9, # number of parents selected via tournament
             tournsize: int = 4, # tournament size parameter
-            mutation: float|tuple[float] = (0.5, 1.5), # mutation probability
+            mutation: float|tuple[float] = (0.5, 0.75), # mutation probability
             sigma: float|tuple[float] = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
             crossover: float|tuple[float] = 0.4, # crossover probability
             slack: float = np.inf, # noptimal slack in range (1.0, inf)
@@ -253,6 +265,15 @@ class Problem:
             convergence: Callable[..., bool]|list[Callable[..., bool]] = None, 
             callback: Callable[..., ...] = None,
             ):
+        if not self._initiated:
+            if not new_niche > 0:
+                raise Exception("""Supply `new_niche: int > 0` to initiate problem.""" )
+            self.Initiate(
+                nniche = new_niche, 
+                popsize = popsize
+                )
+            new_niche=0
+        
         # if new_niche is an int in (0, inf), then generate {new_niche}
         #     points - use delaunay for as many as possible and random generation if not
         # if new_niche is an int in (-inf, 0) then generate up to 
@@ -302,13 +323,13 @@ class Problem:
         if convergence is None:
             self.convergence = Maxiter(maxiter)
         elif hasattr(convergence, "__iter__"):
-            self.convergence = MultiCriteriaConvergence(
+            self.convergence = MultiConvergence(
                 [Maxiter(maxiter), 
                  *convergence,
                  ]
                 )
         else: 
-            self.convergence = MultiCriteriaConvergence(
+            self.convergence = MultiConvergence(
                 [Maxiter(maxiter), 
                  convergence,
                  ]
@@ -317,9 +338,7 @@ class Problem:
         
         if disp_rate > 0:
             self._i = 0
-            while not self.convergence(
-                    value=self.optimal_obj,
-                    ): 
+            while not self.convergence(self): 
                 self.Loop()
                 self._i+=1
                 if self.maximize:
@@ -335,9 +354,7 @@ class Problem:
 
         else: 
             self._i = 0
-            while not self.convergence(
-                    value=self.optimal_obj,
-                    ): 
+            while not self.convergence(self): 
                 self.Loop()
                 self._i += 1
         self._step+=1
@@ -450,19 +467,19 @@ class Problem:
         if new_niche is None:
             if self.vectorized:
                 for n in range(self.nniche):
-                    self.objective[n] = self.func(self.population[n], *self.fargs)
+                    self.objective[n] = self.func(self.population[n], *self.fargs, **self.fkwargs)
             else: 
                 for n in range(self.nniche):
                     for i in range(self.popsize):
-                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs)
+                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
         else: 
             if self.vectorized:
                 for n in range(self.nniche, self.nniche + new_niche):
-                    self.objective[n] = self.func(self.population[n], *self.fargs)
+                    self.objective[n] = self.func(self.population[n], *self.fargs, **self.fkwargs)
             else: 
                 for n in range(self.nniche, self.nniche + new_niche):
                     for i in range(self.popsize):
-                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs)
+                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
 
     def Evaluate_feasibility(self):
         _evaluate_feasibility(
@@ -862,15 +879,15 @@ def find_centroids(centroids, population):
                 centroids[i, k] += population[i, j, k]
     centroids /= population.shape[1]
 
-def dither_instance(parameter, rng_dist):
+def dither_instance(parameter, rng):
     if hasattr(parameter, "__iter__"):
-        return _dither(*parameter, rng_dist)
+        return _dither(*parameter, rng)
     else:
         return parameter
 
 @njit
-def _dither(lower, upper, rng_dist):
-    return rng_dist(lower, upper)
+def _dither(lower, upper, rng):
+    return rng.uniform(lower, upper)
 
 @keeptime("apply_bounds", on_switch)
 @njit
@@ -945,8 +962,6 @@ if __name__ == "__main__":
     problem = Problem(
         func=Objective,
         bounds = (lb, ub),
-        nniche = 3, 
-        popsize = 1000,
         maximize = True, 
         vectorized = True,
         random_seed = 1,
@@ -967,6 +982,7 @@ if __name__ == "__main__":
         slack=1.12,
         disp_rate=25,
         niche_elitism = NICHE_ELITISM, 
+        new_niche = 3,
         )
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
     for n in range(problem.nniche): 
@@ -993,7 +1009,6 @@ if __name__ == "__main__":
     # PrintTimekeeper(on_switch=on_switch)
     print('-'*20)
 
-    NICHE_ELITISM = True
     problem.Step(
         maxiter=10, 
         popsize=1000, 
@@ -1005,30 +1020,13 @@ if __name__ == "__main__":
         crossover=0.3, 
         slack=1.12,
         # new_niche=1,
-        disp_rate=0,
+        disp_rate=5,
         niche_elitism = NICHE_ELITISM, 
         )
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
     for n in range(problem.nniche): 
         print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
     # PrintTimekeeper(on_switch=on_switch)
-    print('-'*20)
-    problem.Step(
-        maxiter=10, 
-        popsize=1000, 
-        elitek=0.4,
-        tournk=-1,
-        tournsize=2,
-        mutation=0.5, 
-        sigma=0.0005,
-        crossover=0.3, 
-        slack=1.12,
-        # new_niche=1,
-        disp_rate=1,
-        niche_elitism = NICHE_ELITISM, 
-        )
-    noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
-    for n in range(problem.nniche): 
-        print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n]) 
+
         
     PrintTimekeeper(on_switch=on_switch)
