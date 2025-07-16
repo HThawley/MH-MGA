@@ -8,12 +8,12 @@ import numpy as np
 from numba import njit
 from collections.abc import Callable, Sequence
 from functools import partial 
-from termination_criteria import FixedValue
 from datetime import datetime as dt
 from datetime import timedelta as td
 from tqdm import tqdm
 
 from control import Problem
+from termination_criteria import FixedValue, Timeout
 
 def draw_bool(rng):
     return rng.integers(2, dtype=bool)
@@ -158,7 +158,6 @@ class Tuning:
         assert how in ("scale", "clip")
         assert sense in ("gt", "ge", "eq", "le", "lt")
         
-        
         func = partial(self._interdependence,
             names, target, operation, modify, how, sense)
         setattr(self, f"interd{len(self.interd)}", func)
@@ -173,7 +172,7 @@ class Tuning:
             getattr(self, interd)()
             
     def RunObj(self):
-        score = self.func(self.values)
+        score = self.func(self)
         if self.zero is None:
             if isinstance(score, td):
                 self.zero = td(0)
@@ -211,8 +210,7 @@ if __name__=="__main__":
                 z[i] += np.sin(19 * np.pi * values_array[i, j]) + values_array[i, j] / 1.7
         return z   
 
-    def Optimize(hyperparameters):
-        
+    def runOptimize(hyperparameters, timeout, seed):
         problem = Problem(
             Objective,
             bounds = (lb, ub),
@@ -221,7 +219,7 @@ if __name__=="__main__":
             vectorized = True,
             fargs = (),
             fkwargs = {},
-            random_seed = 1,
+            random_seed = seed,
             )
 
         start = dt.now()
@@ -231,10 +229,26 @@ if __name__=="__main__":
             new_niche=4,
             slack=1.12, 
             disp_rate=0,
-            convergence = FixedValue(5.145, maximize=True, attribute="optimal_obj"), 
+            convergence = [FixedValue(5.145, maximize=True, attribute="optimal_obj"),
+                           Timeout(timeout, start_attribute="start_time")
+                           ]
             )
-        
         return dt.now() - start
+        
+
+    def Optimize(tuning):
+        time = td(0)
+        for seed in (1, 2, 3):
+            timeout = tuning.best_score[-1]*1.5 if tuning.best_score[-1] is not None else None
+            
+            time += runOptimize(
+                hyperparameters = tuning.values, 
+                timeout = timeout, 
+                seed=seed, 
+                )
+        time /= 3
+
+        return time
 
     lb = 0*np.ones(2)
     ub = 1*np.ones(2)
@@ -256,9 +270,15 @@ if __name__=="__main__":
     tuning.DrawParameters()
     tuning.RunObj()
         
-    for i in tqdm(range(1000)):
+    for i in tqdm(range(10000)):
         tuning.DrawParameters()
         tuning.RunObj()
     
     print(tuning.best_score)
     print(tuning.best_set[0])
+
+
+# =============================================================================
+# Surrogate optimisation model for energy systems?? 
+# A function which is really simple to evaluate and vaguely approximates an energy model
+# =============================================================================

@@ -14,6 +14,10 @@ Possible future convergence criteria
     
 """
 
+from datetime import datetime as dt
+from datetime import timedelta as td
+from time import perf_counter
+
 class Convergence:
     """ 
     Base class for convergence criteria
@@ -34,7 +38,7 @@ class MultiConvergence(Convergence):
     def __init__(
             self, 
             criteria: list[Convergence], 
-            how="or"
+            how: str = "or"
             ):
         assert how in ("and", "or")
         self.how = how
@@ -61,6 +65,58 @@ class MultiConvergence(Convergence):
         return f"""Multi Criteria Convergence Object: 
     {self.ncrit} criteria with "{self.how}" logic. 
     Criteria: {[repr(crit) for crit in self.criteria]}"""
+
+class Timeout(Convergence):
+    """
+    Terminates on reaching a pre-set value
+    """
+    def __init__(
+            self, 
+            timeout,
+            start_attribute: str = None,
+            time_attribute: str = None,
+            timedelta_attribute: str = None,
+            how = "dt"
+            ):
+        self.timeout = timeout
+
+        assert how in ("dt", "perf"), f"`how` should be 'dt' (datetime.datetime.now) or 'perf' (time.perf_counter). Supplied {how}"
+        self.now = dt.now if how == "dt" else perf_counter
+
+        self.start = None
+        self.start_attribute = start_attribute
+        self.time_attribute = time_attribute
+        self.timedelta_attribute = timedelta_attribute
+        self.started = False
+        
+    def __call__(
+            self, 
+            intermediate_result = None,
+            ):
+        if self.timeout is None:
+            return False
+        
+        if not self.started: 
+            # timer should start at first call, not at init
+            if self.start_attribute is not None: 
+                self.start = getattr(intermediate_result, self.start_attribute)
+            else: 
+                self.start = self.now()
+            self.started=True
+            
+        if self.timedelta_attribute is not None:
+            time = getattr(intermediate_result, self.timedelta_attribute)
+        elif self.time_attribute is not None:
+            time = getattr(intermediate_result, self.time_attribute) - self.start
+        else: 
+            time = self.now() - self.start
+                
+        if time > self.timeout: 
+            return True
+        return False
+    
+    def __repr__(self):
+        return f"""Timeout Convergence Criterion: {self.timeout}"""
 
 class FixedValue(Convergence):
     """

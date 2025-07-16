@@ -24,7 +24,6 @@ on_switch=False
     
 
 # TODO: track metrics 
-
     # TODO: volume additions
         # Of optima of niches? Is this only relevant when finding extrema?
         # Maybe we can track extrema separately? But difficult in high D 
@@ -32,11 +31,7 @@ on_switch=False
 
 # TODO: reconsider infeasibility penalties??
 
-# TODO: hyperparameter tuning skeleton
-    # To be done after track metrics as metrics needed for termination
-    
 # TODO: offload intense bits of Add_niches to njit
-# TODO: offload intense bits of Generate_offspring to njit
 
 # TODO: update fitness so as not to calculate it for optimum niche
     # Low priority - fitness is an inexpensive calculation
@@ -56,7 +51,8 @@ class Problem:
     def __init__(
             self,
             func,
-            bounds, # [lb[:], ub[:]]
+            bounds, # (lb[:], ub[:])
+            integrality: np.ndarray[bool] = None,
             
             x0: Callable[..., ...]|np.ndarray|str = "uniform", 
 
@@ -90,9 +86,20 @@ class Problem:
 
         # `bounds` is a tuple containing (lb, ub)
         self.lb, self.ub = self.bounds = bounds 
+        if integrality is None:
+            self.mutFunction = mutGaussianFloatVec
+            self.integrality = np.zeros(len(self.lb), np.bool_)
+        else: 
+            self.mutFunction = mutGaussianMixedVec
+            self.integrality = integrality if integrality is not None else np.zeros(len(self.lb), np.bool_)
+            
         assert islistlike(self.lb)
         assert islistlike(self.ub)
         assert len(self.lb) == len(self.ub)
+        assert len(self.integrality) == len(self.lb)
+        self.boolean_mask = (((self.ub-self.lb)==1) * (self.integrality)).astype(np.bool_)
+        
+        
         self.ndim = len(self.lb)
         self.cx = cxTwoPoint if self.ndim > 2 else cxOnePoint
 
@@ -167,7 +174,7 @@ class Problem:
             else: # x0.shape[1] == 1
                 sigma = 0.01*(self.ub-self.lb)
                 clone_parents(self.population, x0)
-                mutGaussian_vec(self.population, sigma, 0.8, True, self.rng)
+                self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.boolean_mask)
                 apply_bounds_vec(self.population, self.lb, self.ub)
                 
     @keeptime("Add_niche", on_switch)
@@ -210,14 +217,14 @@ class Problem:
             if new_niche < 0: 
                 new_niche = min(len(best), -new_niche)
             
-            sigma = 0.1*(self.ub-self.lb)
             for i in range(new_niche):
                 nn_idx = self.nniche+new_niche-1
                 self.population[nn_idx, 0] = candidates[best[-(i+1)]]
                 for j in range(1, self.popsize):
                     self.population[nn_idx, j] = self.population[nn_idx, 0]
-                    
-            mutGaussian_vec(self.population, sigma, 0.8, True, self.rng)        
+
+            sigma = 0.1*(self.ub-self.lb)
+            self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.boolean_mask)
             apply_bounds_vec(self.population, self.lb, self.ub)
         
         self.Evaluate_objective(new_niche)
@@ -395,14 +402,14 @@ class Problem:
                     if self.objective[n].max() < self.optimal_obj:
                         continue
                     self.optimal_obj = self.objective[n].max()
-                    self.optimum = self.population[n, self.objective[n].argmax(), :]
+                    self.optimum = self.population[n, self.objective[n].argmax(), :].copy()
         else: 
             if self.objective.min() < self.optimal_obj:
                 for n in range(self.nniche):
                     if self.objective[n].min() > self.optimal_obj:
                         continue
                     self.optimal_obj = self.objective[n].min()
-                    self.optimum = self.population[n, self.objective[n].argmin(), :]
+                    self.optimum = self.population[n, self.objective[n].argmin(), :].copy()
 
     @keeptime("Return_noptima", on_switch)
     def Return_noptima(self):
@@ -440,7 +447,7 @@ class Problem:
                 self.niche_elites, self.population, self.fitness, self.feasibility, self.objective, self.maximize)
              
         cx_vec(self.population, self.crossoverInst, self.cx, self.rng)
-        mutGaussian_vec(self.population, self.sigmaInst, self.mutationInst, self.rng)
+        self.mutFunction(self.population, self.sigmaInst, self.mutationInst, self.rng, self.integrality, self.boolean_mask)
         apply_bounds_vec(self.population, self.lb, self.ub)
         
         self.population[0, 0, :] = self.optimum
@@ -615,24 +622,42 @@ def pointwiseDistance(p1, p2):
     return min(np.abs(p1-p2))
     
 @njit
-def mutGaussian(ind, sigma, indpb, rng):
-    """Gaussian mutation for NumPy arrays."""
-    for i in range(len(ind)):
-        if rng.random() < indpb:
-            ind[i] = rng.normal(ind[i], sigma[i])
-    return ind
+def mutFloat(item, sigma, rng):
+    """ gaussian mutation for single variable """
+    return rng.normal(item, sigma)
 
 @njit
-def mutGaussian_vec(population, sigma, indpb, rng, ignore_first=True):
-    if ignore_first is True:
-        start=1
-    else: 
-        start=0
+def mutInt(item, sigma, rng):
+    """Integer mutation for single variable"""
+    return round(rng.normal(item, sigma))
+
+@njit
+def mutBool(item,):
+    """Boolean mutation for single variable"""
+    return 1.0 - item
+
+@njit 
+def mutGaussianMixedVec(population, sigma, indpb, rng, integrality, boolean_mask, ignore_first=True):
+    start = 1 if ignore_first is True else 0
     for i in range(population.shape[0]):
         for j in range(start, population.shape[1]):
             for k in range(population.shape[2]):
                 if rng.random() < indpb:
-                    population[i, j, k] = rng.normal(population[i, j, k], sigma[k])
+                    if boolean_mask[k] is True:
+                        population[i, j, k] = mutBool(population[i, j, k]) 
+                    elif integrality[k] is True:
+                        population[i, j, k] = mutInt(population[i, j, k], sigma[k], rng)
+                    else: 
+                        population[i, j, k] = mutFloat(population[i, j, k], sigma[k], rng)
+
+@njit
+def mutGaussianFloatVec(population, sigma, indpb, rng, integrality, boolean_mask, ignore_first=True):
+    start = 1 if ignore_first is True else 0
+    for i in range(population.shape[0]):
+        for j in range(start, population.shape[1]):
+            for k in range(population.shape[2]):
+                if rng.random() < indpb:
+                    population[i, j, k] = mutFloat(population[i, j, k], sigma[k], rng)
 
 @njit
 def cx_vec(population, crossoverInst, cx, rng):
@@ -964,9 +989,27 @@ if __name__ == "__main__":
         bounds = (lb, ub),
         maximize = True, 
         vectorized = True,
-        random_seed = 1,
+        # random_seed = 1,
         # x0 = x0,
         )
+
+    # problem.Step(
+    #     maxiter=400, 
+    #     popsize=800, 
+    #     elitek=0.5,
+    #     tournk=0.5,
+    #     tournsize=3,
+    #     mutation=0.5, 
+    #     sigma=(0.01, 0.4),
+    #     crossover=0.0, 
+    #     slack=1.12,
+    #     disp_rate=25,
+    #     niche_elitism = True, 
+    #     new_niche = 3,
+    #     )
+    # noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
+    # for n in range(problem.nniche): 
+    #     print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
 
     NICHE_ELITISM = True
 
@@ -987,11 +1030,13 @@ if __name__ == "__main__":
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
     for n in range(problem.nniche): 
         print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
+        
+        
     # PrintTimekeeper(on_switch=on_switch)
     print('-'*20)
     problem.Step(
-        maxiter=100, 
-        popsize=100, 
+        maxiter=200, 
+        popsize=300, 
         elitek=0.2,
         tournk=-1,
         tournsize=2,
@@ -1000,7 +1045,7 @@ if __name__ == "__main__":
         crossover=0.3, 
         slack=1.12,
         # new_niche=1,
-        disp_rate=0,
+        disp_rate=20,
         niche_elitism = NICHE_ELITISM, 
         )
     noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
