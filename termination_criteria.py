@@ -241,7 +241,7 @@ class GradientStagnation(Convergence):
         self.improvement = improvement
         self.sense = -1 if maximize else 1
         self.prev = [self.sense * float('inf')]
-        self.attribute = None
+        self.attribute = attribute
         
     def __call__(
             self, 

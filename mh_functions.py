@@ -267,15 +267,20 @@ def selBest1_fallback(niche, fitness, noptimality, objective, maximize):
     Selects best `n` individuals based on fitness.
     If there are not `n` noptimal individuals, selects on objective"""
     
+    # loop through fitness and choose the best noptimal fitness
+    # record succes via _nopt: bool
     _nopt = False
-    for i in range(len(noptimality)):
-        if noptimality[i]:
-            _nopt = True 
-            break
-    
+    best = -np.inf
+    index = -1
+    for i in range(niche.shape[0]):
+        if not noptimality[i]:
+            continue
+        elif fitness[i] > best:
+            best = fitness[i]
+            index = i
+            _nopt = True
+            
     if not _nopt:
         return selBest1(niche, objective, maximize)
-    else: 
-        index = fitness.argmax()
         
     return niche[index, :] 
