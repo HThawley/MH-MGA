@@ -13,32 +13,23 @@ from collections.abc import Callable
 from scipy.spatial import Delaunay
 import warnings
 
-from termination_criteria import MultiConvergence, Convergence, Maxiter, GradientStagnation
-
+import mh_functions as mh
+from fitness import (euclideanDistance, pointwiseDistance)
+from Fileprinter import Fileprinter
+import termination_criteria as tc
 from timekeeper import timekeeper, keeptime, PrintTimekeeper
+import diversity as dy
+
+import plotlogs as pl
 on_switch=False
 
 #%%
 
 # =============================================================================
-    
-
-# TODO: track metrics 
-    # TODO: volume additions
-        # Of optima of niches? Is this only relevant when finding extrema?
-        # Maybe we can track extrema separately? But difficult in high D 
-    # TODO: Saving data for a plot of convergence over time 
-
-# TODO: reconsider infeasibility penalties??
-
-# TODO: offload intense bits of Add_niches to njit
+# TODO: log more stuff
 
 # TODO: update fitness so as not to calculate it for optimum niche
     # Low priority - fitness is an inexpensive calculation
-
-
-# --T-O-D-O--: Restart capability
-    # Actually, this should be problem specific and implemented via the `x0` kwarg
 
 # =============================================================================
 
@@ -47,7 +38,7 @@ on_switch=False
 # =============================================================================
 
 class Problem:
-    @keeptime("init", on_switch)
+    # @keeptime("init", on_switch)
     def __init__(
             self,
             func,
@@ -56,12 +47,17 @@ class Problem:
             
             x0: Callable[..., ...]|np.ndarray|str = "uniform", 
 
-            maximize = False,
-            vectorized = False, # whether objective function accepts vectorsied array of points
-            fargs = (),
-            fkwargs = {},
+            log: str = None, # naming convention for log files
+            log_freq: int = 1, # frequency of printing batched logs
+            log_level: str = "detailed", 
+            log_resume: bool = False, 
+            constraint_violation: bool = True,
+            maximize: bool = False,
+            vectorized: bool = False, # whether objective function accepts vectorsied array of points
+            fargs: tuple[...] = (),
+            fkwargs: dict[..., ...] = {},
             
-            known_optimum = None, # None or np.array([coords])
+            known_optimum: np.ndarray[float] = None, # None or np.array([coords])
             random_seed = None,
             # **kwargs,
             ):
@@ -76,9 +72,11 @@ class Problem:
         
         self.func = func
         self.vectorized = vectorized
+        self.constraint_violation = constraint_violation
         self.fargs = fargs
         self.fkwargs = fkwargs
         self.x0 = x0
+        self.slack = np.inf
 
         assert isinstance(maximize, bool)
         self.maximize = maximize
@@ -87,21 +85,20 @@ class Problem:
         # `bounds` is a tuple containing (lb, ub)
         self.lb, self.ub = self.bounds = bounds 
         if integrality is None:
-            self.mutFunction = mutGaussianFloatVec
+            self.mutFunction = mh.mutGaussianFloatVec
             self.integrality = np.zeros(len(self.lb), np.bool_)
         else: 
-            self.mutFunction = mutGaussianMixedVec
+            self.mutFunction = mh.mutGaussianMixedVec
             self.integrality = integrality if integrality is not None else np.zeros(len(self.lb), np.bool_)
             
         assert islistlike(self.lb)
         assert islistlike(self.ub)
         assert len(self.lb) == len(self.ub)
         assert len(self.integrality) == len(self.lb)
-        self.boolean_mask = (((self.ub-self.lb)==1) * (self.integrality)).astype(np.bool_)
-        
+        self.bool_dtype = (((self.ub-self.lb)==1) * (self.integrality)).astype(np.bool_)
         
         self.ndim = len(self.lb)
-        self.cx = cxTwoPoint if self.ndim > 2 else cxOnePoint
+        self.cx = mh.cxTwoPoint if self.ndim > 2 else mh.cxOnePoint
 
         self.centre = (self.ub - self.lb) / 2 + self.lb
         if known_optimum is None: 
@@ -111,46 +108,103 @@ class Problem:
             self.optimum = np.array(known_optimum)
             assert len(self.optimum) == self.ndim
         if self.vectorized:
-            self.optimal_obj = func(np.array([self.optimum]), *self.fargs)[0]
+            if self.constraint_violation:
+                self.optimal_obj, self.init_violation = func(np.array([self.optimum]), *self.fargs, **self.fkwargs)[0]
+            else:
+                self.optimal_obj = func(np.array([self.optimum]), *self.fargs, **self.fkwargs)[0]
+                self.init_violation = 0
         else:
-            self.optimal_obj = func(self.optimum, *self.fargs)
+            if self.constraint_violation:
+                self.optimal_obj, self.init_violation = func(self.optimum, *self.fargs, **self.fkwargs)
+            else:
+                self.optimal_obj = func(self.optimum, *self.fargs, **self.fkwargs)
+                self.init_violation = 0
+        
+        self.log = log
+        self.log_freq = log_freq
+        self.log_level = "detailed"
+        if self.log is not None: 
+            self.nobjective_printer = Fileprinter(
+                file_name = self.log+"-nobjective.csv", 
+                save_freq = self.log_freq, 
+                header = None,
+                resume = log_resume,
+                create_dir = True,
+                )
+            self.noptimality_printer = Fileprinter(
+                file_name = self.log+"-noptimality.csv", 
+                save_freq = self.log_freq, 
+                header = None,
+                resume = log_resume,
+                )
+            self.nfitness_printer = Fileprinter(
+                file_name = self.log+"-nfitness.csv", 
+                save_freq = self.log_freq, 
+                header = None,
+                resume = log_resume,
+                )
+            self.diversity_printer = Fileprinter(
+                file_name = self.log+"-diversity.csv", 
+                save_freq = self.log_freq, 
+                header = ["it #", "VESA", "mean of std.s", "min of std.s", 
+                          "max of std.s", "mean of var.s", "min of var.s", "max of var.s", 
+                          "sum of fit", "mean of fit"],
+                resume = log_resume,
+                )
+            if self.log_level == "detailed":
+                self.evolution_printer = Fileprinter(
+                    file_name = self.log+"-evolution.csv", 
+                    save_freq = self.log_freq, 
+                    header = None, 
+                    resume = log_resume)
+
         
     def Initiate(
             self, 
             nniche: int, 
             popsize: int,
             ):
-        
-        assert nniche >= 2
+        assert nniche >= 1
+        if nniche == 1: 
+            warnings.warn("One niche. Pure optimisation.", UserWarning)
         self.nniche = nniche
         self.popsize = popsize
 
         self.start_time = dt.now()
-        self._step = 0
+        self.nstep_ = 0
+        self.nit_ = 0
 
         ## Initiate population
         # self.population is list of lists like a 3d array of shape (nniche, popsize, ndim)        
         self.Initiate_population(self.x0)
         del self.x0
+        apply_integrality(self.population, self.integrality, self.lb, self.ub)
         apply_bounds_vec(self.population, self.lb, self.ub)
+        
+        self.optimal_obj += self.violation_factor * self.init_violation
+        del self.init_violation
         
         # evaluate fitness of initial population
         self.Evaluate_objective()
         self.Update_optimum()
-        self.Evaluate_feasibility()
+        self.Evaluate_noptimality()
         self.Evaluate_fitness()
+        self.Evaluate_diversity()
         
         self._initiated = True
         
-    @keeptime("Initiate_population", on_switch)
+    # @keeptime("Initiate_population", on_switch)
     def Initiate_population(self, x0):
         self.population = np.empty((self.nniche, self.popsize, self.ndim))
         self.objective = np.empty((self.nniche, self.popsize), dtype=np.float64)
-        self.feasibility = np.empty((self.nniche, self.popsize), dtype=np.bool_)
+        self.noptimality = np.empty((self.nniche, self.popsize), dtype=np.bool_)
         self.fitness = np.empty((self.nniche, self.popsize), dtype=np.float64)
         self.centroids = np.empty((self.nniche, self.ndim), np.float64)
-        self.niche_elites = np.empty((self.nniche-1, self.ndim))
-        
+        self.niche_elites = np.empty((self.nniche-1, 1, self.ndim))
+        self.unselfish_niche_elite = 0.0
+        self.violation = np.zeros((self.nniche, self.popsize), dtype=np.float64)
+        self.penalized_objective = np.empty((self.nniche, self.popsize), dtype=np.float64)
+
         if hasattr(x0, "__call__"):
             for i in range(self.nniche):
                 for j in range(self.popsize):
@@ -174,17 +228,22 @@ class Problem:
             else: # x0.shape[1] == 1
                 sigma = 0.01*(self.ub-self.lb)
                 clone_parents(self.population, x0)
-                self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.boolean_mask)
+                self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.bool_dtype)
                 apply_bounds_vec(self.population, self.lb, self.ub)
                 
-    @keeptime("Add_niche", on_switch)
+    # @keeptime("Add_niche", on_switch)
     def Add_niche(self, new_niche):
         self.population = Add_niche_to_array(self.population, new_niche)
         self.objective = Add_niche_to_array(self.objective, new_niche)
+        self.penalized_objective = Add_niche_to_array(self.penalized_objective, new_niche)
         self.fitness = Add_niche_to_array(self.fitness, new_niche)
-        self.feasibility = Add_niche_to_array(self.feasibility, new_niche)
+        self.noptimality = Add_niche_to_array(self.noptimality, new_niche)
+        self.violation = Add_niche_to_array(self.violation, new_niche)
+        self.violation[:, :] = 0.0
+        
         self.centroids = np.zeros((self.nniche + new_niche, self.ndim))
-        self.niche_elites = np.empty((self.nniche + new_niche - 1, self.ndim))
+        self.niche_elites = np.empty((self.nniche + new_niche - 1, 1, self.ndim))
+        self.unselfish_niche_elite = 0.0
         
         if self.nniche < self.ndim + 1 or self.ndim == 1 or self.new_niche_heuristic is False:
             for i in range(self.nniche, self.nniche + new_niche):
@@ -224,13 +283,20 @@ class Problem:
                     self.population[nn_idx, j] = self.population[nn_idx, 0]
 
             sigma = 0.1*(self.ub-self.lb)
-            self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.boolean_mask)
+            self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.bool_dtype)
             apply_bounds_vec(self.population, self.lb, self.ub)
         
-        self.Evaluate_objective(new_niche)
+        self.Evaluate_newniche_objectives(new_niche)
         self.nniche += new_niche
         self.Evaluate_fitness()
-        
+
+        if self.log is not None: 
+            self.nobjective_printer._flush()
+            self.noptimality_printer._flush()
+            self.nfitness_printer._flush()
+            self.diversity_printer._flush()
+            if self.log_level == "detailed":
+                self.evolution_printer._flush()
 
         return 
     
@@ -244,7 +310,7 @@ class Problem:
         
         _select_parents(
                 safe_parents, self.population, self.fitness, self.objective, 
-                self.feasibility, elitek, tournk, tournsize, 
+                self.noptimality, elitek, tournk, tournsize, 
                 self.rng, self.maximize, self.stable)
         
         for i in range(self.nniche):
@@ -253,12 +319,11 @@ class Problem:
         
         return
     
-    @keeptime("Step", on_switch)
+    # @keeptime("Step", on_switch)
     def Step(
             self, 
             maxiter: int|float = np.inf, # max no of iterations in this step
             popsize: int = 100, # max no of individuals in each niche
-            niche_elitism: bool = True, # clone fittest parent in each niche
             elitek: int|float = 0.1, # number of parents selected as absolute best
             tournk: int|float = 0.9, # number of parents selected via tournament
             tournsize: int = 4, # tournament size parameter
@@ -266,12 +331,21 @@ class Problem:
             sigma: float|tuple[float] = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
             crossover: float|tuple[float] = 0.4, # crossover probability
             slack: float = np.inf, # noptimal slack in range (1.0, inf)
+            violation_factor: float = None, # penalty multiplier for constraint violation
+            niche_elitism: str = None, # clone fittest parent in each niche
             new_niche: int = 0, 
             new_niche_heuristic: bool = True,
             disp_rate: int = 0,
             convergence: Callable[..., bool]|list[Callable[..., bool]] = None, 
             callback: Callable[..., ...] = None,
             ):
+        if violation_factor is None: 
+            self.violation_factor = float(self.constraint_violation)
+        else: 
+            if bool(violation_factor) != self.constraint_violation:
+                warnings.warn("violation_factor ignored when constraint_violation = True", UserWarning)
+            self.violation_factor = violation_factor
+        
         if not self._initiated:
             if not new_niche > 0:
                 raise Exception("""Supply `new_niche: int > 0` to initiate problem.""" )
@@ -310,7 +384,9 @@ class Problem:
             self.popsize = popsize
             self.population = np.empty((self.nniche, self.popsize, self.ndim), dtype=np.float64)
             self.objective = np.empty((self.nniche, self.popsize), dtype=np.float64)
-            self.feasibility = np.empty((self.nniche, self.popsize), dtype=np.bool_)
+            self.penalized_objective = np.empty((self.nniche, self.popsize), dtype=np.float64)
+            self.violation = np.zeros((self.nniche, self.popsize), dtype=np.float64)
+            self.noptimality = np.empty((self.nniche, self.popsize), dtype=np.bool_)
             self.fitness = np.empty((self.nniche, self.popsize), dtype=np.float64)
             
         ### Hyperparameters related to parent breeding
@@ -318,6 +394,7 @@ class Problem:
         self.sigma = sigma # adjust sigma for unnormalised bounds
         self.crossover = crossover
         self.niche_elitism = niche_elitism
+        assert niche_elitism in (None, "selfish", "unselfish")
         
         ### Near-optimal definitions
         self.slack = slack
@@ -328,27 +405,29 @@ class Problem:
             
         ### Program Control
         if convergence is None:
-            self.convergence = Maxiter(maxiter)
+            self.convergence = tc.Maxiter(maxiter)
         elif hasattr(convergence, "__iter__"):
-            self.convergence = MultiConvergence(
-                [Maxiter(maxiter), 
+            self.convergence = tc.MultiConvergence(
+                [tc.Maxiter(maxiter), 
                  *convergence,
                  ]
                 )
         else: 
-            self.convergence = MultiConvergence(
-                [Maxiter(maxiter), 
+            self.convergence = tc.MultiConvergence(
+                [tc.Maxiter(maxiter), 
                  convergence,
                  ]
                 )
         self.Callback = callback
         
+        self.initstep = True
+        self._i = 0
+        
         if disp_rate > 0:
-            self._i = 0
             while not self.convergence(self): 
                 self.Loop()
-                self._i+=1
                 if self.maximize:
+                    # improve this
                     best = [round(float(max(obj)),2) for obj in self.objective]
                 else:
                     best = [round(float(min(obj)),2) for obj in self.objective]
@@ -357,20 +436,20 @@ class Problem:
                 #       , end="\r")
                 if self._i % disp_rate == 0:
                     print(
-    f"iteration {self._i}. Current_best: {best}. Time: {dt.now()-self.start_time}.")
+                        # improve this
+    f"iteration {self.nit_}. Current_best: {best}. Time: {dt.now()-self.start_time}.")
 
         else: 
-            self._i = 0
             while not self.convergence(self): 
                 self.Loop()
-                self._i += 1
-        self._step+=1
+        self.nstep_+=1
     
-    @keeptime("Loop", on_switch)        
+    # @keeptime("Loop", on_switch)        
     def Loop(self):
         
-        if self._i != 0:
+        if self.initstep is False:
             self.Select_parents()
+        self.initstep = False
         
         self.mutationInst = dither_instance(self.mutation, self.rng)
         self.crossoverInst = dither_instance(self.crossover, self.rng)
@@ -379,52 +458,108 @@ class Problem:
         self.Generate_offspring()
         self.Evaluate_objective()
         self.Update_optimum()
-        self.Evaluate_feasibility()
+        self.Evaluate_noptimality()
         self.Evaluate_fitness()
+        self.Evaluate_diversity()
+        
+# =============================================================================
+        if self.log:
+            self.Print_diversity()
+            self.Return_noptima()
+            self.nobjective_printer(np.atleast_2d(self.nobjective))
+            self.noptimality_printer(np.atleast_2d(self.nnoptimality))
+            self.nfitness_printer(np.atleast_2d(self.nfitness))
+            if self.log_level == "detailed":
+                output = np.concatenate((
+                    self.nit_*np.ones((self.nniche, 1), int), 
+                    np.atleast_2d(np.array(
+                        ["optimum"] + [f"nopt{n}" for n in range(1, self.nniche)]
+                        )).T,
+                    np.atleast_2d(self.nobjective).T, 
+                    np.atleast_2d(self.nfitness).T, 
+                    self.noptima
+                    ), axis=1)
+                self.evolution_printer(output)
+# =============================================================================
         if self.Callback is not None:
             self.Callback(self)
+        self._i += 1
+        self.nit_ += 1
+            
         
-        
-    @keeptime("Terminate", on_switch)
+    # @keeptime("Terminate", on_switch)
     def Terminate(self):
         self.Run_statistics()
         self.Return_noptima()
-        return self.noptima, self.nfitness, self.nobjective, self.nfeasibility
+        if self.log is not None: 
+            self.noptima_printer = Fileprinter(
+                file_name = self.log+"-noptima.csv", 
+                save_freq = 1, 
+                header = ["optimum"] + [f"nopt{n}" for n in range(1, self.nniche)],
+                resume = False,
+                )
+            self.noptima_printer(np.atleast_2d(self.nobjective))
+            self.noptima_printer(np.atleast_2d(self.nnoptimality))
+            self.noptima_printer(self.noptima.T)
+        return self.noptima, self.nfitness, self.nobjective, self.nnoptimality
 
-    @keeptime("Update_optimum", on_switch)
+    # @keeptime("Update_optimum", on_switch)
     def Update_optimum(self):
     # =============================================================================
     # This can be njitted and refactored for speed up
     # =============================================================================
         if self.maximize:
-            if self.objective.max() > self.optimal_obj:
-                for n in range(self.nniche):
-                    if self.objective[n].max() < self.optimal_obj:
-                        continue
-                    self.optimal_obj = self.objective[n].max()
-                    self.optimum = self.population[n, self.objective[n].argmax(), :].copy()
+            if self.constraint_violation:
+                feasible_objectives = self.objective[(self.violation == 0.0)]
+                if feasible_objectives.max() > self.optimal_obj:
+                    for n in range(self.nniche):
+                        if feasible_objectives[n].max() < self.optimal_obj:
+                            continue
+                        self.optimal_obj = feasible_objectives[n].max()
+                        self.optimum = self.population[n, feasible_objectives[n].argmax(), :].copy()
+            else:
+                if self.objective.max() > self.optimal_obj:
+                    for n in range(self.nniche):
+                        if self.objective[n].max() < self.optimal_obj:
+                            continue
+                        self.optimal_obj = self.objective[n].max()
+                        self.optimum = self.population[n, self.objective[n].argmax(), :].copy()
+            self.noptimal_obj = self.optimal_obj * (1-(self.slack - 1))
         else: 
-            if self.objective.min() < self.optimal_obj:
-                for n in range(self.nniche):
-                    if self.objective[n].min() > self.optimal_obj:
-                        continue
-                    self.optimal_obj = self.objective[n].min()
-                    self.optimum = self.population[n, self.objective[n].argmin(), :].copy()
+            if self.constraint_violation:
+                feasible_objectives = self.objective[(self.violation == 0.0)]
+                if feasible_objectives.min() > self.optimal_obj:
+                    for n in range(self.nniche):
+                        if feasible_objectives[n].min() < self.optimal_obj:
+                            continue
+                        self.optimal_obj = feasible_objectives[n].min()
+                        self.optimum = self.population[n, feasible_objectives[n].argmin(), :].copy()
+            else:
+                if self.objective.min() < self.optimal_obj:
+                    for n in range(self.nniche):
+                        if self.objective[n].min() > self.optimal_obj:
+                            continue
+                        self.optimal_obj = self.objective[n].min()
+                        self.optimum = self.population[n, self.objective[n].argmin(), :].copy()
+            self.noptimal_obj = self.optimal_obj*self.slack
 
-    @keeptime("Return_noptima", on_switch)
+
+    # @keeptime("Return_noptima", on_switch)
     def Return_noptima(self):
         if self.maximize:
-            nindex = [self.objective[0].argmax()]
+            nindex = [self.objective[0][self.violation[0] == 0].argmax()]
         else: 
-            nindex = [self.objective[0].argmin()]
+            nindex = [self.objective[0][self.violation[0] == 0].argmin()]
             
-        nindex += list(best_nindex(self.fitness, self.feasibility))
+        nindex += list(best_nindex(self.fitness, self.noptimality, self.violation))
             
-        self.noptima = [self.population[0, nindex[0]]]
-        self.noptima += [self.population[n, nindex[n]] for n in range(1, self.nniche)]
-        self.nfitness = [self.fitness[n, nindex[n]] for n in range(self.nniche)]
-        self.nobjective = [self.objective[n, nindex[n]] for n in range(self.nniche)]
-        self.nfeasibility = [self.feasibility[n, nindex[n]] for n in range(self.nniche)]
+        self.noptima = np.array(
+            [self.population[0, nindex[0]]] + [self.population[n, nindex[n]] for n in range(1, self.nniche)]
+            )
+
+        self.nfitness = np.array([self.fitness[n, nindex[n]] for n in range(self.nniche)])
+        self.nobjective = np.array([self.objective[n, nindex[n]] for n in range(self.nniche)])
+        self.nnoptimality = np.array([self.noptimality[n, nindex[n]] for n in range(self.nniche)])
         
     
     def Run_statistics(self):
@@ -433,26 +568,33 @@ class Problem:
 
     def Select_parents(self):
         _select_parents(
-                self.parents, self.population, self.fitness, self.objective, 
-                self.feasibility, self.elitek, self.tournk, self.tournsize, 
+                self.parents, self.population, self.fitness, self.penalized_objective, 
+                self.noptimality, self.elitek, self.tournk, self.tournsize, 
                 self.rng, self.maximize, self.stable)
     
-    @keeptime("Generate_offspring", on_switch)
+    # @keeptime("Generate_offspring", on_switch)
     def Generate_offspring(self):
+        if self.niche_elitism == "selfish":
+            self.niche_elites = populate_niche_elites(
+                self.niche_elites, self.population, self.fitness, self.noptimality, self.penalized_objective, self.maximize)
+        elif self.niche_elitism == "unselfish":
+            niche_elites = np.empty_like(self.niche_elites)
+            fitness = np.empty((self.nniche-1, 1))
+            niche_elites = populate_niche_elites(
+                self.niche_elites, self.population, self.fitness, self.noptimality, self.penalized_objective, self.maximize)
+            _evaluate_fitness(fitness, niche_elites, np.vstack((self.optimum, niche_elites[:, 0, :])))
+            if np.mean(fitness) > self.unselfish_niche_elite:
+                self.unselfish_niche_elite = np.mean(fitness)
+                njit_deepcopy(self.niche_elites, niche_elites)
         clone_parents(self.population, self.parents)
         
-        if self.niche_elitism:
-            # We do not wan a "hall of fame" or such since fitness is not independent 
-            self.niche_elites = populate_niche_elites(
-                self.niche_elites, self.population, self.fitness, self.feasibility, self.objective, self.maximize)
-             
-        cx_vec(self.population, self.crossoverInst, self.cx, self.rng)
-        self.mutFunction(self.population, self.sigmaInst, self.mutationInst, self.rng, self.integrality, self.boolean_mask)
+        mh.cx_vec(self.population, self.crossoverInst, self.cx, self.rng)
+        self.mutFunction(self.population, self.sigmaInst, self.mutationInst, self.rng, self.integrality, self.bool_dtype)
         apply_bounds_vec(self.population, self.lb, self.ub)
         
         self.population[0, 0, :] = self.optimum
         
-        if self.niche_elitism:
+        if self.niche_elitism in ("selfish", "unselfish"):
             for i in range (1, self.nniche):
                 self.population[i, 0, :] = self.niche_elites[i-1, :]
 
@@ -464,34 +606,85 @@ class Problem:
         """
         find_centroids(self.centroids, self.population)
         _evaluate_fitness(
-            self.fitness, self.population, self.centroids, self.objective, self.feasibility)
+            self.fitness, self.population, self.centroids)
 
-    @keeptime("Evaluate_objective", on_switch)        
-    def Evaluate_objective(self, new_niche=None):
+    # @keeptime("Evaluate_objective", on_switch)        
+    def Evaluate_objective(self):
         """
         Calculates the objective function for each individual
         """
-        if new_niche is None:
-            if self.vectorized:
+        if self.vectorized:
+            if self.constraint_violation:
+                for n in range(self.nniche):
+                    self.objective[n], self.violation[n] = self.func(
+                        self.population[n], *self.fargs, **self.fkwargs)
+            else:
                 for n in range(self.nniche):
                     self.objective[n] = self.func(self.population[n], *self.fargs, **self.fkwargs)
-            else: 
-                for n in range(self.nniche):
-                    for i in range(self.popsize):
-                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
         else: 
-            if self.vectorized:
+            if self.constraint_violation:
+                for n in range(self.nniche):
+                    for i in range(self.popsize):
+                        self.objective[n, i], self.violation[n, i] = self.func(
+                            self.population[n, i], *self.fargs, **self.fkwargs)
+            else:
+                for n in range(self.nniche):
+                    for i in range(self.popsize):
+                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
+        Apply_penalties(self.penalized_objective, self.objective, self.violation, self.violation_factor)
+                
+    def Evaluate_newniche_objectives(self, new_niche):
+        if self.vectorized:
+            if self.constraint_violation: 
+                for n in range(self.nniche, self.nniche + new_niche):
+                    self.objective[n], self.violation[n] = self.func(
+                        self.population[n], *self.fargs, **self.fkwargs)
+            else:
                 for n in range(self.nniche, self.nniche + new_niche):
                     self.objective[n] = self.func(self.population[n], *self.fargs, **self.fkwargs)
-            else: 
+        else: 
+            if self.constraint_violation: 
+                for n in range(self.nniche, self.nniche + new_niche):
+                    for i in range(self.popsize):
+                        self.objective[n, i], self.violation[n, i] = self.func(
+                            self.population[n, i], *self.fargs, **self.fkwargs)
+                    self.violation *= self.violation_factor
+                    self.penalized_objective = self.objective + self.violation
+            else:
                 for n in range(self.nniche, self.nniche + new_niche):
                     for i in range(self.popsize):
                         self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
+        Apply_penalties(self.penalized_objective, self.objective, self.violation, self.violation_factor)
 
-    def Evaluate_feasibility(self):
-        _evaluate_feasibility(
-            self.feasibility, self.population, self.objective, self.noptimal_obj, self.maximize)
+    def Evaluate_noptimality(self):
+        _evaluate_noptimality(
+            self.noptimality, self.population, self.objective, self.noptimal_obj, self.maximize)
    
+    def Print_diversity(self):
+        result = [self.nit_]
+        result.append(dy.VESA(self.centroids))
+        _std = dy.std(self.fitness, self.noptimality)
+        result.append(np.mean(_std))
+        result.append(np.min(_std))
+        result.append(np.max(_std))
+        _var = dy.var(self.fitness, self.noptimality)
+        result.append(np.mean(_var))
+        result.append(np.min(_var))
+        result.append(np.max(_var))
+        result.append(dy.sumOfFitness(self.fitness, self.noptimality))
+        result.append(dy.meanOfFitness(self.fitness, self.noptimality))
+
+        self.diversity_printer(np.atleast_2d(np.array(result)))
+        
+    def Evaluate_diversity(self):
+        self._vesa = dy.VESA(self.centroids)
+        # Should this be noptimality * (violation>0)??
+        _std = dy.std(self.fitness, self.noptimality)
+        self._mean_std_fit = np.mean(_std)
+        _var = dy.var(self.fitness, self.noptimality)
+        self._mean_var_fit = np.mean(_var)
+        self._mean_fit = dy.meanOfFitness(self.fitness, self.noptimality)
+    
 #%%
     
 def islistlike(obj):
@@ -506,29 +699,47 @@ def isfunclike(obj):
     return callable(obj)
 
 @njit
+def Apply_penalties(penalized_objective, objective, violation, violation_factor):
+    penalized_objective[:, :] = objective + violation * violation_factor # inplace - propogates up to Problem
+
+@njit
 def Add_niche_to_array(old_array, new_niche):
-    new_array = np.empty(
-        (old_array.shape[0] + new_niche, 
-         old_array.shape[1], 
-         old_array.shape[2],
-         ), 
-        dtype=old_array.dtype)
-    for i in range(old_array.shape[0]):
-        for j in range(old_array.shape[1]):
-            for k in range(old_array.shape[2]):
-                new_array[i, j, k] = old_array[i, j, k]
+    ndim = old_array.ndim
+    if ndim == 3:
+        new_array = np.empty(
+            (old_array.shape[0] + new_niche, 
+             old_array.shape[1], 
+             old_array.shape[2],
+             ), 
+            dtype=old_array.dtype)
+        for i in range(old_array.shape[0]):
+            for j in range(old_array.shape[1]):
+                for k in range(old_array.shape[2]):
+                    new_array[i, j, k] = old_array[i, j, k]
+    elif ndim == 2:
+        new_array = np.empty(
+            (old_array.shape[0] + new_niche, 
+             old_array.shape[1], 
+             ), 
+            dtype=old_array.dtype)
+        for i in range(old_array.shape[0]):
+            for j in range(old_array.shape[1]):
+                    new_array[i, j] = old_array[i, j]
+    else: 
+        raise Exception
     return new_array
 
 @njit 
-def best_nindex(fitness, feasibility):
+def best_nindex(fitness, noptimality, violation):
     # first niche reserved for optimisation
+    feasible_mask = (violation == 0) * noptimality
     indices = np.zeros(fitness.shape[0] - 1, np.int64)
     for i in range(len(indices)):
         i_o = i + 1 
         _best = -np.inf
-        if feasibility[i_o].any():
+        if feasible_mask[i_o].any():
             for j in range(fitness.shape[1]):
-                if feasibility[i_o, j] is True: 
+                if feasible_mask[i_o, j] is True: 
                     if fitness[i_o, j] > _best:
                         _best = fitness[i_o, j]
                         indices[i] = j
@@ -547,9 +758,9 @@ def njit_deepcopy(new, old):
     for i in range(flat_old.shape[0]):
         flat_new[i] = flat_old[i]
     
-@keeptime("Evaluate_fitness", on_switch)        
+# @keeptime("Evaluate_fitness", on_switch)        
 @njit
-def _evaluate_fitness(fitness, population, centroids, objective, feasibility):
+def _evaluate_fitness(fitness, population, centroids):
     for i in range(population.shape[0]):
         for j in range(population.shape[1]):
             fitness[i, j] = np.inf
@@ -561,32 +772,32 @@ def _evaluate_fitness(fitness, population, centroids, objective, feasibility):
                     euclideanDistance(population[i, j], centroids[c])
                     )
 
-@keeptime("Select_parents", on_switch)
+# @keeptime("Select_parents", on_switch)
 @njit
 def _select_parents(
-        parents, population, fitness, objective, feasibility, elitek, tournk, tournsize, rng, maximize, stable):
+        parents, population, fitness, objective, noptimality, elitek, tournk, tournsize, rng, maximize, stable):
     
-    parents[0, :elitek, :] = selBest(population[0, :, :], objective[0, :], elitek, maximize, stable)
-    parents[0, elitek:, :] = selTournament(
+    parents[0, :elitek, :] = mh.selBest(population[0, :, :], objective[0, :], elitek, maximize, stable)
+    parents[0, elitek:, :] = mh.selTournament(
         population[0, :, :], objective[0, :], tournk, tournsize, rng, maximize)
         
     for i in range(1, parents.shape[0]):
-        parents[i, :elitek, :] = selBest_fallback(
-            population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], elitek, maximize, stable)
-        parents[i, elitek:, :] = selTournament_fallback(
-            population[i, :, :], fitness[i, :], feasibility[i, :], objective[i, :], tournk, tournsize, rng, maximize)
+        parents[i, :elitek, :] = mh.selBest_fallback(
+            population[i, :, :], fitness[i, :], noptimality[i, :], objective[i, :], elitek, maximize, stable)
+        parents[i, elitek:, :] = mh.selTournament_fallback(
+            population[i, :, :], fitness[i, :], noptimality[i, :], objective[i, :], tournk, tournsize, rng, maximize)
 
-@keeptime("Evaluate_feasibility", on_switch)        
+# @keeptime("Evaluate_noptimality", on_switch)        
 @njit
-def _evaluate_feasibility(feasibility, population, objective, noptimal_obj, maximize):
+def _evaluate_noptimality(noptimality, population, objective, noptimal_obj, maximize):
     if maximize:
         for i in range(population.shape[0]):
             for j in range(population.shape[1]):
-                feasibility[i, j] = objective[i, j] > noptimal_obj
+                noptimality[i, j] = objective[i, j] > noptimal_obj
     else: 
         for i in range(population.shape[0]):
             for j in range(population.shape[1]):
-                feasibility[i, j] = objective[i, j] < noptimal_obj
+                noptimality[i, j] = objective[i, j] < noptimal_obj
     
 @njit
 def njit_cdist(A, B):
@@ -611,290 +822,15 @@ def njit_cdist(A, B):
     # Handle potential floating-point inaccuracies that result in small negative values
     dist_sq[dist_sq < 0] = 0
     return np.sqrt(dist_sq)
-    
-@njit
-def euclideanDistance(p1, p2):
-    """Euclidean distance"""
-    return sum((p1-p2)**2)**0.5
-    
-@njit
-def pointwiseDistance(p1, p2):
-    return min(np.abs(p1-p2))
-    
-@njit
-def mutFloat(item, sigma, rng):
-    """ gaussian mutation for single variable """
-    return rng.normal(item, sigma)
 
 @njit
-def mutInt(item, sigma, rng):
-    """Integer mutation for single variable"""
-    return round(rng.normal(item, sigma))
-
-@njit
-def mutBool(item,):
-    """Boolean mutation for single variable"""
-    return 1.0 - item
-
-@njit 
-def mutGaussianMixedVec(population, sigma, indpb, rng, integrality, boolean_mask, ignore_first=True):
-    start = 1 if ignore_first is True else 0
-    for i in range(population.shape[0]):
-        for j in range(start, population.shape[1]):
-            for k in range(population.shape[2]):
-                if rng.random() < indpb:
-                    if boolean_mask[k] is True:
-                        population[i, j, k] = mutBool(population[i, j, k]) 
-                    elif integrality[k] is True:
-                        population[i, j, k] = mutInt(population[i, j, k], sigma[k], rng)
-                    else: 
-                        population[i, j, k] = mutFloat(population[i, j, k], sigma[k], rng)
-
-@njit
-def mutGaussianFloatVec(population, sigma, indpb, rng, integrality, boolean_mask, ignore_first=True):
-    start = 1 if ignore_first is True else 0
-    for i in range(population.shape[0]):
-        for j in range(start, population.shape[1]):
-            for k in range(population.shape[2]):
-                if rng.random() < indpb:
-                    population[i, j, k] = mutFloat(population[i, j, k], sigma[k], rng)
-
-@njit
-def cx_vec(population, crossoverInst, cx, rng):
-    for i in range(population.shape[0]):
-        # shuffle parents for mating
-        rng.shuffle(population[i])
-        
-        for ind1, ind2 in zip(population[i, ::2], population[i, 1::2]):
-            # crossover probability
-            if rng.random() < crossoverInst:
-                # Apply crossover
-                cx(ind1, ind2, rng)
-
-@njit
-def _do_cx(ind1, ind2, index1, index2):
-    buffer = 0.0
-    # modify in place
-    for i in range(index1, index2):
-        buffer = ind1[i]
-        ind1[i] = ind2[i]
-        ind2[i] = buffer   
-
-@njit
-def cxOnePoint(ind1, ind2, rng):
-    index1 = rng.integers(0, len(ind1))
-    _do_cx(ind1, ind2, index1, len(ind1))
-    
-@njit
-def cxTwoPoint(ind1, ind2, rng):
-    # +1 / -1 adjustments are made to ensure there is always a crossover 
-    # only valid for ndim >= 3
-    index1 = rng.integers(0, len(ind1)-1)
-    index2 = rng.integers(index1+1, len(ind1))
-    _do_cx(ind1, ind2, index1, index2)
-
-@keeptime("_selT_draw_indices", on_switch)
-@njit 
-def _selT_draw_indices(indices, ub, rng):
-    for i in range(indices.size):
-        indices[i] = rng.integers(0, ub)
-
-@keeptime("selTournament_fallback", on_switch)
-@njit
-def selTournament_fallback(niche, fitness, feasibility, objective, n, tournsize, rng, maximize):
-    """select on fitness preferred. fitness always maximised. 
-    objective max/minimized based on value of `maximize`"""
-    selected = np.empty((n, niche.shape[1]), np.float64)
-    indices = np.empty(tournsize, np.int64)
-    feasibility_threshold = tournsize / 2 
-    
-    for m in range(n):
-        _selT_draw_indices(indices, niche.shape[0], rng)
-        
-        _feas = 0
-        for idx in indices:
-            if feasibility[idx]:
-                _feas+=1 
-        
-        if _feas <= feasibility_threshold: # mostly infeasible
-            _selected_idx = _do_selTournament(objective, maximize, indices)
-        else: # mostly feasible
-            _selected_idx = _do_selTournament(fitness, True, indices)
-
-        selected[m, :] = niche[_selected_idx, :]
-    
-    return selected 
-
-@keeptime("selTournament", on_switch)
-@njit
-def selTournament(niche, objective, n, tournsize, rng, maximize):
-    """objective max/minimized based on value of `maximize`"""
-    selected = np.empty((n, niche.shape[1]), np.float64)
-    indices = np.empty(tournsize, np.int64)
-    
-    for m in range(n):
-        _selT_draw_indices(indices, niche.shape[0], rng)
-        _selected_idx = _do_selTournament(objective, maximize, indices)
-        selected[m, :] = niche[_selected_idx, :]
-
-    return selected # , selected_value
-
-@njit 
-def _do_selTournament(criteria, maximize, indices):
-    if maximize:
-        _selected_idx = 0
-        _best = -np.inf
-        for idx in indices:
-            if criteria[idx] > _best:
-                _selected_idx = idx
-                _best = criteria[idx]
-    else:
-        _selected_idx = 0
-        _best = np.inf
-        for idx in indices:
-            if criteria[idx] < _best:
-                _selected_idx = idx
-                _best = criteria[idx]
-    return _selected_idx 
-
-@njit
-def _stabilise_sort(indices, values):
-    """Sorts blocks of duplicate values within a list of indices
-    in-place based on the index values for a stable order."""
-    i = 1
-    while i < len(indices):
-        # Check if the value at the current index is the same as the previous one
-        if values[indices[i]] == values[indices[i-1]]:
-            # Found the start of a block of equal-valued items
-            start_block = i - 1
-            # Find the end of the block
-            while i < len(indices) and values[indices[i]] == values[indices[start_block]]:
-                i += 1
-            end_block = i
-            # Sort the slice of indices corresponding to the duplicates.
-            # This provides a stable, deterministic order.
-            indices[start_block:end_block].sort()
-        else:
-            i += 1
-    return indices
-
-@keeptime("selBest_fallback", on_switch)
-@njit
-def selBest_fallback(niche, fitness, feasibility, objective, n, maximize, stable):
-    """ Selects best `n` individuals based on fitness.
-    If there are not `n` feasible individuals, selects on objective"""
-    
-    _feas = 0 
-    for i in range(len(feasibility)):
-        if feasibility[i]:
-            _feas += 1 
-    
-# =============================================================================
-### Alteranative code block. Much slower 
-#     if _feas < n: # mostly infeasible
-#         return selBest(niche, objective, n, maximize, stable)
-#     
-#     selected = np.empty((n, niche.shape[1]))
-#     indices = np.empty(n, np.int64)
-#     
-#     feasible_indices = np.where(feasibility)[0]
-#     feasible_fitness = fitness[feasible_indices]
-#     
-#     if _feas == n: # edge case breaks numba but also we can skip and be more efficient anyway
-#         indices[:] = feasible_indices
-#     elif stable: 
-# =============================================================================
-
-# =============================================================================
-#   This code block makes the entire algorithm better than 10x faster 
-#   Requires a slightly dodgy alteration of program logic with _feas < / <= n
-#   But I think this simplification is insignificant 
-    if _feas <= n: # mostly infeasible
-        return selBest(niche, objective, n, maximize, stable)
-    
-    selected = np.empty((n, niche.shape[1]))
-    indices = np.empty(n, np.int64)
-    
-    feasible_indices = np.where(feasibility)[0]
-    feasible_fitness = fitness[feasible_indices]
-    
-    if stable: 
-# =============================================================================
-        _indices = np.argsort(feasible_fitness)
-        _stabilise_sort(_indices, feasible_fitness)
-        indices[:] = feasible_indices[_indices[-n:]]
-    else: 
-        indices[:] = feasible_indices[np.argpartition(feasible_fitness, -n)[-n:]]
-    
-    for j in range(n):
-        selected[j, :] = niche[indices[j], :]
-        
-    return selected 
-
-@keeptime("selBest", on_switch)
-@njit
-def selBest(niche, objective, n, maximize, stable):
-    selected = np.empty((n, niche.shape[1]))
-    indices = np.empty(n, np.int64)
-    
-    if stable:
-        _indices = np.argsort(objective)
-        _stabilise_sort(_indices, objective)
-        if maximize: 
-            indices[:] = _indices[-n:]
-        else: 
-            indices[:] = _indices[:n]
-    else: 
-        # This is much faster but does not preserve order 
-        if maximize:
-            indices = np.argpartition(objective, -n)[-n:]
-        else:
-            indices = np.argpartition(objective, n)[:n]   
-        
-    for j in range(n):
-        selected[j, :] = niche[indices[j], :]
-    
-    return selected 
-
-
-@keeptime("selBest1", on_switch)
-@njit
-def selBest1(niche, objective, maximize):
-    """Special case of selBest where n=1"""
-    if maximize:
-        index = objective.argmax()
-    else:
-        index = objective.argmin()
-    return niche[index, :] 
-
-@keeptime("selBest_fallback", on_switch)
-@njit
-def selBest1_fallback(niche, fitness, feasibility, objective, maximize):
-    """ Special case of selBest_fallback where n = 1
-    Selects best `n` individuals based on fitness.
-    If there are not `n` feasible individuals, selects on objective"""
-    
-    _feas = False
-    for i in range(len(feasibility)):
-        if feasibility[i]:
-            _feas = True 
-            break
-    
-    if not _feas:
-        return selBest1(niche, objective, maximize)
-    else: 
-        index = fitness.argmax()
-        
-    return niche[index, :] 
-
-@njit
-def populate_niche_elites(niche_elites, population, fitness, feasibility, objective, maximize):
+def populate_niche_elites(niche_elites, population, fitness, noptimality, p_objective, maximize):
     for i in range(1, 1 + niche_elites.shape[0]):
-        niche_elites[i-1, :] = selBest1_fallback(
-            population[i], fitness[i], feasibility[i], objective[i], maximize)
+        niche_elites[i-1, 0, :] = mh.selBest1_fallback(
+            population[i], fitness[i], noptimality[i], p_objective[i], maximize)
     return niche_elites
 
-@keeptime("find_centroids", on_switch)
+# @keeptime("find_centroids", on_switch)
 @njit
 def find_centroids(centroids, population):
     centroids[:,:] = 0.0
@@ -914,7 +850,7 @@ def dither_instance(parameter, rng):
 def _dither(lower, upper, rng):
     return rng.uniform(lower, upper)
 
-@keeptime("apply_bounds", on_switch)
+# @keeptime("apply_bounds", on_switch)
 @njit
 def apply_bounds(ind, lb, ub):
     for i in range(len(ind)):
@@ -928,7 +864,16 @@ def apply_bounds_vec(population, lb, ub):
         for j in range(population.shape[1]):
             for k in range(population.shape[2]):
                 population[i, j, k] = min(ub[k], max(lb[k], population[i, j, k]))
-                
+
+@njit
+def apply_integrality(population, integrality, lb, ub):
+    for i in range(population.shape[0]):
+        for j in range(population.shape[1]):
+            for k in range(population.shape[2]):
+                if not integrality[k]:
+                    continue
+                population[i, j, k] = round(population[i, j, k])
+
 @njit
 def clone_parents(population, parents):
     nparents = parents.shape[1]
@@ -945,133 +890,179 @@ def clone_parents(population, parents):
 
     
 if __name__ == "__main__":
-
-
+    
     @njit
     def Objective(values_array): 
         """ Vectorized = True """
-        # For the first test, ndim=2 and works for a function with two decision variables
-        
         z = 2 + np.zeros(values_array.shape[0], np.float64)
-        
-        # Perform summation with a guaranteed order
         for i in range(values_array.shape[0]):
             for j in range(values_array.shape[1]):
                 z[i] += np.sin(19 * np.pi * values_array[i, j]) + values_array[i, j] / 1.7
-        return z        
+        return z
         
-    # @njit
-    # def Objective(values_array): 
-    #     """ Vectorized = True """
-    #     # For the first test, ndim=2 and works for a function with two decision variables
-    #     z = np.sum(np.sin(19 * np.pi * values_array) + values_array / 1.7, axis=1) + 2
-    #     return z
+    @njit
+    def feasibility_wrapper(values_array):
+        objective = Objective(values_array)
+        constraint_violation = np.zeros(objective.shape, np.float64)
+        return objective, constraint_violation
     
     # def Objective(x):
     #     return ((0.5*(x-0.55)**2 + 0.9)*np.sin(5*np.pi*x)**6)[0]
     
-    lb = 0*np.ones(2)
+    lb = 0*np.ones(2) 
     ub = 1*np.ones(2)
     
-    # alternatives = np.array([[0.021, 0.974],
-    #                [0.974, 0.021],
-    #                [0.443, 0.549]])
-    # x0 = np.dstack(tuple(np.repeat(alternatives[n], 100).reshape(2, 100).T for n in range(3))).transpose(2, 0, 1)
-    
-    # x0 = np.array([[[0.97374456, 0.97345396]], 
-    #                 [[0.02255059, 0.97683429]],
-    #                 [[0.97812274, 0.02309379]], 
-    #                 # [[0.76559229, 0.34602654]],
-    #                 ])
+    FILEPREFIX = "logs/testprob-z"
     
     problem = Problem(
+        # func=feasibility_wrapper,
         func=Objective,
         bounds = (lb, ub),
+        constraint_violation = False,
+        # constraint_violation = True,
         maximize = True, 
         vectorized = True,
+        log = FILEPREFIX,
+        log_freq = 500,
         # random_seed = 1,
         # x0 = x0,
         )
 
-    # problem.Step(
-    #     maxiter=400, 
-    #     popsize=800, 
-    #     elitek=0.5,
-    #     tournk=0.5,
-    #     tournsize=3,
-    #     mutation=0.5, 
-    #     sigma=(0.01, 0.4),
-    #     crossover=0.0, 
-    #     slack=1.12,
-    #     disp_rate=25,
-    #     niche_elitism = True, 
-    #     new_niche = 3,
-    #     )
-    # noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
-    # for n in range(problem.nniche): 
-    #     print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
-
-    NICHE_ELITISM = True
+    NNICHE = 6
 
     problem.Step(
-        maxiter=10, 
-        popsize=100, 
-        elitek=0.25,
+        maxiter=np.inf, 
+        popsize=int(500/NNICHE), 
+        elitek=0.055,
         tournk=-1,
         tournsize=2,
-        mutation=0.5, 
-        sigma=0.4,
-        crossover=0.3, 
+        mutation=0.1, 
+        sigma=1.0,
+        crossover=0.4, 
         slack=1.12,
         disp_rate=25,
-        niche_elitism = NICHE_ELITISM, 
-        new_niche = 3,
+        niche_elitism = "unselfish", 
+        new_niche = NNICHE,
+        convergence = tc.MultiConvergence( 
+            [tc.FixedValue(
+                0.0001, 
+                maximize=False, 
+                attribute="_mean_var_fit"
+                ),
+             tc.GradientStagnation(
+                 window=50, 
+                 improvement=0.01/50,
+                 maximize=True, 
+                 attribute="_vesa",
+                 ),
+            ],
+            how="and",
+            )
         )
-    noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
-    for n in range(problem.nniche): 
-        print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
-        
-        
-    # PrintTimekeeper(on_switch=on_switch)
-    print('-'*20)
     problem.Step(
-        maxiter=200, 
-        popsize=300, 
-        elitek=0.2,
+        maxiter=np.inf, 
+        popsize=int(500/NNICHE), 
+        elitek=0.055,
         tournk=-1,
         tournsize=2,
-        mutation=0.4, 
-        sigma=0.15,
-        crossover=0.3, 
+        mutation=0.1, 
+        sigma=1.0,
+        crossover=0.4, 
         slack=1.12,
-        # new_niche=1,
-        disp_rate=20,
-        niche_elitism = NICHE_ELITISM, 
+        disp_rate=25,
+        niche_elitism = "unselfish", 
+        new_niche = NNICHE,
+        new_niche_heuristic = False,
+        convergence = tc.MultiConvergence( 
+            [tc.FixedValue(
+                0.0001, 
+                maximize=False, 
+                attribute="_mean_var_fit"
+                ),
+             tc.GradientStagnation(
+                 window=50, 
+                 improvement=0.01/50,
+                 maximize=True, 
+                 attribute="_vesa",
+                 ),
+            ],
+            how="and",
+            )
         )
-    noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
+    
+    
+    noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
     for n in range(problem.nniche): 
-        print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
-    # PrintTimekeeper(on_switch=on_switch)
-    print('-'*20)
+        print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
 
-    problem.Step(
-        maxiter=10, 
-        popsize=1000, 
-        elitek=0.4,
-        tournk=-1,
-        tournsize=2,
-        mutation=0.5, 
-        sigma=0.005,
-        crossover=0.3, 
-        slack=1.12,
-        # new_niche=1,
-        disp_rate=5,
-        niche_elitism = NICHE_ELITISM, 
-        )
-    noptima, nfitness, nobjective, nfeasibility = problem.Terminate()
-    for n in range(problem.nniche): 
-        print(noptima[n], nfitness[n], nobjective[n], nfeasibility[n])
-    # PrintTimekeeper(on_switch=on_switch)
+
+        
+    # problem.Step(
+    #     maxiter=10, 
+    #     popsize=200, 
+    #     elitek=0.25,
+    #     tournk=-1,
+    #     tournsize=2,
+    #     mutation=0.5, 
+    #     sigma=0.4,
+    #     crossover=0.3, 
+    #     slack=1.12,
+    #     disp_rate=25,
+    #     niche_elitism=True, 
+    #     new_niche = 3,
+    #     )
+    # noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
+    # for n in range(problem.nniche): 
+    #     print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
+        
+        
+    # # PrintTimekeeper(on_switch=on_switch)
+    # print("-"*20)
+    # problem.Step(
+    #     maxiter=200, 
+    #     popsize=300, 
+    #     elitek=0.2,
+    #     tournk=-1,
+    #     tournsize=2,
+    #     mutation=0.4, 
+    #     sigma=0.15,
+    #     crossover=0.3, 
+    #     slack=1.12,
+    #     # new_niche=1,
+    #     disp_rate=20,
+    #     niche_elitism=True, 
+    #     )
+    # noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
+    # for n in range(problem.nniche): 
+    #     print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
+    # # PrintTimekeeper(on_switch=on_switch)
+    # print("-"*20)
+
+    # problem.Step(
+    #     maxiter=10, 
+    #     popsize=1000, 
+    #     elitek=0.4,
+    #     tournk=-1,
+    #     tournsize=2,
+    #     mutation=0.5, 
+    #     sigma=0.005,
+    #     crossover=0.3, 
+    #     slack=1.12,
+    #     # new_niche=1,
+    #     disp_rate=5,
+    #     niche_elitism=True, 
+    #     )
+    # noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
+    # for n in range(problem.nniche): 
+    #     print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
+    # # PrintTimekeeper(on_switch=on_switch)
 
         
     PrintTimekeeper(on_switch=on_switch)
+    
+    # pl.plot_opt_path_2d(FILEPREFIX)
+    pl.plot_noptima(FILEPREFIX)
+    pl.plot_stat_evolution(FILEPREFIX)
+    pl.plot_vesa(FILEPREFIX)
+    
+
