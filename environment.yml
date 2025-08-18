@@ -7,4 +7,5 @@ dependencies:
     - scipy
     - numba
     - matplotlib
+    - seaborn
 
