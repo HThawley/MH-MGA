@@ -9,6 +9,43 @@ import numpy as np
 from numba import njit, prange
 from convexhullarea import convex_hull_area
 
+@njit 
+def shannonIndex(values, lb, ub, nbin, npoint, counts):
+    bin_width = (ub-lb) / nbin
+
+    for i in range(npoint):
+        idx = int((values[i]-lb)/bin_width)
+        if idx < 0: idx = 0
+        if idx > nbin-1: idx = nbin-1
+        counts[idx] += 1
+    
+    H = 0.0
+    nonzero = 0
+    for i in range(nbin):
+        if counts[i] > 0:
+            p = counts[i] / npoint
+            H -= p * np.log(p)
+            nonzero += 1
+
+    # Miller-Madow bias correction
+    H += (nonzero - 1) / (2.0 * npoint)
+    return H 
+
+@njit 
+def meanOfShannon(points, lb, ub):
+    """ mean of shannon index along each dimension of a set of points
+    To be called on problem.noptima """
+    npoint, ndim = points.shape
+    nbin = max(2, int(npoint**0.5)) # sqrt of number of samples, consider updating later 
+    acc = 0
+    counts = np.zeros(nbin, dtype=np.int64)
+    for k in range(ndim):
+        counts[:] = 0
+        acc += shannonIndex(points[:, k], lb[k], ub[k], nbin, npoint, counts)
+    acc /= np.log(nbin) # normalize 
+    acc /= ndim # take mean
+    return acc 
+
 @njit
 def sumOfFitness(fitness, noptimality):
     """ sum of maximum (noptimal) fitness of each population""" 

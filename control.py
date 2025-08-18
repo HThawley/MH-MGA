@@ -23,7 +23,7 @@ import diversity as dy
 import plotlogs as pl
 on_switch=False
 
-#%%
+#%% Problem Class 
 
 # =============================================================================
 # TODO: log more stuff
@@ -45,7 +45,7 @@ class Problem:
             bounds, # (lb[:], ub[:])
             integrality: np.ndarray[bool] = None,
             
-            x0: Callable[..., ...]|np.ndarray|str = "uniform", 
+            x0: Callable[..., ...]|np.ndarray|str = "uniform", #type: ignore
 
             log: str = None, # naming convention for log files
             log_freq: int = 1, # frequency of printing batched logs
@@ -54,8 +54,8 @@ class Problem:
             constraint_violation: bool = True,
             maximize: bool = False,
             vectorized: bool = False, # whether objective function accepts vectorsied array of points
-            fargs: tuple[...] = (),
-            fkwargs: dict[..., ...] = {},
+            fargs: tuple[...] = (), #type: ignore
+            fkwargs: dict[..., ...] = {}, #type: ignore
             
             known_optimum: np.ndarray[float] = None, # None or np.array([coords])
             random_seed = None,
@@ -146,7 +146,7 @@ class Problem:
             self.diversity_printer = Fileprinter(
                 file_name = self.log+"-diversity.csv", 
                 save_freq = self.log_freq, 
-                header = ["it #", "VESA", "mean of std.s", "min of std.s", 
+                header = ["it #", "VESA", "shannon", "mean of std.s", "min of std.s", 
                           "max of std.s", "mean of var.s", "min of var.s", "max of var.s", 
                           "sum of fit", "mean of fit"],
                 resume = log_resume,
@@ -286,7 +286,7 @@ class Problem:
             self.mutFunction(self.population, sigma, 0.8, self.rng, self.integrality, self.bool_dtype)
             apply_bounds_vec(self.population, self.lb, self.ub)
         
-        self.Evaluate_newniche_objectives(new_niche)
+        self.Evaluate_objective(new_niche)
         self.nniche += new_niche
         self.Evaluate_fitness()
 
@@ -309,7 +309,7 @@ class Problem:
         safe_parents = np.empty((self.nniche, tournk + elitek, self.ndim))
         
         _select_parents(
-                safe_parents, self.population, self.fitness, self.objective, 
+                safe_parents, self.population, self.fitness, self.penalized_objective, 
                 self.noptimality, elitek, tournk, tournsize, 
                 self.rng, self.maximize, self.stable)
         
@@ -317,8 +317,6 @@ class Problem:
             self.rng.shuffle(safe_parents[i, :, :])
         clone_parents(self.parents, safe_parents)
         
-        return
-    
     # @keeptime("Step", on_switch)
     def Step(
             self, 
@@ -337,7 +335,7 @@ class Problem:
             new_niche_heuristic: bool = True,
             disp_rate: int = 0,
             convergence: Callable[..., bool]|list[Callable[..., bool]] = None, 
-            callback: Callable[..., ...] = None,
+            callback: Callable[..., None] = None, #type: ignore
             ):
         if violation_factor is None: 
             self.violation_factor = float(self.constraint_violation)
@@ -501,6 +499,14 @@ class Problem:
             self.noptima_printer(np.atleast_2d(self.nobjective))
             self.noptima_printer(np.atleast_2d(self.nnoptimality))
             self.noptima_printer(self.noptima.T)
+
+            self.nobjective_printer._flush()
+            self.noptimality_printer._flush()
+            self.nfitness_printer._flush()
+            self.diversity_printer._flush()
+            if self.log_level == "detailed":
+                self.evolution_printer._flush()
+
         return self.noptima, self.nfitness, self.nobjective, self.nnoptimality
 
     # @keeptime("Update_optimum", on_switch)
@@ -609,53 +615,34 @@ class Problem:
             self.fitness, self.population, self.centroids)
 
     # @keeptime("Evaluate_objective", on_switch)        
-    def Evaluate_objective(self):
+    def Evaluate_objective(self, new_niche = None):
         """
         Calculates the objective function for each individual
         """
+        if new_niche is None: 
+            _range = range(self.nniche)
+        else: 
+            _range = range(self.nniche, self.nniche + new_niche)
         if self.vectorized:
             if self.constraint_violation:
-                for n in range(self.nniche):
-                    self.objective[n], self.violation[n] = self.func(
-                        self.population[n], *self.fargs, **self.fkwargs)
+                for i in _range:
+                    self.objective[i], self.violation[i] = self.func(
+                        self.population[i], *self.fargs, **self.fkwargs)
             else:
-                for n in range(self.nniche):
-                    self.objective[n] = self.func(self.population[n], *self.fargs, **self.fkwargs)
+                for i in _range:
+                    self.objective[i] = self.func(self.population[i], *self.fargs, **self.fkwargs)
         else: 
             if self.constraint_violation:
-                for n in range(self.nniche):
-                    for i in range(self.popsize):
-                        self.objective[n, i], self.violation[n, i] = self.func(
-                            self.population[n, i], *self.fargs, **self.fkwargs)
+                for i in _range:
+                    for j in range(self.popsize):
+                        self.objective[i, j], self.violation[i, j] = self.func(
+                            self.population[i, j], *self.fargs, **self.fkwargs)
             else:
-                for n in range(self.nniche):
-                    for i in range(self.popsize):
-                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
+                for i in _range:
+                    for j in range(self.popsize):
+                        self.objective[i, j] = self.func(self.population[i, j], *self.fargs, **self.fkwargs)
         Apply_penalties(self.penalized_objective, self.objective, self.violation, self.violation_factor)
                 
-    def Evaluate_newniche_objectives(self, new_niche):
-        if self.vectorized:
-            if self.constraint_violation: 
-                for n in range(self.nniche, self.nniche + new_niche):
-                    self.objective[n], self.violation[n] = self.func(
-                        self.population[n], *self.fargs, **self.fkwargs)
-            else:
-                for n in range(self.nniche, self.nniche + new_niche):
-                    self.objective[n] = self.func(self.population[n], *self.fargs, **self.fkwargs)
-        else: 
-            if self.constraint_violation: 
-                for n in range(self.nniche, self.nniche + new_niche):
-                    for i in range(self.popsize):
-                        self.objective[n, i], self.violation[n, i] = self.func(
-                            self.population[n, i], *self.fargs, **self.fkwargs)
-                    self.violation *= self.violation_factor
-                    self.penalized_objective = self.objective + self.violation
-            else:
-                for n in range(self.nniche, self.nniche + new_niche):
-                    for i in range(self.popsize):
-                        self.objective[n, i] = self.func(self.population[n, i], *self.fargs, **self.fkwargs)
-        Apply_penalties(self.penalized_objective, self.objective, self.violation, self.violation_factor)
-
     def Evaluate_noptimality(self):
         _evaluate_noptimality(
             self.noptimality, self.population, self.objective, self.noptimal_obj, self.maximize)
@@ -663,6 +650,7 @@ class Problem:
     def Print_diversity(self):
         result = [self.nit_]
         result.append(dy.VESA(self.centroids))
+        result.append(dy.meanOfShannon(self.centroids, self.lb, self.ub))
         _std = dy.std(self.fitness, self.noptimality)
         result.append(np.mean(_std))
         result.append(np.min(_std))
@@ -678,6 +666,7 @@ class Problem:
         
     def Evaluate_diversity(self):
         self._vesa = dy.VESA(self.centroids)
+        self._shannon = dy.meanOfShannon(self.centroids, self.lb, self.ub)
         # Should this be noptimality * (violation>0)??
         _std = dy.std(self.fitness, self.noptimality)
         self._mean_std_fit = np.mean(_std)
@@ -685,7 +674,7 @@ class Problem:
         self._mean_var_fit = np.mean(_var)
         self._mean_fit = dy.meanOfFitness(self.fitness, self.noptimality)
     
-#%%
+#%% Auxiliaries
     
 def islistlike(obj):
     if not hasattr(obj, "__iter__"):
@@ -776,14 +765,15 @@ def _evaluate_fitness(fitness, population, centroids):
 @njit
 def _select_parents(
         parents, population, fitness, objective, noptimality, elitek, tournk, tournsize, rng, maximize, stable):
-    
-    parents[0, :elitek, :] = mh.selBest(population[0, :, :], objective[0, :], elitek, maximize, stable)
+    if elitek > 0:
+        parents[0, :elitek, :] = mh.selBest(population[0, :, :], objective[0, :], elitek, maximize, stable)
     parents[0, elitek:, :] = mh.selTournament(
         population[0, :, :], objective[0, :], tournk, tournsize, rng, maximize)
         
     for i in range(1, parents.shape[0]):
-        parents[i, :elitek, :] = mh.selBest_fallback(
-            population[i, :, :], fitness[i, :], noptimality[i, :], objective[i, :], elitek, maximize, stable)
+        if elitek > 0:
+            parents[i, :elitek, :] = mh.selBest_fallback(
+                population[i, :, :], fitness[i, :], noptimality[i, :], objective[i, :], elitek, maximize, stable)
         parents[i, elitek:, :] = mh.selTournament_fallback(
             population[i, :, :], fitness[i, :], noptimality[i, :], objective[i, :], tournk, tournsize, rng, maximize)
 
@@ -885,10 +875,8 @@ def clone_parents(population, parents):
     
 
 
-#%% 
+#%% Execution
 
-
-    
 if __name__ == "__main__":
     
     @njit
@@ -928,141 +916,34 @@ if __name__ == "__main__":
         # x0 = x0,
         )
 
-    NNICHE = 6
+    problem.Step(
+        maxiter=100, 
+        popsize=200, 
+        elitek=0.2, 
+        tournk=-1, 
+        tournsize=3, 
+        mutation=0.35, 
+        sigma=0.2, 
+        crossover=0.2, 
+        slack=1.12, 
+        disp_rate=0, 
+        niche_elitism="unselfish", 
+        new_niche=20,
+        )
 
-    problem.Step(
-        maxiter=np.inf, 
-        popsize=int(500/NNICHE), 
-        elitek=0.055,
-        tournk=-1,
-        tournsize=2,
-        mutation=0.1, 
-        sigma=1.0,
-        crossover=0.4, 
-        slack=1.12,
-        disp_rate=25,
-        niche_elitism = "unselfish", 
-        new_niche = NNICHE,
-        convergence = tc.MultiConvergence( 
-            [tc.FixedValue(
-                0.0001, 
-                maximize=False, 
-                attribute="_mean_var_fit"
-                ),
-             tc.GradientStagnation(
-                 window=50, 
-                 improvement=0.01/50,
-                 maximize=True, 
-                 attribute="_vesa",
-                 ),
-            ],
-            how="and",
-            )
-        )
-    problem.Step(
-        maxiter=np.inf, 
-        popsize=int(500/NNICHE), 
-        elitek=0.055,
-        tournk=-1,
-        tournsize=2,
-        mutation=0.1, 
-        sigma=1.0,
-        crossover=0.4, 
-        slack=1.12,
-        disp_rate=25,
-        niche_elitism = "unselfish", 
-        new_niche = NNICHE,
-        new_niche_heuristic = False,
-        convergence = tc.MultiConvergence( 
-            [tc.FixedValue(
-                0.0001, 
-                maximize=False, 
-                attribute="_mean_var_fit"
-                ),
-             tc.GradientStagnation(
-                 window=50, 
-                 improvement=0.01/50,
-                 maximize=True, 
-                 attribute="_vesa",
-                 ),
-            ],
-            how="and",
-            )
-        )
-    
-    
     noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
     for n in range(problem.nniche): 
         print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
-
-
-        
-    # problem.Step(
-    #     maxiter=10, 
-    #     popsize=200, 
-    #     elitek=0.25,
-    #     tournk=-1,
-    #     tournsize=2,
-    #     mutation=0.5, 
-    #     sigma=0.4,
-    #     crossover=0.3, 
-    #     slack=1.12,
-    #     disp_rate=25,
-    #     niche_elitism=True, 
-    #     new_niche = 3,
-    #     )
-    # noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
-    # for n in range(problem.nniche): 
-    #     print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
-        
-        
-    # # PrintTimekeeper(on_switch=on_switch)
-    # print("-"*20)
-    # problem.Step(
-    #     maxiter=200, 
-    #     popsize=300, 
-    #     elitek=0.2,
-    #     tournk=-1,
-    #     tournsize=2,
-    #     mutation=0.4, 
-    #     sigma=0.15,
-    #     crossover=0.3, 
-    #     slack=1.12,
-    #     # new_niche=1,
-    #     disp_rate=20,
-    #     niche_elitism=True, 
-    #     )
-    # noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
-    # for n in range(problem.nniche): 
-    #     print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
-    # # PrintTimekeeper(on_switch=on_switch)
-    # print("-"*20)
-
-    # problem.Step(
-    #     maxiter=10, 
-    #     popsize=1000, 
-    #     elitek=0.4,
-    #     tournk=-1,
-    #     tournsize=2,
-    #     mutation=0.5, 
-    #     sigma=0.005,
-    #     crossover=0.3, 
-    #     slack=1.12,
-    #     # new_niche=1,
-    #     disp_rate=5,
-    #     niche_elitism=True, 
-    #     )
-    # noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
-    # for n in range(problem.nniche): 
-    #     print(noptima[n], nfitness[n], nobjective[n], nnoptimality[n])
-    # # PrintTimekeeper(on_switch=on_switch)
 
         
     PrintTimekeeper(on_switch=on_switch)
     
     # pl.plot_opt_path_2d(FILEPREFIX)
+
     pl.plot_noptima(FILEPREFIX)
     pl.plot_stat_evolution(FILEPREFIX)
     pl.plot_vesa(FILEPREFIX)
+    pl.plot_shannon(FILEPREFIX)
+    
     
 

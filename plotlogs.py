@@ -78,7 +78,29 @@ def plot_vesa(file_prefix):
         )
     
     ax.set_title("VESA")
+    plt.show()
 
+#%%
+def plot_shannon(file_prefix):
+    fig, ax = plt.subplots()
+    
+    df = pd.read_csv(
+        file_prefix+"-diversity.csv", 
+        header=0, 
+        usecols=["shannon"],
+        )
+    df = df.reset_index(names="iteration")
+    
+    sns.lineplot(
+        df,
+        x = "iteration", 
+        y = "shannon",
+        ax = ax,
+        legend = False,
+        )
+    
+    ax.set_title("Shannon")
+    plt.show()
 #%%
 def plot_stat_evolution(file_prefix):
     fig, axs = plt.subplots(3, 3, sharex = True, layout="tight")
@@ -157,23 +179,6 @@ def plot_stat_evolution(file_prefix):
         )
     
     axs[ax_idx].set_title("mean of fitness "+str(round(100*mean_of_fitness.fitness.iloc[-1], 2)))
-    # df = pd.read_csv(
-    #     file_prefix+"-diversity.csv", 
-    #     header=0, 
-    #     usecols=["sum of fit"]
-    #     )
-    # df = df.reset_index(names="iteration")
-    
-    # sns.lineplot(
-    #     df,
-    #     x = "iteration", 
-    #     y = "sum of fit",
-    #     ax = axs[ax_idx],
-    #     legend = False,
-    #     )
-    
-    # axs[ax_idx].set_title("sum of fit")
-    
     
     for metric in ("std", "var"):
         for agg in ("min", "mean", "max"):

@@ -37,8 +37,7 @@ class Fileprinter:
                 self._createfile(header, create_dir)
                   
     def Terminate(self):
-        if self.array is not None:
-            self._flush()
+        self._flush()
                       
     def __call__(self, arr):
         self.callno+=1     
@@ -68,12 +67,13 @@ class Fileprinter:
            remove(self.temp_file_path)
            
     def _flush(self):
-        print('\rWriting out to file. Do not interrupt', end='\r')
-        self._copyfile(True)
-        self._print()
-        self._copyfile(False)
-        print('\r'+' '*40, end='\r')
-        self.array=None
+        if self.array is not None:
+            print('\rWriting out to file. Do not interrupt', end='\r')
+            self._copyfile(True)
+            self._print()
+            self._copyfile(False)
+            print('\r'+' '*40, end='\r')
+            self.array=None
     
     def _createfile(self, header, create_dir):
         p = Path(self.file_name)

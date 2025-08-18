@@ -10,10 +10,10 @@ from collections.abc import Callable, Sequence
 from functools import partial 
 from datetime import datetime as dt
 from datetime import timedelta as td
+from time import perf_counter
 from tqdm import tqdm
 
-from control import Problem
-from termination_criteria import FixedValue, Timeout
+import termination_criteria as tc
 
 def draw_bool(rng):
     return rng.integers(2, dtype=bool)
@@ -78,7 +78,7 @@ class Hyperparameter:
         self.ub = ub
         self.dither = dither
 
-class Tuning:
+class HyperparameterMC:
     def __init__(
             self,
             func,
@@ -197,8 +197,10 @@ class Tuning:
         self.best_set.pop()
 
 
-#%%
+#%% Execution
 if __name__=="__main__":
+
+    best_time = td.max
 
     @njit
     def Objective(values_array): 
@@ -210,6 +212,9 @@ if __name__=="__main__":
                 z[i] += np.sin(19 * np.pi * values_array[i, j]) + values_array[i, j] / 1.7
         return z   
 
+    lb = 0*np.ones(2)
+    ub = 1*np.ones(2)
+
     def runOptimize(hyperparameters, timeout, seed):
         problem = Problem(
             Objective,
@@ -217,68 +222,197 @@ if __name__=="__main__":
             x0 = "uniform", 
             maximize = True,
             vectorized = True,
+            constraint_violation=False,
             fargs = (),
             fkwargs = {},
             random_seed = seed,
             )
 
-        start = dt.now()
-
         problem.Step(
             **hyperparameters, 
-            new_niche=4,
+            tournk = -1,
+            new_niche=25,
             slack=1.12, 
             disp_rate=0,
-            convergence = [FixedValue(5.145, maximize=True, attribute="optimal_obj"),
-                           Timeout(timeout, start_attribute="start_time")
-                           ]
-            )
-        return dt.now() - start
+            convergence = tc.MultiConvergence(
+                [
+                    tc.Timeout(
+                        timeout, 
+                        start_attribute="start_time"
+                    ), # timeout
+                    tc.MultiConvergence(
+                        [
+                            tc.FixedValue(
+                                5.145, 
+                                maximize=True,
+                                attribute="optimal_obj"
+                            ), # should reach global optimum
+                            tc.GradientStagnation(
+                                window = 50, # implies niter >= 50
+                                improvement = 0.01 / 50, # improves less than 0.01 in 50 its
+                                maximize = True, 
+                                attribute = "_mean_fit",
+                            ), # mean fitness stops improving
+                        ], 
+                        how = "and",
+                    ), 
+                ],
+                how = "or",
+            ),
+        )
+        return problem._shannon, problem._vesa
         
 
-    def Optimize(tuning):
-        time = td(0)
-        for seed in (1, 2, 3):
-            timeout = tuning.best_score[-1]*1.5 if tuning.best_score[-1] is not None else None
+    def Optimize(x, n_repeat=3):
+        global best_time
+        hyperparameters = dict(zip(
+            ("maxiter", "popsize", "elitek", "tournsize", "mutation", "sigma", "crossover", "niche_elitism"), x))
+        for k in ("maxiter", "popsize", "tournsize"):
+            hyperparameters[k] = int(hyperparameters[k])
+        if hyperparameters["tournsize"] >= hyperparameters["popsize"]:
+            return np.full(3, np.inf), np.zeros(3, bool)
+
+        hyperparameters["niche_elitism"] = {0:None, 
+                                            1:"selfish", 
+                                            2:"unselfish"}[hyperparameters["niche_elitism"]]
+        try: 
+            timeout = 2 * best_time
+        except OverflowError:
+            timeout = td.max
+        
+        shannon, vesa = 0, 0
+        time = 0
+        for seed in range(1, n_repeat+1):
+            start = perf_counter()
             
-            time += runOptimize(
-                hyperparameters = tuning.values, 
+            sha, v = runOptimize(
+                hyperparameters = hyperparameters, 
                 timeout = timeout, 
                 seed=seed, 
                 )
-        time /= 3
+            shannon += sha
+            vesa += v
+            
+            time += perf_counter() - start
+        shannon /= n_repeat
+        vesa /= n_repeat
+        time = td(seconds=time/n_repeat)
+        if time < best_time:
+            best_time = time
 
-        return time
+        return np.array([time.total_seconds(), shannon, vesa]), np.ones(3, bool)
+        # return time.total_seconds(), shannon_index, vesa
 
-    lb = 0*np.ones(2)
-    ub = 1*np.ones(2)
 
-    tuning = Tuning(Optimize, False, 5)
+    # tuning = HyperparameterMC(Optimize, False, 5)
 
-    tuning.AddParameter("popsize", int, 50, 1000)
-    tuning.AddParameter("niche_elitism", bool)
-    tuning.AddParameter("elitek", float, 0, 1)
-    tuning.AddParameter("tournk", float, 0, 1)
-    tuning.AddParameter("tournsize", int, 2, 10)
-    tuning.AddParameter("mutation", float, 0, 0.9, "optional")
-    tuning.AddParameter("sigma", float, 0, 0.5, "optional")
-    tuning.AddParameter("crossover", float, 0, 0.9, "optional")
+    # tuning.AddParameter("popsize", int, 50, 1000)
+    # tuning.AddParameter("niche_elitism", bool)
+    # tuning.AddParameter("elitek", float, 0, 1)
+    # tuning.AddParameter("tournk", float, 0, 1)
+    # tuning.AddParameter("tournsize", int, 2, 10)
+    # tuning.AddParameter("mutation", float, 0, 0.9, "optional")
+    # tuning.AddParameter("sigma", float, 0, 0.5, "optional")
+    # tuning.AddParameter("crossover", float, 0, 0.9, "optional")
 
-    tuning.AddInterdependence(["tournk", "elitek"], 1, sum, "all", "clip", "le")
+    # tuning.AddInterdependence(["tournk", "elitek"], 1, sum, "all", "clip", "le")
     
-    # Compile jit
-    tuning.DrawParameters()
-    tuning.RunObj()
+    # # Compile jit
+    # tuning.DrawParameters()
+    # tuning.RunObj()
         
-    for i in tqdm(range(10000)):
-        tuning.DrawParameters()
-        tuning.RunObj()
+    # for i in tqdm(range(10000)):
+    #     tuning.DrawParameters()
+    #     tuning.RunObj()
     
-    print(tuning.best_score)
-    print(tuning.best_set[0])
+    # print(tuning.best_score)
+    # print(tuning.best_set[0])
+    
+    from control import Problem
+    from mhmoo import MOProblem
+    
+    problem = MOProblem(
+        func = Optimize,
+        bounds = (
+            np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
+            np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
+            ),
+        n_objs = 3,
+        integrality = np.array([True, True, False, True, False, False, False, True]),
+        feasibility = True, 
+        maximize = [False, True, True], 
+        vectorized = False,
+    )
 
+    problem.Step(
+        npareto = 200,
+        maxiter = 30, 
+        popsize = 200,
+        mutation = 0.5,
+        sigma = 0.1,
+        crossover = 0.3, 
+        disp_rate =  1,
+    )
 
-# =============================================================================
-# Surrogate optimisation model for energy systems?? 
-# A function which is really simple to evaluate and vaguely approximates an energy model
-# =============================================================================
+    pareto_points, pareto_objectives = problem.Terminate()
+    
+    #%% 
+    
+    objectives = ["time", "mean_fit", "vesa"]
+    import matplotlib.pyplot as plt
+    for i in range(3):
+        fig, ax = plt.subplots()
+        ax.scatter(pareto_objectives[:, i-1], pareto_objectives[:, i])
+        ax.set_xlabel(f"{objectives[i-1]}")
+        ax.set_ylabel(f"{objectives[i]}")
+
+    #%%
+    import pyvista as pv
+    import numpy as np
+    
+    def normalise(array):
+        lb = array.min(axis=0)
+        ub = array.max(axis=0)
+        return (array - lb) / (ub -lb)
+
+    def generate_ticklabels(array, nticks):
+        lb = array.min(axis=0)
+        ub = array.max(axis=1)
+        
+        ticks_norm = np.linspace(0, 1, 5)
+        
+        ticks = []
+        for i in range(array.shape[1]):
+            ticks.append([f"{val:.2f}" for val in np.linspace(lb[i], ub[i], nticks)])
+        return ticks_norm, ticks
+    
+    time_mask = pareto_objectives[:, 0] < pareto_objectives[:, 0].min()*2
+    pareto_points = pareto_points[time_mask, :]
+    pareto_objectives = pareto_objectives[time_mask, :]
+    
+    lb, ub = pareto_objectives.min(axis=0), pareto_objectives.max(axis=0)
+    normal_pareto = normalise(pareto_objectives)
+    cloud = pv.PolyData(normal_pareto)
+    surf = cloud.delaunay_3d()
+    
+    ticks_norm, ticks = generate_ticklabels(pareto_objectives, 5) # label normalised axes with unnormalised labels
+    xticks, yticks, zticks = ticks
+    
+    plotter = pv.Plotter()
+    
+    plotter.add_mesh(surf, show_edges=True)#, cmap="viridis")
+    
+    # plotter.add_points(cloud, color="blue", render_points_as_spheres=True, point_size=10)
+
+    plotter.show_grid(
+        xtitle=objectives[0],
+        ytitle=objectives[1],
+        ztitle=objectives[2],
+        axes_ranges=[i for j in zip(lb, ub) for i in j]
+        )
+    plotter.view_isometric()
+    plotter.show()
+    
+    
+    
+# %%

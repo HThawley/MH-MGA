@@ -26,24 +26,22 @@ def mutBool(item,):
     return 1.0 - item
 
 @njit 
-def mutGaussianMixedVec(population, sigma, indpb, rng, integrality, boolean_mask, ignore_first=True):
-    start = 1 if ignore_first is True else 0
+def mutGaussianMixedVec(population, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
     for i in range(population.shape[0]):
-        for j in range(start, population.shape[1]):
+        for j in range(startidx, population.shape[1]):
             for k in range(population.shape[2]):
                 if rng.random() < indpb:
-                    if boolean_mask[k] is True:
+                    if boolean_mask[k]:
                         population[i, j, k] = mutBool(population[i, j, k]) 
-                    elif integrality[k] is True:
+                    elif integrality[k]:
                         population[i, j, k] = mutInt(population[i, j, k], sigma[k], rng)
                     else: 
                         population[i, j, k] = mutFloat(population[i, j, k], sigma[k], rng)
 
 @njit
-def mutGaussianFloatVec(population, sigma, indpb, rng, integrality, boolean_mask, ignore_first=True):
-    start = 1 if ignore_first is True else 0
+def mutGaussianFloatVec(population, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
     for i in range(population.shape[0]):
-        for j in range(start, population.shape[1]):
+        for j in range(startidx, population.shape[1]):
             for k in range(population.shape[2]):
                 if rng.random() < indpb:
                     population[i, j, k] = mutFloat(population[i, j, k], sigma[k], rng)
@@ -51,12 +49,12 @@ def mutGaussianFloatVec(population, sigma, indpb, rng, integrality, boolean_mask
 # crossover functions
 
 @njit
-def cx_vec(population, crossoverInst, cx, rng):
+def cx_vec(population, crossoverInst, cx, rng, startidx=0):
     for i in range(population.shape[0]):
         # shuffle parents for mating
-        rng.shuffle(population[i])
+        rng.shuffle(population[i, startidx:])
         
-        for ind1, ind2 in zip(population[i, ::2], population[i, 1::2]):
+        for ind1, ind2 in zip(population[i, startidx:][::2], population[i, startidx:][1::2]):
             # crossover probability
             if rng.random() < crossoverInst:
                 # Apply crossover

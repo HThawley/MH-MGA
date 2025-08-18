@@ -19,16 +19,26 @@ centroids = np.array([
     [0.974, 0.974],
     [0.974, 0.02],
     [0.02, 0.974],
-    [0.44, 0.44],
     [0.5, 0.9], 
     [0.9, 0.5],
-    [0.7, 0.25],
-    [0.25, 0.7],
-    [0.75, 0.75],
+#     [0.7, 0.25],
+#     [0.25, 0.7],
+#     [0.75, 0.75],
     
-    # [0.4, 0.5],
+#     # [0.4, 0.5],
     ]
     )
+
+# centroids = np.array([
+#     [0.97378074, 0.9738754],
+#     [0.54538798, 0.75552233],
+#     [0.97515078, 0.02088975],
+#     [0.97263192, 0.53812105],
+#     [0.02076667, 0.97464276], 
+#     ]
+#     )
+
+
 #%%
 
 def min_of_euclidean_distances(p1, ps, degree):
@@ -66,7 +76,7 @@ for i in range(3):
         for j in range(resolution):
             point = np.array([X[i, j], Y[i, j]])
             # Z[i, j] = mean_of_euclidean_distances(point, centroids, degree)
-            Z[i, j] = min_of_euclidean_distances(point, centroids, degree)
+            Z[i, j] = mean_of_euclidean_distances(point, centroids, degree)
 
     log_offset = Z.min()+0.1
     Z = Z + log_offset # Add offset to make all values positive
@@ -88,5 +98,6 @@ for i in range(3):
     ax.set_title(title)
 
     ax.scatter(centroids[:, 0], centroids[:,1], color="black", zorder=1000, s=100, marker='x')
+    
     
 plt.show()
