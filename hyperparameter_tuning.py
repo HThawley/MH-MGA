@@ -356,6 +356,11 @@ if __name__=="__main__":
 
     pareto_points, pareto_objectives = problem.Terminate()
     
+    import pandas as pd 
+    pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
+    pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
+    
+
     #%% 
     
     objectives = ["time", "mean_fit", "vesa"]
