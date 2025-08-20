@@ -276,7 +276,7 @@ if __name__=="__main__":
                                             1:"selfish", 
                                             2:"unselfish"}[hyperparameters["niche_elitism"]]
         try: 
-            timeout = 2 * best_time
+            timeout = 10 * best_time
         except OverflowError:
             timeout = td.max
         
@@ -359,11 +359,13 @@ if __name__=="__main__":
     import pandas as pd 
     pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
     pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
-    
+    raise KeyboardInterrupt
+    pareto_points = pd.read_csv("pareto_points.csv", header=None).to_numpy()
+    pareto_objectives = pd.read_csv("pareto_objectives.csv", header=None).to_numpy()
 
     #%% 
     
-    objectives = ["time", "mean_fit", "vesa"]
+    objectives = ["time", "shannon", "vesa"]
     import matplotlib.pyplot as plt
     for i in range(3):
         fig, ax = plt.subplots()
