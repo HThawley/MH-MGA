@@ -328,38 +328,39 @@ if __name__=="__main__":
     # print(tuning.best_score)
     # print(tuning.best_set[0])
     
-    from control import Problem
-    from mhmoo import MOProblem
+    # from control import Problem
+    # from mhmoo import MOProblem
     
-    problem = MOProblem(
-        func = Optimize,
-        bounds = (
-            np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
-            np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
-            ),
-        n_objs = 3,
-        integrality = np.array([True, True, False, True, False, False, False, True]),
-        feasibility = True, 
-        maximize = [False, True, True], 
-        vectorized = False,
-    )
+    # problem = MOProblem(
+    #     func = Optimize,
+    #     bounds = (
+    #         np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
+    #         np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
+    #         ),
+    #     n_objs = 3,
+    #     integrality = np.array([True, True, False, True, False, False, False, True]),
+    #     feasibility = True, 
+    #     maximize = [False, True, True], 
+    #     vectorized = False,
+    # )
 
-    problem.Step(
-        npareto = 200,
-        maxiter = 30, 
-        popsize = 200,
-        mutation = 0.5,
-        sigma = 0.1,
-        crossover = 0.3, 
-        disp_rate =  1,
-    )
+    # problem.Step(
+    #     npareto = 200,
+    #     maxiter = 30, 
+    #     popsize = 200,
+    #     mutation = 0.5,
+    #     sigma = 0.1,
+    #     crossover = 0.3, 
+    #     disp_rate =  1,
+    # )
 
-    pareto_points, pareto_objectives = problem.Terminate()
+    # pareto_points, pareto_objectives = problem.Terminate()
     
+    # import pandas as pd 
+    # pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
+    # pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
+    # raise KeyboardInterrupt
     import pandas as pd 
-    pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
-    pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
-    raise KeyboardInterrupt
     pareto_points = pd.read_csv("pareto_points.csv", header=None).to_numpy()
     pareto_objectives = pd.read_csv("pareto_objectives.csv", header=None).to_numpy()
 
@@ -400,7 +401,8 @@ if __name__=="__main__":
     lb, ub = pareto_objectives.min(axis=0), pareto_objectives.max(axis=0)
     normal_pareto = normalise(pareto_objectives)
     cloud = pv.PolyData(normal_pareto)
-    surf = cloud.delaunay_3d()
+    surf = cloud.reconstruct_surface()
+    # surf = cloud.delaunay_3d()
     
     ticks_norm, ticks = generate_ticklabels(pareto_objectives, 5) # label normalised axes with unnormalised labels
     xticks, yticks, zticks = ticks

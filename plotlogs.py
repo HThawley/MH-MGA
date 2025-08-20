@@ -78,7 +78,6 @@ def plot_vesa(file_prefix):
         )
     
     ax.set_title("VESA")
-    plt.show()
 
 #%%
 def plot_shannon(file_prefix):
@@ -100,7 +99,6 @@ def plot_shannon(file_prefix):
         )
     
     ax.set_title("Shannon")
-    plt.show()
 #%%
 def plot_stat_evolution(file_prefix):
     fig, axs = plt.subplots(3, 3, sharex = True, layout="tight")
@@ -201,8 +199,9 @@ def plot_stat_evolution(file_prefix):
                 )
             
             axs[ax_idx].set_title(name+' '+str(round(100*df[name].iloc[-1], 2)))
-    plt.show()
     # axs[-1].set_xticks(range(0, 201, 25))
 
-
+    # facilitates avoiding duplicate matplotlib import on scripts which import these functions
+    # i.e. `import plotlogs as p; p.plot(...); p.show()``
+show = plt.show 
 #%%

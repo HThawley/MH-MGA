@@ -326,7 +326,9 @@ def _select_pareto(population, objective, maximize, feasible):
     """
     popsize, n_objs = objective.shape
     # Correctly handle minimization/maximization
-    # Like nfeas = feasibility.all(axis=1).sum()
+
+    feasible
+
     feasible_1d = np.ones(popsize, np.bool_)
     nfeas = 0
     for i in range(popsize):

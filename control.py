@@ -666,7 +666,9 @@ class Problem:
         
     def Evaluate_diversity(self):
         self._vesa = dy.VESA(self.centroids)
-        self._shannon = dy.meanOfShannon(self.centroids, self.lb, self.ub)
+        self._shannon = dy.meanOfShannon(self.centroids, self.lb, self.ub, 
+                                         ## Mask with feasibilty 
+                                         )
         # Should this be noptimality * (violation>0)??
         _std = dy.std(self.fitness, self.noptimality)
         self._mean_std_fit = np.mean(_std)
@@ -917,18 +919,18 @@ if __name__ == "__main__":
         )
 
     problem.Step(
-        maxiter=100, 
-        popsize=200, 
-        elitek=0.2, 
+        maxiter=6000, 
+        popsize=10, 
+        elitek=0, 
         tournk=-1, 
-        tournsize=3, 
-        mutation=0.35, 
-        sigma=0.2, 
-        crossover=0.2, 
+        tournsize=8, 
+        mutation=0.323, 
+        sigma=0.0106, 
+        crossover=0.5, 
+        niche_elitism="selfish", #None,#"unselfish", 
         slack=1.12, 
-        disp_rate=0, 
-        niche_elitism="unselfish", 
-        new_niche=20,
+        disp_rate=500, 
+        new_niche=25,
         )
 
     noptima, nfitness, nobjective, nnoptimality = problem.Terminate()
@@ -939,11 +941,10 @@ if __name__ == "__main__":
     PrintTimekeeper(on_switch=on_switch)
     
     # pl.plot_opt_path_2d(FILEPREFIX)
-
     pl.plot_noptima(FILEPREFIX)
     pl.plot_stat_evolution(FILEPREFIX)
     pl.plot_vesa(FILEPREFIX)
     pl.plot_shannon(FILEPREFIX)
     
-    
+    pl.show()
 

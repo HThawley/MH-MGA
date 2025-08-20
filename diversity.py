@@ -33,6 +33,8 @@ def shannonIndex(values, lb, ub, nbin, npoint, counts):
 
 @njit 
 def meanOfShannon(points, lb, ub):
+    # Mask by feasibility - 
+
     """ mean of shannon index along each dimension of a set of points
     To be called on problem.noptima """
     npoint, ndim = points.shape
