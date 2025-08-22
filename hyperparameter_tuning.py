@@ -260,7 +260,7 @@ if __name__=="__main__":
                 how = "or",
             ),
         )
-        return problem._shannon, problem._vesa
+        return problem._shannon, problem.nnoptimality.sum()
         
 
     def Optimize(x, n_repeat=3):
@@ -280,85 +280,62 @@ if __name__=="__main__":
         except OverflowError:
             timeout = td.max
         
-        shannon, vesa = 0, 0
+        shannon, nnopt = 0, 0
         time = 0
         for seed in range(1, n_repeat+1):
             start = perf_counter()
             
-            sha, v = runOptimize(
+            sha, n = runOptimize(
                 hyperparameters = hyperparameters, 
                 timeout = timeout, 
                 seed=seed, 
                 )
             shannon += sha
-            vesa += v
+            nnopt += n
             
             time += perf_counter() - start
         shannon /= n_repeat
-        vesa /= n_repeat
+        nnopt /= n_repeat
         time = td(seconds=time/n_repeat)
         if time < best_time:
             best_time = time
 
-        return np.array([time.total_seconds(), shannon, vesa]), np.ones(3, bool)
+        return np.array([time.total_seconds(), shannon, nnopt]), np.ones(3, bool)
         # return time.total_seconds(), shannon_index, vesa
 
 
-    # tuning = HyperparameterMC(Optimize, False, 5)
+    
+    from control import Problem
+    from mhmoo import MOProblem
+    
+    problem = MOProblem(
+        func = Optimize,
+        bounds = (
+            np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
+            np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
+            ),
+        n_objs = 3,
+        integrality = np.array([True, True, False, True, False, False, False, True]),
+        feasibility = True, 
+        maximize = [False, True, True], 
+        vectorized = False,
+    )
 
-    # tuning.AddParameter("popsize", int, 50, 1000)
-    # tuning.AddParameter("niche_elitism", bool)
-    # tuning.AddParameter("elitek", float, 0, 1)
-    # tuning.AddParameter("tournk", float, 0, 1)
-    # tuning.AddParameter("tournsize", int, 2, 10)
-    # tuning.AddParameter("mutation", float, 0, 0.9, "optional")
-    # tuning.AddParameter("sigma", float, 0, 0.5, "optional")
-    # tuning.AddParameter("crossover", float, 0, 0.9, "optional")
+    problem.Step(
+        npareto = 200,
+        maxiter = 30, 
+        popsize = 200,
+        mutation = 0.5,
+        sigma = 0.1,
+        crossover = 0.3, 
+        disp_rate =  1,
+    )
 
-    # tuning.AddInterdependence(["tournk", "elitek"], 1, sum, "all", "clip", "le")
+    pareto_points, pareto_objectives = problem.Terminate()
     
-    # # Compile jit
-    # tuning.DrawParameters()
-    # tuning.RunObj()
-        
-    # for i in tqdm(range(10000)):
-    #     tuning.DrawParameters()
-    #     tuning.RunObj()
-    
-    # print(tuning.best_score)
-    # print(tuning.best_set[0])
-    
-    # from control import Problem
-    # from mhmoo import MOProblem
-    
-    # problem = MOProblem(
-    #     func = Optimize,
-    #     bounds = (
-    #         np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
-    #         np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
-    #         ),
-    #     n_objs = 3,
-    #     integrality = np.array([True, True, False, True, False, False, False, True]),
-    #     feasibility = True, 
-    #     maximize = [False, True, True], 
-    #     vectorized = False,
-    # )
-
-    # problem.Step(
-    #     npareto = 200,
-    #     maxiter = 30, 
-    #     popsize = 200,
-    #     mutation = 0.5,
-    #     sigma = 0.1,
-    #     crossover = 0.3, 
-    #     disp_rate =  1,
-    # )
-
-    # pareto_points, pareto_objectives = problem.Terminate()
-    
-    # import pandas as pd 
-    # pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
-    # pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
+    import pandas as pd 
+    pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
+    pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
     # raise KeyboardInterrupt
     import pandas as pd 
     pareto_points = pd.read_csv("pareto_points.csv", header=None).to_numpy()
@@ -366,7 +343,7 @@ if __name__=="__main__":
 
     #%% 
     
-    objectives = ["time", "shannon", "vesa"]
+    objectives = ["time", "shannon", "n_noptima"]
     import matplotlib.pyplot as plt
     for i in range(3):
         fig, ax = plt.subplots()

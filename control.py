@@ -458,12 +458,12 @@ class Problem:
         self.Update_optimum()
         self.Evaluate_noptimality()
         self.Evaluate_fitness()
+        self.Update_noptima()
         self.Evaluate_diversity()
         
 # =============================================================================
         if self.log:
             self.Print_diversity()
-            self.Return_noptima()
             self.nobjective_printer(np.atleast_2d(self.nobjective))
             self.noptimality_printer(np.atleast_2d(self.nnoptimality))
             self.nfitness_printer(np.atleast_2d(self.nfitness))
@@ -551,7 +551,7 @@ class Problem:
 
 
     # @keeptime("Return_noptima", on_switch)
-    def Return_noptima(self):
+    def Update_noptima(self):
         if self.maximize:
             nindex = [self.objective[0][self.violation[0] == 0].argmax()]
         else: 
@@ -567,7 +567,6 @@ class Problem:
         self.nobjective = np.array([self.objective[n, nindex[n]] for n in range(self.nniche)])
         self.nnoptimality = np.array([self.noptimality[n, nindex[n]] for n in range(self.nniche)])
         
-    
     def Run_statistics(self):
         """TODO"""
         pass
@@ -649,8 +648,8 @@ class Problem:
    
     def Print_diversity(self):
         result = [self.nit_]
-        result.append(dy.VESA(self.centroids))
-        result.append(dy.meanOfShannon(self.centroids, self.lb, self.ub))
+        result.append(dy.VESA(self.noptima, self.nnoptimality))
+        result.append(dy.meanOfShannon(self.noptima, self.nnoptimality, self.lb, self.ub))
         _std = dy.std(self.fitness, self.noptimality)
         result.append(np.mean(_std))
         result.append(np.min(_std))
@@ -665,10 +664,8 @@ class Problem:
         self.diversity_printer(np.atleast_2d(np.array(result)))
         
     def Evaluate_diversity(self):
-        self._vesa = dy.VESA(self.centroids)
-        self._shannon = dy.meanOfShannon(self.centroids, self.lb, self.ub, 
-                                         ## Mask with feasibilty 
-                                         )
+        self._vesa = dy.VESA(self.noptima, self.nnoptimality)
+        self._shannon = dy.meanOfShannon(self.noptima, self.nnoptimality, self.lb, self.ub)
         # Should this be noptimality * (violation>0)??
         _std = dy.std(self.fitness, self.noptimality)
         self._mean_std_fit = np.mean(_std)

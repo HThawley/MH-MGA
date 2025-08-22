@@ -32,7 +32,7 @@ def shannonIndex(values, lb, ub, nbin, npoint, counts):
     return H 
 
 @njit 
-def meanOfShannon(points, lb, ub):
+def meanOfShannon(points, feasibility, lb, ub):
     # Mask by feasibility - 
 
     """ mean of shannon index along each dimension of a set of points
@@ -41,9 +41,10 @@ def meanOfShannon(points, lb, ub):
     nbin = max(2, int(npoint**0.5)) # sqrt of number of samples, consider updating later 
     acc = 0
     counts = np.zeros(nbin, dtype=np.int64)
+    feasible_points = points[feasibility].T
     for k in range(ndim):
         counts[:] = 0
-        acc += shannonIndex(points[:, k], lb[k], ub[k], nbin, npoint, counts)
+        acc += shannonIndex(feasible_points[k], lb[k], ub[k], nbin, npoint, counts)
     acc /= np.log(nbin) # normalize 
     acc /= ndim # take mean
     return acc 
@@ -77,13 +78,14 @@ def VESA_pop(population):
     return vesa
     
 @njit(parallel=True)
-def VESA(points):
+def VESA(points, feasibility):
     """ Measures VESA of a set of points 
     To be called on problem.noptima """
     vesa = 0.0
+    feasible_points = points[feasibility].T
     for k in prange(points.shape[1]):
         for _k in range(k + 1, points.shape[1]):
-            projection = np.stack((points[:, k], points[:, _k]), axis=-1)
+            projection = np.stack((feasible_points[k], feasible_points[_k]), axis=-1)
             vesa += convex_hull_area(projection)
     return vesa
 

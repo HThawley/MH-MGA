@@ -32,13 +32,13 @@ class MOProblem:
             
             integrality: Iterable[bool] = None,
             
-            x0: Callable[..., ...]|np.ndarray|str = "uniform", 
+            x0: Callable[..., ...]|np.ndarray|str = "uniform", #type: ignore
 
             feasibility: bool = False,
             maximize: bool|Iterable[bool] = False,
             vectorized: bool = False, # whether objective function accepts vectorsied array of points
-            fargs: tuple[...] = (),
-            fkwargs: dict[..., ...] = {},
+            fargs: tuple[...] = (), #type: ignore
+            fkwargs: dict[..., ...] = {}, #type: ignore
             random_seed = None,
             # **kwargs,
             ):
@@ -110,8 +110,8 @@ class MOProblem:
             sigma: float|tuple[float] = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
             crossover: float|tuple[float] = 0.4, # crossover probability
             disp_rate: int = 0,
-            convergence: Callable[..., bool]|list[Callable[..., bool]] = None, 
-            callback: Callable[..., ...] = None,
+            convergence: Callable[..., bool]|list[Callable[..., bool]] = None, #type: ignore
+            callback: Callable[..., ...] = None, #type: ignore
             ):
         
         self.npareto = npareto if npareto is not None else popsize
@@ -156,24 +156,14 @@ class MOProblem:
         
         self.initstep = True
         self._i = 0
-        
         if disp_rate > 0:
             while (
                     (not self.convergence(self))
                     and (self.pareto.shape[0] < self.npareto)
                     ): 
                 self.Loop()
-                # if self.maximize:
-                #     # improve this
-                #     best = [round(float(max(obj)),2) for obj in self.objective]
-                # else:
-                #     best = [round(float(min(obj)),2) for obj in self.objective]
-                # print("\r",
-                #       f"iteration {_i}. Current_best: {best}. Time: {dt.now()-self.start_time}."
-                #       , end="\r")
                 if self._i % disp_rate == 0:
                     print(
-                        # improve this
     f"iteration {self.nit_}. Pareto front: {self.pareto.shape[0]}/{self.npareto}. Time: {dt.now()-self.start_time}.")
 
         else: 
