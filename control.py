@@ -648,8 +648,14 @@ class Problem:
    
     def Print_diversity(self):
         result = [self.nit_]
-        result.append(dy.VESA(self.noptima, self.nnoptimality))
-        result.append(dy.meanOfShannon(self.noptima, self.nnoptimality, self.lb, self.ub))
+        if self.nnoptimality.sum() >= self.ndim + 1: 
+            result.append(dy.VESA(self.noptima, self.nnoptimality))
+        else:
+            result.append(0.0)
+        if self.nnoptimality.sum() >= 1:
+            result.append(dy.meanOfShannon(self.noptima, self.nnoptimality, self.lb, self.ub))
+        else:
+            result.append(0.0)
         _std = dy.std(self.fitness, self.noptimality)
         result.append(np.mean(_std))
         result.append(np.min(_std))
@@ -664,8 +670,14 @@ class Problem:
         self.diversity_printer(np.atleast_2d(np.array(result)))
         
     def Evaluate_diversity(self):
-        self._vesa = dy.VESA(self.noptima, self.nnoptimality)
-        self._shannon = dy.meanOfShannon(self.noptima, self.nnoptimality, self.lb, self.ub)
+        if self.nnoptimality.sum() >= self.ndim + 1: 
+            self._vesa = dy.VESA(self.noptima, self.nnoptimality)
+        else:
+            self._vesa = 0.0
+        if self.nnoptimality.sum() >= 1:
+            self._shannon = dy.meanOfShannon(self.noptima, self.nnoptimality, self.lb, self.ub)
+        else: 
+            self._shannon = 0.0
         # Should this be noptimality * (violation>0)??
         _std = dy.std(self.fitness, self.noptimality)
         self._mean_std_fit = np.mean(_std)
