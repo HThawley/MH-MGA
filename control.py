@@ -189,6 +189,7 @@ class Problem:
         self.Update_optimum()
         self.Evaluate_noptimality()
         self.Evaluate_fitness()
+        self.Update_noptima()
         self.Evaluate_diversity()
         
         self._initiated = True
