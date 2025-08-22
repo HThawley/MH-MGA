@@ -317,7 +317,12 @@ def _select_pareto(population, objective, maximize, feasible):
     popsize, n_objs = objective.shape
     # Correctly handle minimization/maximization
 
-    feasible_mask = feasible.all(axis=1)
+    feasible_mask = np.ones(popsize, dtype=np.bool_)
+    for i in range(popsize):
+        for j in range(n_objs):
+            if not feasible[i, j]:
+                feasible_mask[i] = False
+                break
     feasible_indices = np.where(feasible_mask)[0]
 
     if feasible_indices.size == 0:
