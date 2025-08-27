@@ -1,10 +1,3 @@
-
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Mar 11 09:02:17 2025
-
-@author: u6942852
-"""
 on_switch = True
 
 from datetime import datetime as dt

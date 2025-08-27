@@ -1,18 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jul 22 15:15:00 2025
-
-@author: u6942852
-"""
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-#%%
-FILE_PREFIX = "logs/testprob-z"
- 
-#%%
 def plot_opt_path_2d(file_prefix):
     fig, ax = plt.subplots(figsize = (5, 5))
     
@@ -32,7 +21,6 @@ def plot_opt_path_2d(file_prefix):
     ax.set_ylim(0, 1)
     ax.legend()
 
-#%%
 def plot_noptima(file_prefix):
     fig, ax = plt.subplots(figsize = (5, 5))
     
@@ -58,7 +46,6 @@ def plot_noptima(file_prefix):
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-#%%
 def plot_vesa(file_prefix):
     fig, ax = plt.subplots()
     
@@ -79,7 +66,7 @@ def plot_vesa(file_prefix):
     
     ax.set_title("VESA")
 
-#%%
+
 def plot_shannon(file_prefix):
     fig, ax = plt.subplots()
     
@@ -99,7 +86,7 @@ def plot_shannon(file_prefix):
         )
     
     ax.set_title("Shannon")
-#%%
+
 def plot_stat_evolution(file_prefix):
     fig, axs = plt.subplots(3, 3, sharex = True, layout="tight")
     axs = axs.flatten()
@@ -177,11 +164,10 @@ def plot_stat_evolution(file_prefix):
         )
     
     axs[ax_idx].set_title("mean of fitness "+str(round(100*mean_of_fitness.fitness.iloc[-1], 2)))
-    
     for metric in ("std", "var"):
         for agg in ("min", "mean", "max"):
             ax_idx += 1
-            name = f"{agg} of {metric}.s"
+            name = f"{agg}_{metric}_fit"
             
             df = pd.read_csv(
                 file_prefix+"-diversity.csv", 
@@ -201,7 +187,16 @@ def plot_stat_evolution(file_prefix):
             axs[ax_idx].set_title(name+' '+str(round(100*df[name].iloc[-1], 2)))
     # axs[-1].set_xticks(range(0, 201, 25))
 
-    # facilitates avoiding duplicate matplotlib import on scripts which import these functions
-    # i.e. `import plotlogs as p; p.plot(...); p.show()``
+# facilitates avoiding duplicate matplotlib import on scripts which import these functions
+# i.e. `import plotlogs as p; p.plot(...); p.show()``
 show = plt.show 
-#%%
+
+if __name__=="__main__":
+    FILE_PREFIX = "logs/testprob-z"
+    plot_noptima(FILE_PREFIX)
+    plot_stat_evolution(FILE_PREFIX)
+    plot_vesa(FILE_PREFIX)
+    plot_shannon(FILE_PREFIX)
+    show()
+
+

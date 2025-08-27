@@ -1,12 +1,102 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Jul 17 20:12:23 2025
-
-@author: u6942852
-"""
-
 import numpy as np 
-from numba import njit
+from numba import njit, prange
+
+# API functions
+
+@njit 
+def mean_of_shannon_of_projections(points, feasibility, lb, ub):
+    """
+    mean of shannon index along each dimension of a set of points
+    To be called on problem.noptima 
+    """
+    npoint, ndim = points.shape
+    nbin = max(2, int(npoint**0.5)) # sqrt of number of samples, consider updating later 
+    acc = 0
+    counts = np.zeros(nbin, dtype=np.int64)
+    feasible_points = points[feasibility].T
+    for k in range(ndim):
+        counts[:] = 0
+        acc += _shannon_index(feasible_points[k], lb[k], ub[k], nbin, npoint, counts)
+    acc /= np.log(nbin) # normalize 
+    acc /= ndim # take mean
+    return acc 
+
+@njit
+def sum_of_fitness(fitness, noptimality):
+    """ sum of maximum (noptimal) fitness of each population""" 
+    acc = 0
+    for i in range(fitness.shape[0]):
+        _max = 0
+        for j in range(fitness.shape[1]):
+            if noptimality[i, j]:
+                if fitness[i, j] > _max:
+                    _max = fitness[i, j]
+        acc += _max
+    return acc
+
+@njit 
+def mean_of_fitness(fitness, noptimality):
+    return sum_of_fitness(fitness, noptimality) / fitness.shape[0]
+
+@njit
+def volume_estimation_by_shadow_addition(points, feasibility):
+    vesa = 0.0
+    feasible_points = points[feasibility].T
+    for k in prange(points.shape[1]):
+        for _k in range(k + 1, points.shape[1]):
+            projection = np.stack((feasible_points[k], feasible_points[_k]), axis=-1)
+            vesa += _convex_hull_area(projection)
+    return vesa
+
+@njit
+def std(quantity, noptimality):
+    """ standard deviation. `quantity` may be problem.objective or problem.fitness"""
+    return _stat_measure(quantity, noptimality, np.std)
+
+@njit
+def var(quantity, noptimality):
+    """ statistical variation. `quantity` may be problem.objective or problem.fitness"""
+    return _stat_measure(quantity, noptimality, np.var)
+
+# private helper functions
+
+@njit 
+def _shannon_index(values, lb, ub, nbin, npoint, counts):
+    bin_width = (ub-lb) / nbin
+
+    for i in range(npoint):
+        idx = int((values[i]-lb)/bin_width)
+        if idx < 0: idx = 0
+        if idx > nbin-1: idx = nbin-1
+        counts[idx] += 1
+    
+    H = 0.0
+    nonzero = 0
+    for i in range(nbin):
+        if counts[i] > 0:
+            p = counts[i] / npoint
+            H -= p * np.log(p)
+            nonzero += 1
+
+    # Miller-Madow bias correction
+    H += (nonzero - 1) / (2.0 * npoint)
+    return H 
+
+@njit
+def _stat_measure(quantity, noptimality, stat):
+    result = np.empty(quantity.shape[0])
+    for i in range(quantity.shape[0]):
+        _feas = False
+        for j in range(noptimality.shape[1]):
+            if noptimality[i, j] is True:
+                _feas = True
+                break
+        if _feas is True:
+            result[i] = stat(quantity[i][noptimality[i]])
+        else: 
+            result[i] = np.inf
+    return result
+
 
 @njit
 def _cross_product(p1, p2, p3):
@@ -33,7 +123,7 @@ def _shoelace_area(points_buffered, num_points):
     return abs(area) / 2.0
 
 @njit
-def convex_hull_area(points):
+def _convex_hull_area(points):
     """
     Calculates the area of the convex hull of a set of 2D points.
 
@@ -99,86 +189,3 @@ def convex_hull_area(points):
         return 0.0
 
     return _shoelace_area(hull_points, hull_idx)
-
-
-
-# Example Usage:
-if __name__ == "__main__":
-    # Test Case 1: Simple square
-    points1 = np.array([
-        [0, 0],
-        [1, 0],
-        [1, 1],
-        [0, 1]
-    ], dtype=np.float64)
-    area1 = convex_hull_area(points1)
-    print(f"Area of convex hull for square: {area1}") # Expected: 1.0
-
-    # Test Case 2: Points forming a triangle
-    points2 = np.array([
-        [0, 0],
-        [5, 0],
-        [2, 3],
-        [1, 1], # Inside the triangle
-        [4, 1]  # Inside the triangle
-    ], dtype=np.float64)
-    area2 = convex_hull_area(points2)
-    print(f"Area of convex hull for triangle: {area2}") # Expected: 7.5 (base 5, height 3)
-
-    # Test Case 3: Points forming a pentagon
-    points3 = np.array([
-        [0, 0],
-        [2, 0],
-        [3, 2],
-        [1, 3],
-        [-1, 2],
-        [1, 1], # Inside
-        [0.5, 0.5] # Inside
-    ], dtype=np.float64)
-    area3 = convex_hull_area(points3)
-    print(f"Area of convex hull for pentagon: {area3}") # Expected: ~8.0
-
-    # Test Case 4: Collinear points
-    points4 = np.array([
-        [0, 0],
-        [1, 1],
-        [2, 2],
-        [3, 3]
-    ], dtype=np.float64)
-    area4 = convex_hull_area(points4)
-    print(f"Area of convex hull for collinear points: {area4}") # Expected: 0.0
-
-    # Test Case 5: Single point
-    points5 = np.array([
-        [0, 0]
-    ], dtype=np.float64)
-    area5 = convex_hull_area(points5)
-    print(f"Area of convex hull for single point: {area5}") # Expected: 0.0
-
-    # Test Case 6: Two points
-    points6 = np.array([
-        [0, 0],
-        [1, 1]
-    ], dtype=np.float64)
-    area6 = convex_hull_area(points6)
-    print(f"Area of convex hull for two points: {area6}") # Expected: 0.0
-
-    # Test Case 7: Random points (larger set)
-    
-    np.random.seed(42)
-   
-    def test(n=100):
-        points7 = np.random.rand(n, 2) * n
-        area7 = convex_hull_area(points7)
-        # print(f"Area of convex hull for 100 random points: {area7}")
-
-    # Test Case 8: Points with negative coordinates
-    points8 = np.array([
-        [-1, -1],
-        [1, -1],
-        [1, 1],
-        [-1, 1],
-        [0, 0] # Inside
-    ], dtype=np.float64)
-    area8 = convex_hull_area(points8)
-    print(f"Area of convex hull for points with negative coordinates: {area8}") # Expected: 4.0

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 General purpose optimisation / MGA termination criteria. 
 
@@ -8,9 +7,6 @@ They should be called once during an iteration and return True if the convergenc
     
 Possible future convergence criteria
     - standard deviation of objective function values (as in scipy's implementation of DE)
-    - VESA inspired colume additions of new noptima
-        - questions remain about whether this is applicable if we are not aiming to identify extrema
-    - ... 
     
 """
 
