@@ -11,7 +11,6 @@ from functools import partial
 from datetime import datetime as dt
 from datetime import timedelta as td
 from time import perf_counter
-from tqdm import tqdm
 
 import termination_criteria as tc
 

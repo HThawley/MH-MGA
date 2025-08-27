@@ -122,7 +122,7 @@ class Problem:
         
         self.log = log
         self.log_freq = log_freq
-        self.log_level = "detailed"
+        self.log_level = log_level
         if self.log is not None: 
             self.nobjective_printer = Fileprinter(
                 file_name = self.log+"-nobjective.csv", 
@@ -489,7 +489,7 @@ class Problem:
     # @keeptime("Terminate", on_switch)
     def Terminate(self):
         self.Run_statistics()
-        self.Return_noptima()
+        self.Update_noptima()
         if self.log is not None: 
             self.noptima_printer = Fileprinter(
                 file_name = self.log+"-noptima.csv", 
@@ -501,12 +501,12 @@ class Problem:
             self.noptima_printer(np.atleast_2d(self.nnoptimality))
             self.noptima_printer(self.noptima.T)
 
-            self.nobjective_printer._flush()
-            self.noptimality_printer._flush()
-            self.nfitness_printer._flush()
-            self.diversity_printer._flush()
+            self.nobjective_printer.Terminate()
+            self.noptimality_printer.Terminate()
+            self.nfitness_printer.Terminate()
+            self.diversity_printer.Terminate()
             if self.log_level == "detailed":
-                self.evolution_printer._flush()
+                self.evolution_printer.Terminate()
 
         return self.noptima, self.nfitness, self.nobjective, self.nnoptimality
 
@@ -551,7 +551,7 @@ class Problem:
             self.noptimal_obj = self.optimal_obj*self.slack
 
 
-    # @keeptime("Return_noptima", on_switch)
+    # @keeptime("Update_noptima", on_switch)
     def Update_noptima(self):
         if self.maximize:
             nindex = [self.objective[0][self.violation[0] == 0].argmax()]
@@ -885,8 +885,6 @@ def clone_parents(population, parents):
             for k in range(population.shape[2]):
                 population[i, j, k] = parents[i, jn, k]
     
-
-
 #%% Execution
 
 if __name__ == "__main__":
@@ -924,7 +922,7 @@ if __name__ == "__main__":
         vectorized = True,
         log = FILEPREFIX,
         log_freq = 500,
-        # random_seed = 1,
+        random_seed = 1,
         # x0 = x0,
         )
 
