@@ -63,7 +63,7 @@ class MGAProblem:
                 rng=self.rng,
             )
             self.population.initialize()
-            self.population.evaluate_and_update(np.inf)
+            self.population.evaluate_and_update(self.noptimal_slack)
             self._is_initialized = True
         else: 
             self.population.add_niches(num_niches)

@@ -6,6 +6,10 @@ from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
 from mga.metrics import fitness as fit_metrics
 
+### 
+# Can this be made a jitclass??
+###
+
 class Population:
     """
     Manages the state and evolution of the entire population across all niches.
@@ -178,12 +182,13 @@ class Population:
         # Evaluate objectives and apply penalties
         for i in range(self.num_niches):
             self.objective_values[i], self.violations[i] = self.problem.evaluate(self.points[i])
+        # TODO: Update penalty factor
         self.penalized_objectives = self.objective_values + self.violations # Assumes factor=1
         
         # Update global optimum
         self._update_global_best()
         
-        # Determine n-optimality based on the new global best
+        # Determine near-optimality based on the new global best
         if self.problem.maximize:
             self.noptimal_threshold = self.global_best_value / noptimal_slack
             self.is_noptimal[:] = self.objective_values > self.noptimal_threshold
