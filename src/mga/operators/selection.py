@@ -4,29 +4,62 @@ from numba import njit
 # API functions
 
 @njit
-def selection(niche, criteria, maximize, elite_count, tourn_count, tourn_size, rng, stable):
+def selection(selected, niche, criteria, maximize, elite_count, tourn_count, tourn_size, rng, stable):
     """
     Selects individuals using a combination of elitism and tournament selection.
     """
-    selected = np.empty((elite_count + tourn_count, niche.shape[1]))
     if elite_count > 0:
         selected[:elite_count] = _select_best(niche, criteria, elite_count, maximize, stable)
     if tourn_count > 0:
         selected[elite_count:] = _select_tournament(niche, criteria, tourn_count, tourn_size, rng, maximize)
-    return selected
 
 @njit
-def selection_with_fallback(niche, fitness, is_noptimal, objective, maximize, elite_count, tourn_count, tourn_size, rng, stable):
+def selection_with_fallback(selected, niche, fitness, is_noptimal, objective, maximize, elite_count, tourn_count, tourn_size, rng, stable):
     """
     Selects based on fitness, falling back to objective if not enough n-optimal individuals exist.
     """
-    selected = np.empty((elite_count + tourn_count, niche.shape[1]))
     if elite_count > 0:
-        selected[:elite_count] = _select_best_with_fallback(niche, fitness, is_noptimal, objective, elite_count, maximize, stable)
+        selected[:elite_count] = _select_best_with_fallback(
+            niche, fitness, is_noptimal, objective, elite_count, maximize, stable
+        )
     if tourn_count > 0:
         selected[elite_count:] = _select_tournament_with_fallback(
-            niche, fitness, is_noptimal, objective, tourn_count, tourn_size, rng, maximize)
-    return selected
+            niche, fitness, is_noptimal, objective, tourn_count, tourn_size, rng, maximize
+        )
+
+@njit
+def select_elite(selected, niche, objective, maximize):
+    """ 
+    Special case of `_select_best` when n = 1
+    """
+    if maximize:
+        index = objective.argmax()
+    else:
+        index = objective.argmin()
+    selected[:] = niche[index, :] 
+
+@njit
+def select_elite_with_fallback(selected, niche, fitness, is_noptimal, objective, maximize):
+    """ 
+    Special case of `_select_best_with_fallback` when n = 1
+    Selects best 'n' individuals based on 'fitness'.
+    If there are not 'n' noptimal individuals, selects on 'objective'
+    """
+    # loop through fitness and choose the best noptimal fitness
+    # record succes via _nopt: bool
+    best = -np.inf
+    index = -1
+    for j in range(niche.shape[0]):
+        if not is_noptimal[j]:
+            continue
+        elif fitness[j] > best:
+            best = fitness[j]
+            index = j
+            
+    if index == -1:
+        select_elite(selected, niche, objective, maximize)
+        
+    selected[:] = niche[index, :] 
 
 # private helper functions
 

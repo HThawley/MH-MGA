@@ -149,11 +149,9 @@ class Logger:
             iteration (int): The current iteration number.
             population (Population): The population object containing current state.
         """
-        best_solutions = population.get_best_solutions()
-        
-        self.nobjective_printer(best_solutions['objective'])
-        self.noptimality_printer(best_solutions['is_noptimal'].astype(int))
-        self.nfitness_printer(best_solutions['fitness'])
+        self.nobjective_printer(population.current_optima_obj)
+        self.noptimality_printer(population.current_optima_nop.astype(int))
+        self.nfitness_printer(population.current_optima_fit)
         
         # Log diversity metrics
         diversity_row = self._calculate_diversity_metrics(iteration, population)
@@ -161,17 +159,16 @@ class Logger:
         
         # Log detailed evolution of best points
         if self.detailed:
-            niche_ids = np.arange(population.num_niches)
             evolution_data = np.column_stack([
                 np.full(population.num_niches, iteration),
-                [f"nopt{i}" for i in niche_ids],
-                best_solutions['objective'],
-                best_solutions['fitness'],
-                best_solutions['points']
+                [f"nopt{i}" for i in range(population.num_niches)],
+                population.current_optima_obj,
+                population.current_optima_fit,
+                population.current_optima,
             ])
             self.evolution_printer(evolution_data)
 
-    def finalize(self, best_solutions: dict):
+    def finalize(self, population):
         """
         Writes the final summary of n-optima and flushes all log files.
         
@@ -180,12 +177,13 @@ class Logger:
         """
         print("Finalizing logs...")
         # Write final n-optima data
-        niche_names = ["optimum"] + [f"nopt{i}" for i in range(1, len(best_solutions['points']))]
+        niche_names = (["optimum"] + 
+                       [f"nopt{i}" for i in range(1, len(population.current_optima))])
         final_data = np.vstack([
             niche_names,
-            best_solutions['objective'],
-            best_solutions['is_noptimal'].astype(int),
-            best_solutions['points'].T
+            population.current_optima_obj,
+            population.current_optima_nop.astype(int),
+            population.current_optima.T
         ])
         self.noptima_printer(final_data)
 
@@ -203,8 +201,7 @@ class Logger:
         """
         Calculates and returns a vector of diversity metrics for the current population state.
         """
-        nopt_points = population.points[population.is_noptimal]
-        nopt_mask = population.is_noptimal.any(axis=1) # Which niches have n-optimal points
+        nopt_points = population.current_optima[population.current_optima_nop]
         
         # VESA
         if nopt_points.shape[0] >= population.problem.ndim + 1:
@@ -223,8 +220,9 @@ class Logger:
             shannon = 0.0
 
         # Fitness statistics
-        stds = diversity.std(population.fitness_values, population.is_noptimal)
-        variances = diversity.var(population.fitness_values, population.is_noptimal)
+        nopt_mask = population.is_noptimal.any(axis=1) # Which niches have n-optimal points
+        stds = diversity.std(population.fitnesses, population.is_noptimal)
+        variances = diversity.var(population.fitnesses, population.is_noptimal)
         
         return np.array([[
             iteration,
@@ -236,6 +234,6 @@ class Logger:
             np.mean(variances[nopt_mask]) if nopt_mask.any() else 0.0,
             np.min(variances[nopt_mask]) if nopt_mask.any() else 0.0,
             np.max(variances[nopt_mask]) if nopt_mask.any() else 0.0,
-            diversity.sum_of_fitness(population.fitness_values, population.is_noptimal),
-            diversity.mean_of_fitness(population.fitness_values, population.is_noptimal)
+            diversity.sum_of_fitness(population.fitnesses, population.is_noptimal),
+            diversity.mean_of_fitness(population.fitnesses, population.is_noptimal)
         ]])

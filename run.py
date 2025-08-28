@@ -21,7 +21,8 @@ def main():
     """
     Configures and runs the MGA algorithm.
     """
-    FILE_PREFIX = "logs/testprob-z"
+    # FILE_PREFIX = "logs/testprob-z"
+    FILE_PREFIX = None
     
     # 1. Define the optimization problem
     problem = OptimizationProblem(
@@ -37,22 +38,22 @@ def main():
         problem=problem,
         log_dir=FILE_PREFIX,
         log_freq=500,
-        random_seed=1
+        random_seed=1, 
     )
 
-    algorithm.add_niche(num_niches=25, pop_size=10)
+    algorithm.add_niches(num_niches=3)
     
     # 3. Run the optimization
     algorithm.step(
-        max_iter=50,
-        pop_size=10,
-        elite_count=0,
+        max_iter=200,
+        pop_size=100,
+        elite_count=0.2,
         tourn_count=-1, # -1 means it will take the remainder of pop_size
-        tourn_size=8,
-        mutation_prob=0.323,
-        mutation_sigma=0.0106,
-        crossover_prob=0.5,
-        niche_elitism="selfish",
+        tourn_size=3,
+        mutation_prob=0.33,
+        mutation_sigma=0.05,
+        crossover_prob=0.3,
+        niche_elitism=None,#"selfish",
         noptimal_slack=1.12,
         disp_rate=500,
     )
@@ -60,21 +61,22 @@ def main():
     # 4. Terminate and get results
     results = algorithm.get_results()
     print("\n--- Final N-optima ---")
-    for i in range(results['noptima'].shape[0]):
-        print(f"Niche {i}: Point={results['noptima'][i]}, "
-              f"Fitness={results['nfitness'][i]:.4f}, "
-              f"Objective={results['nobjective'][i]:.4f}, "
-              f"Is N-optimal={results['nnoptimality'][i]}")
+    for i in range(results['optima'].shape[0]):
+        print(f"Niche {i}: Point={results['optima'][i]}, "
+              f"Fitness={results['fitness'][i]:.4f}, "
+              f"Objective={results['objective'][i]:.4f}, "
+              f"Is N-optimal={results['noptimality'][i]}")
     
     # 5. Print profiling information and plot results
     # profiling.print_profiler_summary()
     
     print("\nGenerating plots...")
-    plotting.plot_noptima(FILE_PREFIX)
-    plotting.plot_stat_evolution(FILE_PREFIX)
-    plotting.plot_vesa(FILE_PREFIX)
-    plotting.plot_shannon(FILE_PREFIX)
-    plotting.show()
+    if FILE_PREFIX is not None:
+        plotting.plot_noptima(FILE_PREFIX)
+        plotting.plot_stat_evolution(FILE_PREFIX)
+        plotting.plot_vesa(FILE_PREFIX)
+        plotting.plot_shannon(FILE_PREFIX)
+        plotting.show()
 
 if __name__ == "__main__":
     main()
