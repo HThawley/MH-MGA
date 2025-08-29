@@ -4,24 +4,23 @@ from numba import njit
 # API functions
 
 @njit
-def crossover_population(population, crossover_prob, cx_func, rng, start_idx=0):
+def crossover_population(points, crossover_prob, cx_func, rng, start_idx=0):
     """
     Applies crossover to an entire population, niche by niche.
     """
-    for i in range(population.shape[0]):
+    for i in range(points.shape[0]):
         # Shuffle parents for mating
-        rng.shuffle(population[i, start_idx:])
+        rng.shuffle(points[i, start_idx:])
         
-        for ind1, ind2 in zip(population[i, start_idx:][::2], population[i, start_idx:][1::2]):
+        for ind1, ind2 in zip(points[i, start_idx:][::2], points[i, start_idx:][1::2]):
             if rng.random() < crossover_prob:
                 cx_func(ind1, ind2, rng)
 
 @njit
-def crossover_niche(niche, crossover_prob, rng, start_idx=0):
+def crossover_niche(niche, crossover_prob, cx_func, rng, start_idx=0):
     """
     Applies crossover to a niche
     """
-    cx_func = _cx_two_point if niche.shape[1] > 2 else _cx_one_point
     # Shuffle parents for mating
     rng.shuffle(niche[start_idx:])
     

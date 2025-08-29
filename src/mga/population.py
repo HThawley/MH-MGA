@@ -54,17 +54,17 @@ class Population:
         self.cx_func = crossover._cx_two_point if problem.ndim > 2 else crossover._cx_one_point
         self.noptimal_slack_func = _noptimal_slack_max if self.problem.maximize else _noptimal_slack_min
 
-    def initialize(self):
+    def populate(self):
         """
-        Initializes the population points with a uniform distribution
+        populates the population points with a uniform distribution
         """
-        self._initialize_randomly(0, self.num_niches)
+        self._populate_randomly(0, self.num_niches)
         self._apply_integrality()
         self._apply_bounds()
 
-    def _initialize_randomly(self, start_idx, end_idx):
-        """Helper to initialize a slice of niches with random points."""
-        _initialize_randomly(
+    def _populate_randomly(self, start_idx, end_idx):
+        """Helper to populate a slice of niches with random points."""
+        _populate_randomly(
             self.points, 
             start_idx, 
             end_idx, 
@@ -107,7 +107,7 @@ class Population:
                 if i < len(candidates):
                     self.points[niche_idx, :, :] = candidates[i] + self.rng.normal(scale=0.01, size=self.points[niche_idx].shape)
                 else:
-                    self._initialize_randomly(niche_idx, niche_idx + 1)
+                    self._populate_randomly(niche_idx, niche_idx + 1)
         else: 
             raise RuntimeError("Not enough niches to triangulate. Try non-heuristic niche adding")
 
@@ -128,7 +128,7 @@ class Population:
         num_total_niches = num_old_niches + num_new_niches
         self.resize(niches = num_total_niches)
         
-        self._initialize_randomly(num_old_niches, num_total_niches)
+        self._populate_randomly(num_old_niches, num_total_niches)
         
         self.num_niches = num_total_niches
         self._apply_integrality()
@@ -431,7 +431,7 @@ class Population:
 #%%
 
 @njit
-def _initialize_randomly(points, start_idx, end_idx, lb, ub, rng):
+def _populate_randomly(points, start_idx, end_idx, lb, ub, rng):
     for i in range(start_idx, end_idx):
         for j in range(points.shape[1]):
             for k in range(points.shape[2]):
