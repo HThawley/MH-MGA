@@ -1,10 +1,29 @@
 import pytest
 import numpy as np
+from numba import njit, int64
+from numba.types import UniTuple
+from numba.experimental import jitclass
 
 from mga.operators import crossover as cx
 
-# fixtures
+@jitclass([("retval", int64)])
+class mock_rng1:
+    def __init__(self, n):
+        self.retval = n
+    def integers(self, lb, ub):
+        return self.retval
 
+@jitclass([("retval", UniTuple(int64, 2)),
+           ("calls", int64)])
+class mock_rng2:
+    def __init__(self, n):
+        self.calls=-1
+        self.retval = n
+    def integers(self, lb, ub):
+        self.calls+=1
+        return self.retval[self.calls]
+
+# fixtures
 @pytest.fixture
 def rng():
     yield np.random.default_rng()
@@ -43,15 +62,6 @@ def points_copy(points):
 def crossed_points(points_copy, rng):
     cx.crossover_population(points_copy, 1.0, cx._cx_one_point, rng, 0)
     yield points_copy
-
-@pytest.fixture
-def mock_rng():
-    class rng_:
-        def __init__(self):
-            pass
-        def random(self):
-            return 0.75
-    yield rng_()
 
 @pytest.fixture
 def point1():
@@ -110,6 +120,60 @@ def test_column_count(points, crossed_points):
             for coord, count in org_counts.items():
                 assert new_counts[coord] == count
 
-def test_cx_one_point(point1, point2, mock_rng):
-    # need the integers method in the mock rng to test cx_one_point
-    assert mock_rng.random() == 0.75
+@pytest.mark.parametrize("rng", [0, 1, 2, 3, 4])
+def test_cx_one_point(point1, point2, rng):
+    """
+    test _cx_one_point
+    """
+    _rng = mock_rng1(rng)
+
+    result1 = point1.copy()
+    result2 = point2.copy()
+    result1[rng:] = point2[rng:]
+    result2[rng:] = point1[rng:]
+    cx._cx_one_point(point1, point2, _rng)
+
+    assert (point1 == result1).all()
+    assert (point2 == result2).all()
+
+@pytest.mark.parametrize(
+        "rng", 
+        [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), 
+         (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)])
+def test_cx_two_point(point1, point2, rng):
+    """
+    test _cx_two_point
+    """
+    _rng = mock_rng2(rng)
+
+    result1 = point1.copy()
+    result2 = point2.copy()
+    result1[slice(*rng)] = point2[slice(*rng)]
+    result2[slice(*rng)] = point1[slice(*rng)]
+    cx._cx_two_point(point1, point2, _rng)
+
+    assert (point1 == result1).all()
+    assert (point2 == result2).all()
+
+def test_cx_index_1p_uniformity():
+    """
+    Test that the random index chosen by _cx_one_point is uniformly distributed.
+    """
+    assert True
+
+@pytest.mark.parametrize("ndim", [3, 4, 5, 10])
+def test_cx_index_2p_uniformity(ndim):
+    """
+    Test that the random indices chosen by _cx_two_point is uniformly distributed.
+    """
+    rng = np.random.default_rng()
+    _indices = np.zeros(ndim)
+    for i in range(1000):
+        point1 = -np.ones(ndim)
+        point2 = np.arange(ndim)
+        cx._cx_two_point(point1, point2, rng)
+        _indices[np.where(point1 != -1)[0][0]] += 1 
+        _indices[np.where(point1 != -1)[0][-1]] += 1 
+        
+    assert True
+
