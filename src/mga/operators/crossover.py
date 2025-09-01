@@ -47,7 +47,8 @@ def _cx_one_point(ind1, ind2, rng):
     """
     Single point crossover
     """
-    index1 = rng.integers(0, len(ind1))
+    # index1=0 leads to total swap instead of cx
+    index1 = rng.integers(1, len(ind1)) 
     _do_cx(ind1, ind2, index1, len(ind1))
     
 @njit
@@ -55,8 +56,12 @@ def _cx_two_point(ind1, ind2, rng):
     """
     Double point crossover
     """
-    # +1 / -1 adjustments are made to ensure there is always a crossover 
-    # only valid for ndim >= 3
-    index1 = rng.integers(0, len(ind1)-1)
-    index2 = rng.integers(index1+1, len(ind1))
+    # choose 2 with no replacement
+    index1 = rng.integers(0, len(ind1)+1)
+    index2 = rng.integers(0, len(ind1))
+    if index2 >= index1:
+        index2 += 1
+    else: # index2 < index1
+        index1, index2 = index2, index1 
+
     _do_cx(ind1, ind2, index1, index2)

@@ -14,7 +14,7 @@ def mutate_gaussian_population_mixed(population, sigma, indpb, rng, integrality,
             for k in range(population.shape[2]):
                 if rng.random() < indpb:
                     if boolean_mask[k]:
-                        population[i, j, k] = _mutate_bool(population[i, j, k]) 
+                        population[i, j, k] = _mutate_bool(population[i, j, k], sigma[k], rng) 
                     elif integrality[k]:
                         population[i, j, k] = _mutate_int(population[i, j, k], sigma[k], rng)
                     else: 
@@ -42,7 +42,7 @@ def mutate_gaussian_niche_mixed(niche, sigma, indpb, rng, integrality, boolean_m
         for k in range(niche.shape[1]):
             if rng.random() < indpb:
                 if boolean_mask[k]:
-                    niche[j, k] = _mutate_bool(niche[j, k]) 
+                    niche[j, k] = _mutate_bool(niche[j, k], sigma[k], rng) 
                 elif integrality[k]:
                     niche[j, k] = _mutate_int(niche[j, k], sigma[k], rng)
                 else: 
@@ -72,6 +72,9 @@ def _mutate_int(item, sigma, rng):
     return round(rng.normal(item, sigma))
 
 @njit
-def _mutate_bool(item):
+def _mutate_bool(item, sigma, rng):
     """Boolean mutation for single variable"""
-    return 1.0 - item
+    if abs(rng.normal(0, sigma)) <= 1.0:
+        return item
+    else: 
+        return 1.0 - item

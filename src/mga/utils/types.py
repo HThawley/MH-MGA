@@ -65,7 +65,7 @@ def array_dtype_is(obj, dtype: str|Type):
     if len(obj) == 0: 
         # empty array has compliant dtype 
         return True
-    
+
     if dtype == "numeric":
         return all(is_numeric(element) for element in obj)
     elif dtype == "boolean":
@@ -81,4 +81,11 @@ def array_dtype_is(obj, dtype: str|Type):
     else: 
         return all(isinstance(element, dtype) for element in obj)
 
-    
+def flatten(obj, type=list):
+    retobj = []
+    for item in obj:
+        if is_array_like(item):
+            retobj.extend(flatten(item))
+        else:
+            retobj.append(item)
+    return type(retobj)
