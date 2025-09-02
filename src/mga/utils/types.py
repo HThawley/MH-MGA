@@ -57,29 +57,27 @@ def array_dtype_is(obj, dtype: str|Type):
     if not isinstance(dtype, (str, Type)): 
         raise TypeError(f"'dtype' must be a string or a type. Supplied a {type(dtype)}.")
     if isinstance(dtype, str):
+        func_dict = {
+            "numeric":is_numeric,
+            "boolean":is_boolean,
+            "arraylike":is_array_like,
+            "float":is_float,
+            "integer":is_integer,
+            "finite":is_finite,
+            }
         dtype = dtype.lower()
-        if dtype not in ("numeric", "boolean", "arraylike", "float", "integer", "finite"):
+        if dtype not in func_dict.keys():
             raise ValueError(f"'dtype' expects a type or a string. Supported string dtypes: "\
-                             f"('numeric', 'boolean', 'arraylike', 'float', 'integer', 'finite'). Supplied: '{dtype}'")
+                             f"{tuple(func_dict.keys())}. Supplied: '{dtype}'")
+        func = func_dict[dtype]
     
     if len(obj) == 0: 
         # empty array has compliant dtype 
         return True
 
-    if dtype == "numeric":
-        return all(is_numeric(element) for element in obj)
-    elif dtype == "boolean":
-        return all(is_boolean(element) for element in obj)
-    elif dtype == "arraylike":
-        return all(is_array_like(element) for element in obj)
-    elif dtype == "float":
-        return all(is_float(element) for element in obj)
-    elif dtype == "integer":
-        return all(is_integer(element) for element in obj)
-    elif dtype == "finite":
-        return all(is_finite(element) for element in obj)
-    else: 
-        return all(isinstance(element, dtype) for element in obj)
+    if isinstance(dtype, str):
+        return all(func(element) for element in obj)
+    return all(isinstance(element, dtype) for element in obj)
 
 def flatten(obj, type=list):
     retobj = []

@@ -74,7 +74,7 @@ def _mutate_int(item, sigma, rng):
 @njit
 def _mutate_bool(item, sigma, rng):
     """Boolean mutation for single variable"""
-    if abs(rng.normal(0, sigma)) <= 1.0:
+    if abs(rng.normal(0, sigma)) <= rng.random():
         return item
     else: 
         return 1.0 - item

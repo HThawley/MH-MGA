@@ -62,7 +62,6 @@ def select_elite_with_fallback(selected, niche, fitness, is_noptimal, objective,
     selected[:] = niche[index, :] 
 
 # private helper functions
-
 @njit 
 def _draw_tournament_indices(indices, ub, rng):
     """ 
@@ -97,6 +96,7 @@ def _select_tournament(niche, objective, n, tournsize, rng, maximize):
     """
     Selects {n} individuals from a population according to selection tournament
     """
+    #TODO: selected in-place
     selected = np.empty((n, niche.shape[1]), np.float64)
     indices = np.empty(tournsize, np.int64)
     
@@ -108,9 +108,10 @@ def _select_tournament(niche, objective, n, tournsize, rng, maximize):
     return selected
 
 @njit
-def _select_tournament_with_fallback(niche, fitness, noptimality, objective, n, tournsize, rng, maximize):
+def _select_tournament_with_fallback(niche, fitness, is_noptimal, objective, n, tournsize, rng, maximize):
     """select on fitness preferred. fitness always maximised. 
     objective max/minimized based on value of `maximize`"""
+    #TODO: selected in-place
     selected = np.empty((n, niche.shape[1]), np.float64)
     indices = np.empty(tournsize, np.int64)
     noptimality_threshold = tournsize / 2 
@@ -120,7 +121,7 @@ def _select_tournament_with_fallback(niche, fitness, noptimality, objective, n, 
         
         _nopt = 0
         for idx in indices:
-            if noptimality[idx]:
+            if is_noptimal[idx]:
                 _nopt+=1 
         
         if _nopt <= noptimality_threshold: # mostly non-noptimal
@@ -137,12 +138,16 @@ def _select_best(niche, objective, n, maximize, stable):
     """
     Selects best individuals from a population
     """
+    if n == 0: 
+        raise ValueError
+    #TODO: selected in-place
+
     selected = np.empty((n, niche.shape[1]))
     indices = np.empty(n, np.int64)
     
     if stable:
         _indices = np.argsort(objective)
-        _stabilise_sort(_indices, objective)
+        _stabilize_sort(_indices, objective)
         if maximize: 
             indices[:] = _indices[-n:]
         else: 
@@ -160,13 +165,14 @@ def _select_best(niche, objective, n, maximize, stable):
     return selected 
 
 @njit
-def _select_best_with_fallback(niche, fitness, noptimality, objective, n, maximize, stable):
+def _select_best_with_fallback(niche, fitness, is_noptimal, objective, n, maximize, stable):
     """ Selects best `n` individuals based on fitness.
     If there are not `n` noptimal individuals, selects on objective"""
-    
+    #TODO: selected in-place
+
     _nopt = 0 
-    for i in range(len(noptimality)):
-        if noptimality[i]:
+    for i in range(len(is_noptimal)):
+        if is_noptimal[i]:
             _nopt += 1 
     
 # =============================================================================
@@ -177,7 +183,7 @@ def _select_best_with_fallback(niche, fitness, noptimality, objective, n, maximi
 #     selected = np.empty((n, niche.shape[1]))
 #     indices = np.empty(n, np.int64)
 #     
-#     noptimal_indices = np.where(noptimality)[0]
+#     noptimal_indices = np.where(is_noptimal)[0]
 #     noptimal_fitness = fitness[noptimal_indices]
 #     
 #     if _nopt == n: # edge case breaks numba but also we can skip and be more efficient anyway
@@ -195,13 +201,13 @@ def _select_best_with_fallback(niche, fitness, noptimality, objective, n, maximi
     selected = np.empty((n, niche.shape[1]))
     indices = np.empty(n, np.int64)
     
-    noptimal_indices = np.where(noptimality)[0]
+    noptimal_indices = np.where(is_noptimal)[0]
     noptimal_fitness = fitness[noptimal_indices]
     
     if stable: 
 # =============================================================================
         _indices = np.argsort(noptimal_fitness)
-        _stabilise_sort(_indices, noptimal_fitness)
+        _stabilize_sort(_indices, noptimal_fitness)
         indices[:] = noptimal_indices[_indices[-n:]]
     else: 
         indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, -n)[-n:]]
@@ -212,7 +218,7 @@ def _select_best_with_fallback(niche, fitness, noptimality, objective, n, maximi
     return selected 
 
 @njit
-def _stabilise_sort(indices, values):
+def _stabilize_sort(indices, values):
     """
     Sorts blocks of duplicate values within a list of indices
     in-place based on the index values for a stable order.
@@ -232,4 +238,3 @@ def _stabilise_sort(indices, values):
             indices[start_block:end_block].sort()
         else:
             i += 1
-    return indices
