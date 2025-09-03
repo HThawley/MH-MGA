@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from numba import int32, int64, float32, float64, boolean
 
-from mga.utils import types
+from mga.utils import type_asserts
 
 integers = [
     0, 
@@ -107,90 +107,90 @@ other_collections = [
 
 @pytest.mark.parametrize("obj", integers+finite_floats+infinite_floats)
 def test_is_numeric_true(obj):
-    assert types.is_numeric(obj)
+    assert type_asserts.is_numeric(obj)
 
 @pytest.mark.parametrize("obj", booleans + array_likes + other_collections)
 def test_is_numeric_false(obj):
-    assert not types.is_numeric(obj)
+    assert not type_asserts.is_numeric(obj)
 
 @pytest.mark.parametrize("obj", integers)
 def test_is_integer_true(obj):
-    assert types.is_integer(obj)
+    assert type_asserts.is_integer(obj)
 
 @pytest.mark.parametrize("obj", finite_floats+infinite_floats+booleans+array_likes+other_collections)
 def test_is_integer_false(obj):
-    assert not types.is_integer(obj)
+    assert not type_asserts.is_integer(obj)
 
 @pytest.mark.parametrize("obj", finite_floats+infinite_floats)
 def test_is_float_true(obj):
-    assert types.is_float(obj)
+    assert type_asserts.is_float(obj)
 
 @pytest.mark.parametrize("obj", integers+booleans+array_likes+other_collections)
 def test_is_float_false(obj):
-    assert not types.is_float(obj)
+    assert not type_asserts.is_float(obj)
 
 @pytest.mark.parametrize("obj", booleans)
 def test_is_boolean_true(obj):
-    assert types.is_boolean(obj)
+    assert type_asserts.is_boolean(obj)
 
 @pytest.mark.parametrize("obj", boolean_disambig+integers+finite_floats+infinite_floats+array_likes+other_collections)
 def test_is_boolean_false(obj):
-    assert not types.is_boolean(obj)
+    assert not type_asserts.is_boolean(obj)
 
 @pytest.mark.parametrize("obj", finite_floats+integers+booleans)
 def test_is_finite_true(obj):
-    assert types.is_finite(obj)
+    assert type_asserts.is_finite(obj)
 
 @pytest.mark.parametrize("obj", infinite_floats+array_likes+other_collections)
 def test_is_finite_false(obj):
-    assert not types.is_finite(obj)
+    assert not type_asserts.is_finite(obj)
 
 @pytest.mark.parametrize("obj", array_likes)
 def test_is_arraylike_true(obj):
-    assert types.is_array_like(obj)
+    assert type_asserts.is_array_like(obj)
 
 @pytest.mark.parametrize("obj", infinite_floats+finite_floats+integers+booleans+other_collections)
 def test_is_arraylike_false(obj):
-    assert not types.is_array_like(obj)  
+    assert not type_asserts.is_array_like(obj)  
 
 @pytest.mark.parametrize("obj", array_like_dempty + array_like_dfloat + array_like_dinfinite)
 def test_array_dtype_is_float_true(obj):
-    assert types.array_dtype_is(obj, "float")  
+    assert type_asserts.array_dtype_is(obj, "float")  
 
 @pytest.mark.parametrize("obj", array_like_dint + array_like_dbool + array_like_dnone + array_like_dfinite)
 def test_array_dtype_is_float_false(obj):
-    assert not types.array_dtype_is(obj, "float")  
+    assert not type_asserts.array_dtype_is(obj, "float")  
 
 @pytest.mark.parametrize("obj", array_like_dempty + array_like_dint)
 def test_array_dtype_is_int_true(obj):
-    assert types.array_dtype_is(obj, "integer")  
+    assert type_asserts.array_dtype_is(obj, "integer")  
 
 @pytest.mark.parametrize("obj", array_like_dfloat + array_like_dbool + array_like_dinfinite + array_like_dnone + array_like_dfinite)
 def test_array_dtype_is_int_false(obj):
-    assert not types.array_dtype_is(obj, "integer")  
+    assert not type_asserts.array_dtype_is(obj, "integer")  
 
 @pytest.mark.parametrize("obj", array_like_dempty + array_like_dbool)
 def test_array_dtype_is_bool_true(obj):
-    assert types.array_dtype_is(obj, "boolean")  
+    assert type_asserts.array_dtype_is(obj, "boolean")  
 
 @pytest.mark.parametrize("obj", array_like_dfloat + array_like_dint + array_like_dinfinite + array_like_dnone + array_like_dfinite)
 def test_array_dtype_is_bool_false(obj):
-    assert not types.array_dtype_is(obj, "boolean")  
+    assert not type_asserts.array_dtype_is(obj, "boolean")  
 
 @pytest.mark.parametrize("obj", array_like_dempty + array_like_dfloat + array_like_dint + array_like_dinfinite)
 def test_array_dtype_is_numeric_true(obj):
-    assert types.array_dtype_is(obj, "numeric")  
+    assert type_asserts.array_dtype_is(obj, "numeric")  
 
 @pytest.mark.parametrize("obj", array_like_dbool + array_like_dnone + array_like_dfinite)
 def test_array_dtype_is_numeric_false(obj):
-    assert not types.array_dtype_is(obj, "numeric")  
+    assert not type_asserts.array_dtype_is(obj, "numeric")  
 
 @pytest.mark.parametrize("obj", array_like_dempty + array_like_dfloat + array_like_dbool + array_like_dint + array_like_dfinite)
 def test_array_dtype_is_finite_true(obj):
-    assert types.array_dtype_is(obj, "finite")  
+    assert type_asserts.array_dtype_is(obj, "finite")  
 
 @pytest.mark.parametrize("obj", array_like_dinfinite + array_like_dnone)
 def test_array_dtype_is_finite_false(obj):
-    assert not types.array_dtype_is(obj, "finite")  
+    assert not type_asserts.array_dtype_is(obj, "finite")  
 
 

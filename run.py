@@ -1,11 +1,14 @@
 import numpy as np
 from numba import njit
 
+from mga.commons.types import DEFAULTS
+DEFAULTS.update_precision(32)
+
 from mga.problem_definition import OptimizationProblem
 from mga.mga import MGAProblem
 from mga.utils import plotting, profiling
 
-@njit
+@njit(fastmath=True)
 def objective_function(values_array):
     """
     A complex, multivariate objective function for testing the algorithm.
@@ -23,7 +26,7 @@ def main():
     """
     # FILE_PREFIX = "logs/testprob-z"
     FILE_PREFIX = None
-    
+
     # 1. Define the optimization problem
     problem = OptimizationProblem(
         objective=objective_function,
@@ -66,12 +69,11 @@ def main():
               f"Fitness={results['fitness'][i]:.4f}, "
               f"Objective={results['objective'][i]:.4f}, "
               f"Is N-optimal={results['noptimality'][i]}")
-    
     # 5. Print profiling information and plot results
     # profiling.print_profiler_summary()
-    
-    print("\nGenerating plots...")
+    print(algorithm.population.points.dtype)
     if FILE_PREFIX is not None:
+        print("\nGenerating plots...")
         plotting.plot_noptima(FILE_PREFIX)
         plotting.plot_stat_evolution(FILE_PREFIX)
         plotting.plot_vesa(FILE_PREFIX)

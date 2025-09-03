@@ -2,8 +2,7 @@ import numpy as np
 from numba import njit
 
 # API functions
-
-@njit 
+@njit
 def mutate_gaussian_population_mixed(population, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
     """
     Mutate individuals in a population 
@@ -32,7 +31,7 @@ def mutate_gaussian_population_float(population, sigma, indpb, rng, integrality,
                 if rng.random() < indpb:
                     population[i, j, k] = _mutate_float(population[i, j, k], sigma[k], rng)
 
-@njit 
+@njit
 def mutate_gaussian_niche_mixed(niche, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
     """
     Mutate individuals in a niche 
@@ -68,12 +67,12 @@ def _mutate_float(item, sigma, rng):
 
 @njit
 def _mutate_int(item, sigma, rng):
-    """Integer mutation for single variable"""
+    """Integer mutation for single variable. Returns integer-valued float"""
     return round(rng.normal(item, sigma))
 
 @njit
 def _mutate_bool(item, sigma, rng):
-    """Boolean mutation for single variable"""
+    """Boolean mutation for single variable. Returns boolean-valued float"""
     if abs(rng.normal(0, sigma)) <= rng.random():
         return item
     else: 

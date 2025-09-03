@@ -3,6 +3,8 @@ from numba import njit
 from scipy.spatial import Delaunay
 import warnings 
 
+from mga.commons.types import DEFAULTS
+INT, FLOAT = DEFAULTS
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
 from mga.metrics import fitness as fit_metrics
@@ -23,27 +25,27 @@ class Population:
             rng: np.random._generator.Generator,
         ):
         self.problem = problem
-        self.num_niches = num_niches
-        self.pop_size = pop_size
-        self.parent_size = 0
-        self.unselfish_niche_fit = 0.0
+        self.num_niches = INT(num_niches)
+        self.pop_size = INT(pop_size)
+        self.parent_size = INT(0)
+        self.unselfish_niche_fit = FLOAT(0.0)
         self.rng = rng
         
         # Population data arrays
-        self.points = np.empty((num_niches, pop_size, problem.ndim), dtype=np.float64)
-        self.objective_values = np.empty((num_niches, pop_size), dtype=np.float64)
-        self.violations = np.zeros((num_niches, pop_size), dtype=np.float64)
-        self.penalized_objectives = np.empty((num_niches, pop_size), dtype=np.float64)
-        self.fitnesses = np.empty((num_niches, pop_size), dtype=np.float64)
+        self.points = np.empty((num_niches, pop_size, problem.ndim), dtype=FLOAT)
+        self.objective_values = np.empty((num_niches, pop_size), dtype=FLOAT)
+        self.violations = np.zeros((num_niches, pop_size), dtype=FLOAT)
+        self.penalized_objectives = np.empty((num_niches, pop_size), dtype=FLOAT)
+        self.fitnesses = np.empty((num_niches, pop_size), dtype=FLOAT)
         self.is_noptimal = np.empty((num_niches, pop_size), dtype=np.bool_)
-        self.centroids = np.empty((num_niches, problem.ndim), dtype=np.float64)
-        self.niche_elites = np.empty((num_niches - 1, 1, problem.ndim), dtype=np.float64)
+        self.centroids = np.empty((num_niches, problem.ndim), dtype=FLOAT)
+        self.niche_elites = np.empty((num_niches - 1, 1, problem.ndim), dtype=FLOAT)
         
         # Overall best found
-        self.current_optima = np.empty((num_niches, problem.ndim), dtype=np.float64)
-        self.current_optima_obj = np.empty((num_niches), dtype=np.float64)
-        self.current_optima_pob = np.empty((num_niches), dtype=np.float64)
-        self.current_optima_fit = np.empty((num_niches), dtype=np.float64)
+        self.current_optima = np.empty((num_niches, problem.ndim), dtype=FLOAT)
+        self.current_optima_obj = np.empty((num_niches), dtype=FLOAT)
+        self.current_optima_pob = np.empty((num_niches), dtype=FLOAT)
+        self.current_optima_fit = np.empty((num_niches), dtype=FLOAT)
         self.current_optima_nop = np.empty((num_niches), dtype=np.bool_)
         self.noptimal_threshold = -np.inf if problem.maximize else np.inf
 
@@ -58,7 +60,7 @@ class Population:
         """
         populates the population points with a uniform distribution
         """
-        self._populate_randomly(0, self.num_niches)
+        self._populate_randomly(INT(0), self.num_niches)
         self._apply_integrality()
         self._apply_bounds()
 
@@ -292,7 +294,7 @@ class Population:
         else:
             current_best_val = np.min(self.objective_values[feasible_mask])
             if current_best_val < self.current_optima_obj[0]:
-                self.current_optimum_obj[0] = current_best_val
+                self.current_optima_obj[0] = current_best_val
                 idx = np.unravel_index(np.argmin(self.penalized_objectives), self.objective_values.shape)
         
         if idx is not None:
@@ -313,7 +315,7 @@ class Population:
         # Determine near-optimality based on the current optimum
         _evaluate_noptimality(self.is_noptimal, self.penalized_objectives, self.noptimal_threshold, self.problem.maximize)
 
-        _idx = np.empty(self.points.shape[0], np.int64)
+        _idx = np.empty(self.points.shape[0], INT)
         for i in range(1, self.points.shape[0]):
             if feasible_mask[i].any():
                 _best = -np.inf
@@ -371,6 +373,7 @@ class Population:
 
     def _resize_niche_size(self, new_niche_size: int):
         if new_niche_size != self.num_niches:
+            new_niche_size = INT(new_niche_size)
             self.points = _add_niche_to_array(self.points, new_niche_size)
             self.objective_values = _add_niche_to_array(self.objective_values, new_niche_size)
             self.violations = _add_niche_to_array(self.violations, new_niche_size)
@@ -386,7 +389,8 @@ class Population:
             self.current_optima_fit = _add_niche_to_array(self.current_optima_fit, new_niche_size)
             self.current_optima_nop = _add_niche_to_array(self.current_optima_nop, new_niche_size)
 
-            self.unselfish_niche_fit = 0.0
+            self.unselfish_niche_fit = FLOAT(0.0)
+            self.num_niches = new_niche_size
 
 
     def _resize_pop_size(self, new_pop_size: int, stable_sort: bool):
@@ -426,7 +430,7 @@ class Population:
     def _resize_parent_size(self, new_parent_size):
         if new_parent_size != self.parent_size:
             self.parents = np.empty((self.num_niches, new_parent_size, self.problem.ndim))
-            self.parent_size = new_parent_size
+            self.parent_size = INT(new_parent_size)
 
 #%%
 

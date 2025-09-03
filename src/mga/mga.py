@@ -1,11 +1,14 @@
 import numpy as np
 from datetime import datetime as dt
 
+from mga.commons.types import DEFAULTS
+INT, FLOAT = DEFAULTS
 import mga.utils.termination as term
-from mga.utils import types
+from mga.utils import type_asserts
 from mga.problem_definition import OptimizationProblem
 from mga.population import Population
 from mga.utils.logger import Logger
+
 
 class MGAProblem:
     """
@@ -26,11 +29,11 @@ class MGAProblem:
         if not isinstance(problem, OptimizationProblem): raise TypeError(f"'problem' expected an OptimizationProblem. Received: {type(problem)}")
         if log_dir is not None:
             if not isinstance(log_dir, str): raise TypeError(f"'log_dir' expected a string. Received: {type(log_dir)}")
-        if not types.is_integer(log_freq): raise TypeError(f"'log_freq' expected an integer. Received {type(log_freq)}")
+        if not type_asserts.is_integer(log_freq): raise TypeError(f"'log_freq' expected an integer. Received {type(log_freq)}")
         if log_dir is not None: 
             if log_freq == 0 or log_freq < -1: raise ValueError(f"'log_freq' should be -1 or strictly greater than 0. Received: {log_freq}")
         if random_seed is not None: 
-            if not types.is_integer(random_seed): raise TypeError(f"'random_seed' expects integer or None. Received: {type(random_seed)}")
+            if not type_asserts.is_integer(random_seed): raise TypeError(f"'random_seed' expects integer or None. Received: {type(random_seed)}")
 
         # Instantiation
         self.problem = problem
@@ -44,21 +47,21 @@ class MGAProblem:
 
         # State and hyperparameter storage
         self._is_populated = False
-        self.pop_size = 0
-        self.elite_count = 0
-        self.tourn_count = 0
-        self.tourn_size = 0
-        self.mutation_prob = 0.0
-        self.mutation_sigma = 0.0
-        self.crossover_prob = 0.0
+        self.pop_size = INT(0)
+        self.elite_count = INT(0)
+        self.tourn_count = INT(0)
+        self.tourn_size = INT(0)
+        self.mutation_prob = FLOAT(0.0)
+        self.mutation_sigma = FLOAT(0.0)
+        self.crossover_prob = FLOAT(0.0)
         self.niche_elitism = None
-        self.noptimal_slack = 1.0
+        self.noptimal_slack = FLOAT(1.0)
         
     def add_niches(self, num_niches:int):
         """
         Adds niches to the problem 
         """
-        if not types.is_integer(num_niches):
+        if not type_asserts.is_integer(num_niches):
             raise TypeError(f"'num_niches' expected an integer. Received: {type(num_niches)}")
         if num_niches < 1: 
             raise ValueError(f"'num_niches' must be positive definite. Received {num_niches}")
@@ -92,35 +95,38 @@ class MGAProblem:
             raise TypeError(f"'max_iter' expected an int. Received: {type(max_iter)}")
         if max_iter < 1: 
             raise ValueError(f"'max_iter' must be a strictly positive integer. Received: {max_iter}")
+        max_iter = INT(max_iter)
         if not isinstance(pop_size, int): 
             raise TypeError(f"'pop_size' expected an int. Received: {type(pop_size)}")
         if pop_size < 1: 
             raise ValueError(f"'pop_size' must be a strictly positive integer. Received {pop_size}")
-        if types.is_float(elite_count): 
+        pop_size = INT(pop_size)
+        if type_asserts.is_float(elite_count): 
             if not 0 <= elite_count <= 1: 
                 raise ValueError(f"float 'elite_count' should be in range [0, 1]. Received: {elite_count}")
-        elif types.is_integer(elite_count):
+        elif type_asserts.is_integer(elite_count):
             if not (-1 == elite_count or elite_count >= 0): 
                 raise ValueError(f"integer 'elite_count' should be -1 or >= 0. Received: {elite_count}")
         else: 
             raise TypeError(f"'elite_count' expected an int or float. Received: {type(elite_count)}")
-        if types.is_float(tourn_count): 
+        if type_asserts.is_float(tourn_count): 
             if not 0 <= tourn_count <= 1: 
                 raise ValueError(f"float 'tourn_count' should be in range [0, 1]. Received: {tourn_count}")
-        elif types.is_integer(tourn_count):
+        elif type_asserts.is_integer(tourn_count):
             if not (-1 == tourn_count or tourn_count >= 0): 
                 raise ValueError(f"integer 'tourn_count' should be -1 or >= 0. Received: {tourn_count}")
         else: 
             raise TypeError(f"'tourn_count' expected an int or float. Received: {type(tourn_count)}")
-        if not types.is_integer(tourn_size): 
+        if not type_asserts.is_integer(tourn_size): 
             raise TypeError(f"'tourn_size' expected an integer. Received: {type(tourn_size)}")
         if tourn_size < 1: 
             raise ValueError("'tourn_size' must be a strictly greater than 1.")
-        if types.is_float(mutation_prob):
+        tourn_size = INT(tourn_size)
+        if type_asserts.is_float(mutation_prob):
             if not 0 <= mutation_prob <= 1: 
                 raise ValueError(f"'mutation_prob' tuple must be in range [0, 1]. Received: {mutation_prob}")
-        elif types.is_array_like(mutation_prob):
-            if not types.array_dtype_is(mutation_prob, "float"): 
+        elif type_asserts.is_array_like(mutation_prob):
+            if not type_asserts.array_dtype_is(mutation_prob, "float"): 
                 raise TypeError("'mutation_prob' expected float dtype")
             for i, elem in enumerate(mutation_prob):
                 if not 0 <= elem <= 1: 
@@ -128,47 +134,52 @@ class MGAProblem:
             if len(mutation_prob) == 1: mutation_prob = mutation_prob[0]
             elif len(mutation_prob) != 2: 
                 raise ValueError(f"'mutation_prob' should be scalar or of length 2. Received length: {len(mutation_prob)}")
-        if types.is_float(mutation_sigma):
+        mutation_prob = FLOAT(mutation_prob)
+        if type_asserts.is_float(mutation_sigma):
             pass
-        elif types.is_array_like(mutation_sigma):
-            if not types.array_dtype_is(mutation_sigma, "float"): 
+        elif type_asserts.is_array_like(mutation_sigma):
+            if not type_asserts.array_dtype_is(mutation_sigma, "float"): 
                 raise TypeError("'mutation_prob' expected float dtype")
             if len(mutation_sigma) == 1: mutation_sigma = mutation_sigma[0]
             elif len(mutation_sigma) != 2: 
                 raise ValueError(f"'mutation_sigma' should be scalar or of length 2. Received length: {len(mutation_sigma)}")
-        if types.is_float(crossover_prob):
+        mutation_sigma = FLOAT(mutation_sigma)
+        if type_asserts.is_float(crossover_prob):
             if not 0 <= crossover_prob <= 1: 
                 raise ValueError(f"'crossover_prob' tuple must be in range [0, 1]. Received: {crossover_prob}")
-        elif types.is_array_like(mutation_prob):
-            if not types.array_dtype_is(crossover_prob, "float"): 
+        elif type_asserts.is_array_like(mutation_prob):
+            if not type_asserts.array_dtype_is(crossover_prob, "float"): 
                 raise TypeError("'crossover_prob' expected float dtype")
             for i, elem in enumerate(crossover_prob):
                 if not 0 <= elem <= 1: 
                     raise ValueError(f"elements in 'crossover_prob' must be in range[0, 1]. Received: {elem} at position {i}")
             if len(crossover_prob) == 1: crossover_prob = crossover_prob[0]
-            elif len(crossover_prob) != 2: 
+            elif len() != 2: 
                 raise ValueError(f"'crossover_prob' should be scalar or of length 2. Received length: {len(crossover_prob)}")
-        if not types.is_float(violation_factor):
+        crossover_prob = FLOAT(crossover_prob)
+        if not type_asserts.is_float(violation_factor):
             raise TypeError(f"'violation_factor' expected a float. Received: {type(violation_factor)}")
         if violation_factor < 0:
             raise ValueError("'violation_factor' should not be negative (sign is handled automagically for minimization/maximization).")
-        if types.is_float(noptimal_slack):
+        violation_factor = FLOAT(violation_factor)
+        if not type_asserts.is_float(noptimal_slack):
             raise TypeError(f"'noptimal_slack' expected a float. Received: {type(noptimal_slack)}")
         if noptimal_slack < 0: 
             raise ValueError(f"'noptimal_slack' cannot be negative. Received: {noptimal_slack}")
-        if niche_elitism in (None, "selfish", "unselfish"): 
+        noptimal_slack = FLOAT(noptimal_slack)
+        if not niche_elitism in (None, "selfish", "unselfish"): 
             raise ValueError(f"'niche_elitism' expected one of (`None`, 'selfish', 'unselfish'). Received: {niche_elitism}")
-        if not types.is_integer(disp_rate): 
+        if not type_asserts.is_integer(disp_rate): 
             raise TypeError(f"'disp_rate' expected an int. Received: {type(disp_rate)}")
         if disp_rate < 0: 
             raise ValueError(f"'disp_rate' cannot be negative. Received: {disp_rate}")
-        
+        disp_rate = INT(disp_rate)
         if convergence_criteria is None: pass
         elif isinstance(convergence_criteria, term.Convergence): pass
         else: 
-            if not types.is_array_like(convergence_criteria): 
+            if not type_asserts.is_array_like(convergence_criteria): 
                 raise TypeError(f"'convergence_criteria' expected None, `Convergence` or a list of `Convergence` objects. Received: {type(convergence_criteria)}")
-            if not types.array_dtype_is(convergence_criteria, term.Convergence):
+            if not type_asserts.array_dtype_is(convergence_criteria, term.Convergence):
                 TypeError(f"elements of 'convergence_criteria' should have dtype `Convergence`")
 
         # Instantiation
@@ -179,8 +190,8 @@ class MGAProblem:
 
         if elite_count == -1 and tourn_count == -1:
             raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
-        elite_count = elite_count if isinstance(elite_count, int) else int(elite_count*pop_size)
-        tourn_count = tourn_count if isinstance(tourn_count, int) else int(tourn_count*pop_size)
+        elite_count = INT(elite_count) if type_asserts.is_integer(elite_count) else INT(elite_count*pop_size)
+        tourn_count = INT(tourn_count) if type_asserts.is_integer(tourn_count) else INT(tourn_count*pop_size)
         elite_count = pop_size - tourn_count if elite_count == -1 else elite_count
         tourn_count = pop_size - elite_count if tourn_count == -1 else tourn_count
         if elite_count + tourn_count > pop_size:
@@ -189,8 +200,8 @@ class MGAProblem:
             raise ValueError("'tourn_size' should be less than 'pop_size'")
         # Set parent size 
         self.population.resize(
-            pop_size = pop_size, 
-            parent_size = tourn_count+elite_count, 
+            pop_size=pop_size, 
+            parent_size=tourn_count+elite_count, 
             stable_sort=self.stable_sort,
             )
 

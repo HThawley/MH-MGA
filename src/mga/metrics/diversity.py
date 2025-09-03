@@ -1,6 +1,9 @@
 import numpy as np 
 from numba import njit, prange
 
+from mga.commons.types import DEFAULTS
+INT, FLOAT = DEFAULTS
+
 # API functions
 
 @njit 
@@ -12,7 +15,7 @@ def mean_of_shannon_of_projections(points, feasibility, lb, ub):
     npoint, ndim = points.shape
     nbin = max(2, int(npoint**0.5)) # sqrt of number of samples, consider updating later 
     acc = 0
-    counts = np.zeros(nbin, dtype=np.int64)
+    counts = np.zeros(nbin, dtype=INT)
     feasible_points = points[feasibility].T
     for k in range(ndim):
         counts[:] = 0

@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 
 from mga.problem_definition import OptimizationProblem
-from mga.utils import types
+from mga.utils import type_asserts
 
 
 def array_sum(array, *args, **kwargs):
@@ -52,11 +52,11 @@ def test_op_init_default_success():
             ("numeric", "numeric", "boolean", "boolean", "numeric")):
         array = getattr(problem, name)
         assert isinstance(array, np.ndarray)
-        assert types.array_dtype_is(array, dtype)
+        assert type_asserts.array_dtype_is(array, dtype)
         assert array.ndim == 1
         assert array.size == problem.ndim
     
-    assert types.is_numeric(problem.known_optimum_value)
+    assert type_asserts.is_numeric(problem.known_optimum_value)
     assert isinstance(problem.fargs, tuple)
     assert isinstance(problem.fkwargs, dict)
 
@@ -182,10 +182,10 @@ def test_op_constraints_broadcast(func, points):
     # problem.evaluate should reshape points if ndim==1
     points = np.atleast_2d(points)
     # assert types.is_array_like(result) # too general
-    assert types.array_dtype_is(result, np.ndarray)
+    assert type_asserts.array_dtype_is(result, np.ndarray)
     assert result.shape[0] == points.shape[0]
     assert result.ndim == 1
-    assert types.array_dtype_is(result, "numeric")
+    assert type_asserts.array_dtype_is(result, "numeric")
 
 @pytest.mark.parametrize("func", [dummy_c, array_sum_c])
 @pytest.mark.parametrize("points", [np.array([0.5, 0.5]), np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])])
@@ -200,11 +200,11 @@ def test_op_constraints_broadcast(func, points):
     # assert types.is_array_like(result) # too general
     assert isinstance(result, tuple)
     assert len(result) == 2
-    assert types.array_dtype_is(result, np.ndarray)
+    assert type_asserts.array_dtype_is(result, np.ndarray)
     for res in result:
         assert res.shape[0] == points.shape[0]
         assert res.ndim == 1
-        assert types.array_dtype_is(res, "numeric")
+        assert type_asserts.array_dtype_is(res, "numeric")
 
 @pytest.mark.parametrize("func", [dummy_v, array_sum_v])
 @pytest.mark.parametrize("points", [np.array([0.5, 0.5]), np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])])
@@ -216,7 +216,7 @@ def test_op_vectorized_broadcast(func, points):
     result = problem.evaluate(points)
     # assert types.is_array_like(result) # too general 
     assert isinstance(result, np.ndarray)
-    assert types.array_dtype_is(result, "numeric")
+    assert type_asserts.array_dtype_is(result, "numeric")
     assert result.shape[0] == points.shape[0]
     assert result.ndim == 1
 
@@ -231,8 +231,8 @@ def test_op_vectorized_broadcast(func):
     assert isinstance(result, tuple)
     assert len(result) == 2
     # assert types.array_dtype_is(result, "arraylike") # too general 
-    assert types.array_dtype_is(result, np.ndarray)
+    assert type_asserts.array_dtype_is(result, np.ndarray)
     for res in result:
         # assert types.is_array_like(result) # too general 
         assert isinstance(res, np.ndarray)
-        assert types.array_dtype_is(res, "numeric")
+        assert type_asserts.array_dtype_is(res, "numeric")

@@ -2,7 +2,7 @@ on_switch = True
 
 from datetime import datetime as dt
 from datetime import timedelta as td
-from numba import njit, objmode, float64, int64, boolean
+from numba import njit, objmode, float32, int32, boolean
 from numba.experimental import jitclass
 from numba.core.registry import CPUDispatcher
 import numpy as np
@@ -10,10 +10,10 @@ import pandas as pd
 
 
 spec = [
-        ('functions', int64[:]), 
-        ('times', float64[:,:]),
-        ('compile', float64[:,:]),
-        ('calls', int64[:]),
+        ('functions', int32[:]), 
+        ('times', float32[:,:]),
+        ('compile', float32[:,:]),
+        ('calls', int32[:]),
         ('jitted', boolean[:]),
         ('_empty', boolean),
         ]
@@ -21,10 +21,10 @@ spec = [
 @jitclass(spec)
 class Timekeeper:
     def __init__(self):
-        self.functions = np.zeros(1, dtype=np.int64)
-        self.times = np.zeros((1, 3), dtype=np.float64)
-        self.calls = np.zeros(1, dtype=np.int64)
-        self.compile = np.zeros((1, 3), dtype=np.float64)
+        self.functions = np.zeros(1, dtype=np.int32)
+        self.times = np.zeros((1, 3), dtype=np.float32)
+        self.calls = np.zeros(1, dtype=np.int32)
+        self.compile = np.zeros((1, 3), dtype=np.float32)
         self._empty=True
         with objmode():
             globals()['timekeeper_names'] = {}
@@ -34,9 +34,9 @@ class Timekeeper:
             self.jitted = np.array([jit], dtype=np.bool_)
             return 0
         self.functions = np.arange(len(self.functions)+1)
-        self.times = np.vstack((self.times, np.zeros((1,3), np.float64)))
-        self.compile = np.vstack((self.compile, np.zeros((1,3), np.float64)))
-        self.calls = np.concatenate((self.calls, np.zeros(1, np.int64)))
+        self.times = np.vstack((self.times, np.zeros((1,3), np.float32)))
+        self.compile = np.vstack((self.compile, np.zeros((1,3), np.float32)))
+        self.calls = np.concatenate((self.calls, np.zeros(1, np.int32)))
         self.jitted = np.concatenate((self.jitted, np.array([jit], np.bool_)))
         return len(self.functions) - 1 
     def Update(self, index, time):
@@ -87,18 +87,18 @@ def PrintTimekeeper(path=None, console=True, combine=False, on_switch=True):
 
 @njit 
 def dt_now():
-    now = np.empty(7, np.int64)
+    now = np.empty(7, np.int32)
     with objmode():
         n = dt.now()
-        now[:] = np.array([n.year, n.month, n.day, n.hour, n.minute, n.second, n.microsecond], np.int64)
+        now[:] = np.array([n.year, n.month, n.day, n.hour, n.minute, n.second, n.microsecond], np.int32)
     return now
 
 @njit
 def time_delta(start, end):
-    delta = np.empty(3, np.float64)
+    delta = np.empty(3, np.float32)
     with objmode():
         d = dt(*end) - dt(*start)
-        delta[:] = np.array([d.days, d.seconds, d.microseconds], np.float64)
+        delta[:] = np.array([d.days, d.seconds, d.microseconds], np.float32)
     return delta
 
 def keeptime(name=None, on_switch=True):
