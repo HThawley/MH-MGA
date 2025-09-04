@@ -5,7 +5,7 @@ from mga.commons.types import DEFAULTS
 INT, FLOAT = DEFAULTS
 
 # API functions
-@njit#(["float{PRECISION}[:,:], float{PRECISION}[:,:]"])
+@njit
 def selection(selected, niche, criteria, maximize, elite_count, tourn_count, tourn_size, rng, stable):
     """
     Selects individuals using a combination of elitism and tournament selection.
@@ -76,22 +76,25 @@ def _draw_tournament_indices(indices, ub, rng):
 def _do_tournament(criteria, maximize, indices):
     """
     Performs selection for selection tournament.
+    This is functionally the same as `select_elite` but since 'indices' 
+        is small relative to length of population, this is substantially faster 
+        (avoids slicing etc.)
     """
     if maximize:
-        _selected_idx = 0
+        _selected_idx = -1
         _best = -np.inf
         for idx in indices:
             if criteria[idx] > _best:
                 _selected_idx = idx
                 _best = criteria[idx]
     else:
-        _selected_idx = 0
+        _selected_idx = -1
         _best = np.inf
         for idx in indices:
             if criteria[idx] < _best:
                 _selected_idx = idx
                 _best = criteria[idx]
-    return _selected_idx 
+    return _selected_idx
 
 @njit
 def _select_tournament(selected, niche, objective, n, tournsize, rng, maximize):
@@ -123,7 +126,7 @@ def _select_tournament_with_fallback(selected, niche, fitness, is_noptimal, obje
         for idx in indices:
             if is_noptimal[idx]:
                 _nopt+=1 
-        
+
         if _nopt <= noptimality_threshold: # mostly non-noptimal
             _selected_idx = _do_tournament(objective, maximize, indices)
         else: # mostly noptimal

@@ -100,7 +100,6 @@ def _stat_measure(quantity, noptimality, stat):
             result[i] = np.inf
     return result
 
-
 @njit
 def _cross_product(p1, p2, p3):
     """

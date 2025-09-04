@@ -6,6 +6,8 @@ from os import remove, mkdir
 from os.path import exists
 from collections.abc import Collection
 
+from mga.commons.types import DEFAULTS
+INT, FLOAT = DEFAULTS
 from mga.metrics import diversity
 
 class FilePrinter:

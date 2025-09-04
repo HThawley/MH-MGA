@@ -54,7 +54,6 @@ class Population:
 
         # Auxiliary functions
         self.cx_func = crossover._cx_two_point if problem.ndim > 2 else crossover._cx_one_point
-        self.noptimal_slack_func = _noptimal_slack_max if self.problem.maximize else _noptimal_slack_min
 
     def populate(self):
         """
@@ -155,7 +154,6 @@ class Population:
             self._resize_pop_size(pop_size, stable_sort)
         if parent_size is not None: 
             self._resize_parent_size(parent_size)
-
 
     def evolve(
             self, 
@@ -307,10 +305,11 @@ class Population:
 
         if self.current_optima_obj[0] < 0:
             warnings.warn(
-                "Negative optimal objective encountered. Optimum should be positive definite for mga slack logic.",
+                "Negative optimal objective encountered. Optimum should be positive definite for mga slack logic."\
+                "Consider using a large scalar offset.",
                 RuntimeWarning
             )
-        self.noptimal_threshold = self.noptimal_slack_func(self.current_optima_obj[0], noptimal_slack)
+        self.noptimal_threshold = _noptimal_threshold(self.current_optima_obj[0], noptimal_slack, self.problem.maximize)
         
         # Determine near-optimality based on the current optimum
         _evaluate_noptimality(self.is_noptimal, self.penalized_objectives, self.noptimal_threshold, self.problem.maximize)
@@ -544,11 +543,9 @@ def _clone(target, start_pop):
                 target[i, j, k] = start_pop[i, jn, k]
 
 @njit
-def _noptimal_slack_max(optimal_obj, slack):
-    return optimal_obj * (1-(slack-1))
-
-@njit
-def _noptimal_slack_min(optimal_obj, slack):
+def _noptimal_threshold(optimal_obj, slack, maximize):
+    if maximize:
+        return optimal_obj * (1-(slack-1))
     return optimal_obj * slack
 
 @njit 

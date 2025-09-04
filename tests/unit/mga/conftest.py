@@ -1,3 +1,7 @@
 import pytest
+import numpy as np
 
-pass
+# fixtures
+@pytest.fixture
+def rng():
+    yield np.random.default_rng()
