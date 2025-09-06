@@ -41,5 +41,5 @@ class defaults:
     def __repr__(self):
         return f"Default data types int and float of precision {self.precision}"
 
-DEFAULTS = defaults(32)
+DEFAULTS = defaults(64)
 

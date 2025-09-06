@@ -198,12 +198,6 @@ class MGAProblem:
             raise ValueError("'elite_count' + 'tourn_count' should be weakly less than 'pop_size'")
         if tourn_size > pop_size:
             raise ValueError("'tourn_size' should be less than 'pop_size'")
-        # Set parent size 
-        self.population.resize(
-            pop_size=pop_size, 
-            parent_size=tourn_count+elite_count, 
-            stable_sort=self.stable_sort,
-            )
 
         # Setup termination criteria
         if convergence_criteria is None:
@@ -211,6 +205,12 @@ class MGAProblem:
         termination_handler = term.MultiConvergence(
             criteria=[term.Maxiter(max_iter)] + convergence_criteria
         )
+
+        # Set parent size 
+        self.population.resize(
+            pop_size=pop_size, 
+            parent_size=tourn_count+elite_count, 
+            )
 
         # Main algorithm loop
         while not termination_handler(self):
@@ -255,6 +255,7 @@ class MGAProblem:
                 num_niches=self.num_niches,
                 pop_size=pop_size,
                 rng=self.rng,
+                stable_sort=self.stable_sort,
             )
             self.population.populate()
             self.population.evaluate_and_update(noptimal_slack, violation_factor)

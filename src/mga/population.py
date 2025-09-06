@@ -23,6 +23,7 @@ class Population:
             num_niches: int, 
             pop_size: int, 
             rng: np.random._generator.Generator,
+            stable_sort: bool
         ):
         self.problem = problem
         self.num_niches = INT(num_niches)
@@ -30,6 +31,7 @@ class Population:
         self.parent_size = INT(0)
         self.unselfish_niche_fit = FLOAT(0.0)
         self.rng = rng
+        self.stable_sort = stable_sort
         
         # Population data arrays
         self.points = np.empty((num_niches, pop_size, problem.ndim), dtype=FLOAT)
@@ -90,7 +92,7 @@ class Population:
         num_old_niches = self.num_niches
         num_total_niches = num_old_niches + num_new_niches
 
-        self.resize(niches = num_total_niches)
+        self.resize(num_niches = num_total_niches)
 
         if num_old_niches >= self.problem.ndim + 1:
             delaunay = Delaunay(self.centroids[:num_old_niches])
@@ -127,7 +129,7 @@ class Population:
 
         num_old_niches = self.num_niches
         num_total_niches = num_old_niches + num_new_niches
-        self.resize(niches = num_total_niches)
+        self.resize(num_niches = num_total_niches)
         
         self._populate_randomly(num_old_niches, num_total_niches)
         
@@ -140,7 +142,6 @@ class Population:
             num_niches: int = None, 
             pop_size: int = None, 
             parent_size:int = None, 
-            stable_sort: bool = None
             ):
         """
         Resizes the population of each niche to a new size.
@@ -148,10 +149,7 @@ class Population:
         if num_niches is not None: 
             self._resize_niche_size(num_niches)
         if pop_size is not None:
-            if stable_sort is None:
-                warnings.warn("resizing pop size: no stable sort argument provided. Assuming True", RuntimeWarning)
-                stable_sort = True
-            self._resize_pop_size(pop_size, stable_sort)
+            self._resize_pop_size(pop_size)
         if parent_size is not None: 
             self._resize_parent_size(parent_size)
 
@@ -164,21 +162,23 @@ class Population:
             mutation_sigma: float, 
             crossover_prob: float, 
             niche_elitism: str|None, 
-            rng: np.random._generator.Generator, 
-            stable_sort: bool,
             ):
         """
         Performs one generation of evolution: selection, crossover, and mutation.
         """
+        self.elite_count = elite_count 
+        self.tourn_count = tourn_count 
+        self.tourn_size = tourn_size
+        self.mutation_prob = mutation_prob
+        self.mutation_sigma = mutation_sigma
+        self.crossover_prob = crossover_prob
+        self.niche_elitism = niche_elitism 
+
         # 1. Select parents
-        self._select_parents(
-            elite_count, tourn_count, tourn_size, rng, stable_sort
-        )
+        self._select_parents()
         
         # 2. Generate offspring
-        offspring = self._generate_offspring(
-            self.parents, crossover_prob, mutation_prob, mutation_sigma, niche_elitism, rng,
-        )
+        offspring = self._generate_offspring()
         ## TODO: can we do this in-place to begin with?
         njit_deepcopy(self.points, offspring)
 
@@ -203,7 +203,7 @@ class Population:
         # Evaluate fitness
         self._evaluate_diversity()
 
-    def _select_parents(self, elite_count, tourn_count, tourn_size, rng, stable):
+    def _select_parents(self):
         """
         Selects parents for the next generation.
         """
@@ -214,18 +214,18 @@ class Population:
             self.fitnesses, 
             self.is_noptimal, 
             self.problem.maximize, 
-            elite_count, 
-            tourn_count, 
-            tourn_size, 
-            rng, 
-            stable, 
+            self.elite_count, 
+            self.tourn_count, 
+            self.tourn_size, 
+            self.rng, 
+            self.stable_sort, 
             )
 
-    def _generate_offspring(self, parents, cx_prob, mut_prob, mut_sigma, niche_elitism, rng):
+    def _generate_offspring(self):
         """
         Generates offspring from parents via cloning, crossover, and mutation.
         """
-        if niche_elitism == "unselfish":
+        if self.niche_elitism == "unselfish":
             # rather than choosing the highest fitness individual from each niche (current noptima), we 
             # take either the current noptima or a previous set of noptima - whichever has the highest 
             # fitness measured to each other (rather than to the centroids)
@@ -240,35 +240,35 @@ class Population:
                 njit_deepcopy(self.niche_elites, self.current_optima[1:])
 
         # Clone parents to form the base for the new generation
-        num_parents = parents.shape[1]
+        num_parents = self.parents.shape[1]
         num_clones = self.pop_size // num_parents
         remainder = self.pop_size % num_parents
         
-        offspring = np.repeat(parents, num_clones, axis=1)
+        offspring = np.repeat(self.parents, num_clones, axis=1)
         if remainder > 0:
-            offspring = np.concatenate((offspring, parents[:, :remainder]), axis=1)
+            offspring = np.concatenate((offspring, self.parents[:, :remainder]), axis=1)
         
         # Crossover
-        crossover.crossover_population(offspring, cx_prob, self.cx_func, rng)
+        crossover.crossover_population(offspring, self.crossover_prob, self.cx_func, self.rng)
         
         # Mutation
-        sigma_vals = mut_sigma * (self.problem.upper_bounds - self.problem.lower_bounds)
+        sigma_vals = self.mutation_sigma * (self.problem.upper_bounds - self.problem.lower_bounds)
         mutation.mutate_gaussian_population_mixed(
             population=offspring,
             sigma=sigma_vals,
-            indpb=mut_prob,
-            rng=rng,
+            indpb=self.mutation_prob,
+            rng=self.rng,
             integrality=self.problem.integrality,
             boolean_mask=self.problem.boolean_mask
         )
 
         # Elitism: preserve best individuals
         offspring[0, 0, :] = self.current_optima[0]
-        if niche_elitism == "selfish":
+        if self.niche_elitism == "selfish":
             # This part could be enhanced, for now, we just preserve the best from each parent set
             for i in range(1, self.num_niches):
                 offspring[i, 0, :] = self.current_optima[i, :]
-        elif niche_elitism == "unselfish":
+        elif self.niche_elitism == "unselfish":
             for i in range(1, self.num_niches):
                 offspring[i, 0, :] = self.niche_elites[i-1]
                     
@@ -285,15 +285,15 @@ class Population:
 
         idx = None
         if self.problem.maximize:
-            current_best_val = np.max(self.objective_values[feasible_mask])
+            current_best_val = np.max(self.penalized_objectives[feasible_mask])
             if current_best_val > self.current_optima_obj[0]:
                 self.current_optima_obj[0] = current_best_val
-                idx = np.unravel_index(np.argmax(self.penalized_objectives), self.objective_values.shape)
+                idx = np.unravel_index(np.argmax(self.penalized_objectives), self.penalized_objectives.shape)
         else:
-            current_best_val = np.min(self.objective_values[feasible_mask])
+            current_best_val = np.min(self.penalized_objectives[feasible_mask])
             if current_best_val < self.current_optima_obj[0]:
                 self.current_optima_obj[0] = current_best_val
-                idx = np.unravel_index(np.argmin(self.penalized_objectives), self.objective_values.shape)
+                idx = np.unravel_index(np.argmin(self.penalized_objectives), self.penalized_objectives.shape)
         
         if idx is not None:
             self.current_optima[0, :] = self.points[idx]
@@ -392,7 +392,7 @@ class Population:
             self.num_niches = new_niche_size
 
 
-    def _resize_pop_size(self, new_pop_size: int, stable_sort: bool):
+    def _resize_pop_size(self, new_pop_size: int):
         if new_pop_size != self.pop_size:
             # Create new arrays with the target size
             new_points = np.empty((self.num_niches, new_pop_size, self.problem.ndim))
@@ -403,17 +403,17 @@ class Population:
             else: # new_pop_size < self.pop_size
                 # Decrease size: select the best individuals to keep
                 # Niche 0 (optimization) is selected based on objective value
-                new_points[0] = selection.selection(
-                    self.points[0], self.penalized_objectives[0], self.problem.maximize, 
-                    self.elite_count, self.tourn_count, self.tourn_size, self.problem.rng, 
-                    stable_sort)
+                selection.selection(
+                    new_points[0], self.points[0], self.penalized_objectives[0], 
+                    self.problem.maximize, self.elite_count, self.tourn_count, 
+                    self.tourn_size, self.rng, self.stable_sort)
 
                 # Other niches (diversity) are selected based on fitness
                 for i in range(1, self.num_niches):
-                    new_points[i] = selection.selection_with_fallback(
-                        self.points[i], self.fitnesses[i], self.is_noptimal[i],
+                    selection.selection_with_fallback(
+                        new_points[i], self.points[i], self.fitnesses[i], self.is_noptimal[i],
                         self.penalized_objectives[i], self.problem.maximize, self.elite_count, 
-                        self.tourn_count, self.tourn_size, self.rng, stable_sort
+                        self.tourn_count, self.tourn_size, self.rng, self.stable_sort
                     )
 
             # Replace points array and re-initialize metric arrays
@@ -428,7 +428,7 @@ class Population:
 
     def _resize_parent_size(self, new_parent_size):
         if new_parent_size != self.parent_size:
-            self.parents = np.empty((self.num_niches, new_parent_size, self.problem.ndim))
+            self.parents = np.empty((self.num_niches, new_parent_size, self.problem.ndim), FLOAT)
             self.parent_size = INT(new_parent_size)
 
 #%%
@@ -499,6 +499,8 @@ def _find_centroids(centroids, points):
 
 @njit
 def _add_niche_to_array(old_array, num_niches):
+    if num_niches < old_array.shape[0]:
+        raise Exception
     ndim = old_array.ndim
     if ndim == 3:
         new_array = np.empty(
