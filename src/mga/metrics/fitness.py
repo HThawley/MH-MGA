@@ -4,17 +4,17 @@ from numba import njit
 # API functions
 
 @njit
-def evaluate_fitness_dist_to_centroids(fitness, population, centroids):
+def evaluate_fitness_dist_to_centroids(fitness, points, centroids):
     """
     Calculates fitness as the Euclidean distance to the nearest centroid of another niche.
     """
-    for i in range(population.shape[0]):
-        for j in range(population.shape[1]):
+    for i in range(points.shape[0]):
+        for j in range(points.shape[1]):
             min_dist = np.inf
             for c in range(centroids.shape[0]):
                 if i == c: 
                     continue
-                dist = np.sum((population[i, j] - centroids[c])**2)**0.5
+                dist = np.sum((points[i, j] - centroids[c])**2)**0.5
                 if dist < min_dist:
                     min_dist = dist
             fitness[i, j] = min_dist

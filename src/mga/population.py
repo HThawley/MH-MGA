@@ -42,7 +42,8 @@ class Population:
         self.is_noptimal = np.empty((num_niches, pop_size), dtype=np.bool_)
         self.centroids = np.empty((num_niches, problem.ndim), dtype=FLOAT)
         self.niche_elites = np.empty((num_niches - 1, 1, problem.ndim), dtype=FLOAT)
-        
+        self.parents = np.empty((num_niches, 0, problem.ndim), dtype=FLOAT)
+
         # Overall best found
         self.current_optima = np.empty((num_niches, problem.ndim), dtype=FLOAT)
         self.current_optima_obj = np.empty((num_niches), dtype=FLOAT)
@@ -56,6 +57,9 @@ class Population:
 
         # Auxiliary functions
         self.cx_func = crossover._cx_two_point if problem.ndim > 2 else crossover._cx_one_point
+        self.mut_func = (mutation.mutate_gaussian_population_float 
+                         if self.problem.integrality.sum() == 0 else 
+                         mutation.mutate_gaussian_population_mixed)
 
     def populate(self):
         """
@@ -178,9 +182,7 @@ class Population:
         self._select_parents()
         
         # 2. Generate offspring
-        offspring = self._generate_offspring()
-        ## TODO: can we do this in-place to begin with?
-        njit_deepcopy(self.points, offspring)
+        self._generate_offspring()
 
         # 3. Enforce constraints
         self._apply_bounds()
@@ -233,46 +235,48 @@ class Population:
             # container for fitness function evaluated on set of elites rather than centroids
             _fitness = np.empty((self.num_niches, 1))
             # evaluate fitness w.r.t. each other
-            _evaluate_fitness(_fitness, self.current_optima, self.current_optima)
+            _evaluate_fitness(
+                _fitness, 
+                np.atleast_3d(self.current_optima).transpose(1, 0, 2),
+                self.current_optima
+            )
+            
             # update niche_elites
             if np.mean(_fitness) > self.unselfish_niche_fit:
                 self.unselfish_niche_fit = np.mean(_fitness)
                 njit_deepcopy(self.niche_elites, self.current_optima[1:])
 
-        # Clone parents to form the base for the new generation
-        num_parents = self.parents.shape[1]
-        num_clones = self.pop_size // num_parents
-        remainder = self.pop_size % num_parents
-        
-        offspring = np.repeat(self.parents, num_clones, axis=1)
-        if remainder > 0:
-            offspring = np.concatenate((offspring, self.parents[:, :remainder]), axis=1)
-        
+        _clone(self.points, self.parents)
+
         # Crossover
-        crossover.crossover_population(offspring, self.crossover_prob, self.cx_func, self.rng)
+        crossover.crossover_population(
+            points=self.points, 
+            indpb=self.crossover_prob, 
+            cx_func=self.cx_func, 
+            rng=self.rng,
+            )
         
         # Mutation
         sigma_vals = self.mutation_sigma * (self.problem.upper_bounds - self.problem.lower_bounds)
-        mutation.mutate_gaussian_population_mixed(
-            population=offspring,
+        self.mut_func(
+            points=self.points,
             sigma=sigma_vals,
             indpb=self.mutation_prob,
             rng=self.rng,
             integrality=self.problem.integrality,
-            boolean_mask=self.problem.boolean_mask
+            boolean_mask=self.problem.boolean_mask,
         )
 
         # Elitism: preserve best individuals
-        offspring[0, 0, :] = self.current_optima[0]
+        self.points[0, 0, :] = self.current_optima[0]
         if self.niche_elitism == "selfish":
             # This part could be enhanced, for now, we just preserve the best from each parent set
             for i in range(1, self.num_niches):
-                offspring[i, 0, :] = self.current_optima[i, :]
+                self.points[i, 0, :] = self.current_optima[i, :]
         elif self.niche_elitism == "unselfish":
             for i in range(1, self.num_niches):
-                offspring[i, 0, :] = self.niche_elites[i-1]
+                self.points[i, 0, :] = self.niche_elites[i-1]
                     
-        return offspring
 
     def _update_optima(self, noptimal_slack):
         """
@@ -344,7 +348,8 @@ class Population:
         """
         Calculates fitness for each individual based on distance to other niche centroids.
         """
-        _evaluate_fitness(self.fitnesses, self.centroids, self.points)
+        _find_centroids(self.centroids, self.points)
+        _evaluate_fitness(self.fitnesses, self.points, self.centroids)
 
     def _evaluate_diversity(self):
         """
@@ -380,7 +385,8 @@ class Population:
             self.fitnesses = _add_niche_to_array(self.fitnesses, new_niche_size)
             self.is_noptimal = _add_niche_to_array(self.is_noptimal, new_niche_size)
             self.centroids = _add_niche_to_array(self.centroids, new_niche_size)
-            self.niche_elites = _add_niche_to_array(self.niche_elites, new_niche_size)
+            self.niche_elites = _add_niche_to_array(self.niche_elites, new_niche_size-1)
+            self.parents = _add_niche_to_array(self.niche_elites, new_niche_size)
 
             self.current_optima = _add_niche_to_array(self.current_optima, new_niche_size)
             self.current_optima_obj = _add_niche_to_array(self.current_optima_obj, new_niche_size)
@@ -428,9 +434,14 @@ class Population:
 
     def _resize_parent_size(self, new_parent_size):
         if new_parent_size != self.parent_size:
-            self.parents = np.empty((self.num_niches, new_parent_size, self.problem.ndim), FLOAT)
-            self.parent_size = INT(new_parent_size)
-
+            if self.parent_size > 0:
+                new_parents = np.empty((self.num_niches, new_parent_size, self.problem.ndim), FLOAT)
+                _clone(new_parents, self.parents)
+                self.parents = new_parents
+                self.parent_size = INT(new_parent_size)
+            else: 
+                self.parents = np.empty((self.num_niches, new_parent_size, self.problem.ndim), FLOAT)
+                self.parent_size = INT(new_parent_size)
 #%%
 
 @njit
@@ -464,11 +475,10 @@ def _select_parents(parents, points, objectives, fitnesses, is_noptimal, maximiz
         )
 
 @njit 
-def _evaluate_fitness(fitnesses, centroids, points):
+def _evaluate_fitness(fitnesses, points, centroids):
     """
     evaluate fitnesses of populations points
     """
-    _find_centroids(centroids, points)
     fit_metrics.evaluate_fitness_dist_to_centroids(fitnesses, points, centroids)
 
 @njit

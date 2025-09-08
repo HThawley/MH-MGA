@@ -3,33 +3,33 @@ from numba import njit
 
 # API functions
 @njit
-def mutate_gaussian_population_mixed(population, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
+def mutate_gaussian_population_mixed(points, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
     """
     Mutate individuals in a population 
     Compatible with mixed dtypes 
     """
-    for i in range(population.shape[0]):
-        for j in range(startidx, population.shape[1]):
-            for k in range(population.shape[2]):
+    for i in range(points.shape[0]):
+        for j in range(startidx, points.shape[1]):
+            for k in range(points.shape[2]):
                 if rng.random() < indpb:
                     if boolean_mask[k]:
-                        population[i, j, k] = _mutate_bool(population[i, j, k], sigma[k], rng) 
+                        points[i, j, k] = _mutate_bool(points[i, j, k], sigma[k], rng) 
                     elif integrality[k]:
-                        population[i, j, k] = _mutate_int(population[i, j, k], sigma[k], rng)
+                        points[i, j, k] = _mutate_int(points[i, j, k], sigma[k], rng)
                     else: 
-                        population[i, j, k] = _mutate_float(population[i, j, k], sigma[k], rng)
+                        points[i, j, k] = _mutate_float(points[i, j, k], sigma[k], rng)
 
 @njit
-def mutate_gaussian_population_float(population, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
+def mutate_gaussian_population_float(points, sigma, indpb, rng, integrality, boolean_mask, startidx=0):
     """
     Mutate individuals in a population 
     Compatible only with float-only 
     """
-    for i in range(population.shape[0]):
-        for j in range(startidx, population.shape[1]):
-            for k in range(population.shape[2]):
+    for i in range(points.shape[0]):
+        for j in range(startidx, points.shape[1]):
+            for k in range(points.shape[2]):
                 if rng.random() < indpb:
-                    population[i, j, k] = _mutate_float(population[i, j, k], sigma[k], rng)
+                    points[i, j, k] = _mutate_float(points[i, j, k], sigma[k], rng)
 
 @njit
 def mutate_gaussian_niche_mixed(niche, sigma, indpb, rng, integrality, boolean_mask, startidx=0):

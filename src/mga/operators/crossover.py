@@ -4,7 +4,7 @@ from numba import njit
 # API functions
 
 @njit
-def crossover_population(points, crossover_prob, cx_func, rng, start_idx=0):
+def crossover_population(points, indpb, cx_func, rng, start_idx=0):
     """
     Applies crossover to an entire population, niche by niche.
     """
@@ -13,11 +13,11 @@ def crossover_population(points, crossover_prob, cx_func, rng, start_idx=0):
         rng.shuffle(points[i, start_idx:])
         
         for ind1, ind2 in zip(points[i, start_idx:][::2], points[i, start_idx:][1::2]):
-            if rng.random() < crossover_prob:
+            if rng.random() < indpb:
                 cx_func(ind1, ind2, rng)
 
 @njit
-def crossover_niche(niche, crossover_prob, cx_func, rng, start_idx=0):
+def crossover_niche(niche, indpb, cx_func, rng, start_idx=0):
     """
     Applies crossover to a niche
     """
@@ -25,7 +25,7 @@ def crossover_niche(niche, crossover_prob, cx_func, rng, start_idx=0):
     rng.shuffle(niche[start_idx:])
     
     for ind1, ind2 in zip(niche[start_idx:][::2], niche[start_idx:][1::2]):
-        if rng.random() < crossover_prob:
+        if rng.random() < indpb:
             cx_func(ind1, ind2, rng)
 
 # private helper functions

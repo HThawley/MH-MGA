@@ -38,7 +38,7 @@ def test_precision_update_bad(precision:int):
         )
     except subprocess.CalledProcessError as e:
             raise e
-
+    
 @pytest.mark.parametrize("module", mga_modules)
 def test_precision_update_warning(module:str):
     """

@@ -225,8 +225,6 @@ class MGAProblem:
                 mutation_sigma=mutation_sigma,
                 crossover_prob=crossover_prob,
                 niche_elitism=niche_elitism,
-                rng=self.rng,
-                stable_sort=self.stable_sort,
             )
             
             self.population.evaluate_and_update(noptimal_slack, violation_factor)
