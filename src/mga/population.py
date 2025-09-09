@@ -61,13 +61,14 @@ class Population:
                          if self.problem.integrality.sum() == 0 else 
                          mutation.mutate_gaussian_population_mixed)
 
-    def populate(self):
+    def populate(self, noptimal_slack: float, violation_factor: float):
         """
         populates the population points with a uniform distribution
         """
         self._populate_randomly(INT(0), self.num_niches)
         self._apply_integrality()
         self._apply_bounds()
+        self._evaluate_and_update(noptimal_slack, violation_factor)
 
     def _populate_randomly(self, start_idx, end_idx):
         """Helper to populate a slice of niches with random points."""
@@ -166,6 +167,8 @@ class Population:
             mutation_sigma: float, 
             crossover_prob: float, 
             niche_elitism: str|None, 
+            noptimal_slack: float, 
+            violation_factor: float,
             ):
         """
         Performs one generation of evolution: selection, crossover, and mutation.
@@ -188,7 +191,10 @@ class Population:
         self._apply_bounds()
         self._apply_integrality()
 
-    def evaluate_and_update(self, noptimal_slack, violation_factor):
+        # 4. evaluate and update
+        self._evaluate_and_update(noptimal_slack, violation_factor)
+
+    def _evaluate_and_update(self, noptimal_slack, violation_factor):
         """
         Evaluates objective, fitness, and updates the best-known solutions.
         """
@@ -287,23 +293,23 @@ class Population:
         if not np.any(feasible_mask):
             return
 
-        idx = None
+        _idx = None
         if self.problem.maximize:
             current_best_val = np.max(self.penalized_objectives[feasible_mask])
             if current_best_val > self.current_optima_obj[0]:
                 self.current_optima_obj[0] = current_best_val
-                idx = np.unravel_index(np.argmax(self.penalized_objectives), self.penalized_objectives.shape)
+                _idx = np.unravel_index(np.argmax(self.penalized_objectives), self.penalized_objectives.shape)
         else:
             current_best_val = np.min(self.penalized_objectives[feasible_mask])
             if current_best_val < self.current_optima_obj[0]:
                 self.current_optima_obj[0] = current_best_val
-                idx = np.unravel_index(np.argmin(self.penalized_objectives), self.penalized_objectives.shape)
+                _idx = np.unravel_index(np.argmin(self.penalized_objectives), self.penalized_objectives.shape)
         
-        if idx is not None:
-            self.current_optima[0, :] = self.points[idx]
-            self.current_optima_obj[0] = self.objective_values[idx]
-            self.current_optima_pob[0] = self.penalized_objectives[idx]
-            self.current_optima_fit[0] = self.fitnesses[idx]
+        if _idx is not None:
+            self.current_optima[0, :] = self.points[_idx]
+            self.current_optima_obj[0] = self.objective_values[_idx]
+            self.current_optima_pob[0] = self.penalized_objectives[_idx]
+            self.current_optima_fit[0] = self.fitnesses[_idx]
             # logically must be true but self.is_noptimal has not been calculated yet
             self.current_optima_nop[0] = True 
 
@@ -317,28 +323,31 @@ class Population:
         
         # Determine near-optimality based on the current optimum
         _evaluate_noptimality(self.is_noptimal, self.penalized_objectives, self.noptimal_threshold, self.problem.maximize)
-
-        _idx = np.empty(self.points.shape[0], INT)
+        feasible_mask *= self.is_noptimal 
+        _idx = None
         for i in range(1, self.points.shape[0]):
+            # priority 1: return the point with highest fitness that is feasible and noptimal
             if feasible_mask[i].any():
                 _best = -np.inf
                 for j in range(self.points.shape[1]):
-                    if self.fitnesses[i, j] > _best:
-                        _best = self.fitnesses[i, j]
-                        _idx = j
+                    if feasible_mask[i, j]:
+                        if self.fitnesses[i, j] > _best:
+                            _best = self.fitnesses[i, j]
+                            _idx = j
+            # otherwise: return the point with best penalized objective
             elif self.problem.maximize:
                 _best = -np.inf
                 for j in range(self.points.shape[1]):
                     if self.penalized_objectives[i, j] > _best:
                         _best = self.penalized_objectives[i, j]
                         _idx = j
-            else:
+            else: # no noptimal and self.problem.maximize == False
                 _best = np.inf
                 for j in range(self.points.shape[1]):
                     if self.penalized_objectives[i, j] < _best:
                         _best = self.penalized_objectives[i, j]
                         _idx = j
-            self.current_optima[i, :] = self.points[i, j, :]
+            self.current_optima[i, :] = self.points[i, _idx, :]
             self.current_optima_obj[i] = self.objective_values[i, _idx]
             self.current_optima_pob[i] = self.penalized_objectives[i, _idx]
             self.current_optima_fit[i] = self.fitnesses[i, _idx]

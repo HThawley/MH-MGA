@@ -1,6 +1,6 @@
 # Project Specific
 Results/*
-
+logs/*
 
 ## Python (Based off https://github.com/github/gitignore/blob/main/Python.gitignore)
 

@@ -116,16 +116,23 @@ def _select_tournament_with_fallback(selected, niche, fitness, is_noptimal, obje
     objective max/minimized based on value of `maximize`"""
     if n == 0: 
         return
+
+    _nopt = 0 
+    for i in range(len(is_noptimal)):
+        if is_noptimal[i]:
+            _nopt += 1 
+
     indices = np.empty(tournsize, INT)
-    noptimality_threshold = tournsize / 2 
+    # noptimality_threshold = tournsize / 2 
+    noptimality_threshold = len(selected) / 2 
     
     for m in range(n):
         _draw_tournament_indices(indices, niche.shape[0], rng)
         
-        _nopt = 0
-        for idx in indices:
-            if is_noptimal[idx]:
-                _nopt+=1 
+        # _nopt = 0
+        # for idx in indices:
+        #     if is_noptimal[idx]:
+        #         _nopt+=1 
 
         if _nopt <= noptimality_threshold: # mostly non-noptimal
             _selected_idx = _do_tournament(objective, maximize, indices)

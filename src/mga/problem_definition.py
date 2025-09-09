@@ -107,10 +107,84 @@ class OptimizationProblem:
                     obj_values[j], violations[j] = self.objective(points[j], *self.fargs, **self.fkwargs)
         else:
             if self.vectorized:
-                obj_values[:] = self.objective(points, *self.fargs, **self.fkwargs)[0]
+                obj_values[:] = self.objective(points, *self.fargs, **self.fkwargs)
             else:
                 for j in range(points.shape[0]):
                     obj_values[j] = self.objective(points[j], *self.fargs, **self.fkwargs)
             violations[:] = 0.0
 
         return obj_values, violations
+    
+class MultiObjectiveProblem:
+    """
+    Encapsulates the definition of a multi-objective optimization problem.
+    This includes the objective functions, variable bounds, and optimization senses.
+    """
+    def __init__(
+        self,
+        objective: Callable,
+        bounds: tuple[np.ndarray, np.ndarray],
+        n_objs: int,
+        maximize: bool | np.ndarray[bool] = False,
+        vectorized: bool = False,
+        feasibility: bool = False,
+        integrality: bool | np.ndarray[bool] = False,
+        fargs: tuple = (),
+        fkwargs: dict = {},
+    ):
+        """
+        Initializes the multi-objective optimization problem definition.
+        """
+        if not callable(objective):
+            raise TypeError("'objective' must be callable")
+        
+        self.objective = objective
+        self.lower_bounds, self.upper_bounds = bounds
+        self.ndim = len(self.lower_bounds)
+        self.n_objs = n_objs
+        
+        self.vectorized = vectorized
+        self.feasibility = feasibility
+        self.fargs = fargs
+        self.fkwargs = fkwargs
+
+        if isinstance(maximize, bool):
+            self.maximize = np.array([maximize] * self.n_objs, dtype=np.bool_)
+        else:
+            if not type_asserts.is_array_like(maximize) or len(maximize) != self.n_objs:
+                raise ValueError(f"'maximize' must be a bool or an iterable of length n_objs ({self.n_objs})")
+            self.maximize = np.array(maximize, dtype=np.bool_)
+
+        if isinstance(integrality, bool):
+            self.integrality = np.array([integrality] * self.ndim, dtype=np.bool_)
+        else:
+            if not type_asserts.is_array_like(integrality) or len(integrality) != self.ndim:
+                raise ValueError(f"'integrality' must be a bool or an iterable of length ndim ({self.ndim})")
+            self.integrality = np.array(integrality, dtype=np.bool_)
+            
+        self.boolean_mask = (((self.upper_bounds - self.lower_bounds) == 1) & self.integrality)
+
+    def evaluate(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Evaluates the objective functions and feasibility for a set of points.
+        Returns objective values and feasibility flags.
+        """
+        num_points = points.shape[0]
+        obj_values = np.empty((num_points, self.n_objs), dtype=FLOAT)
+        feasibility = np.ones((num_points, self.n_objs), dtype=np.bool_)
+
+        if self.vectorized:
+            if self.feasibility:
+                obj_values, feasibility = self.objective(points, *self.fargs, **self.fkwargs)
+            else:
+                obj_values = self.objective(points, *self.fargs, **self.fkwargs)
+        else: 
+            if self.feasibility:
+                for j in range(num_points):
+                    obj_values[j, :], feasibility[j, :] = self.objective(
+                        points[j, :], *self.fargs, **self.fkwargs)
+            else:
+                for j in range(num_points):
+                    obj_values[j, :] = self.objective(points[j, :], *self.fargs, **self.fkwargs)
+        
+        return obj_values, feasibility

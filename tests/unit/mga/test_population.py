@@ -221,7 +221,7 @@ def test_evaluate_fitness_3d(population_instance):
 def test_populate(population_instance):
     """Tests random population generation."""
     pop = population_instance
-    pop.populate()
+    pop.populate(np.inf, 0.0)
     assert np.all(pop.points >= pop.problem.lower_bounds)
     assert np.all(pop.points <= pop.problem.upper_bounds)
 
@@ -299,7 +299,7 @@ def test_resize_parent_size(population_instance):
 def test_resize_pop_size(population_instance):
     """Tests resizing the population size of each niche."""
     pop = population_instance
-    pop.populate()
+    pop.populate(np.inf, 0.0)
     
     # Increase size
     pop.resize(pop_size=10)
@@ -309,7 +309,7 @@ def test_resize_pop_size(population_instance):
     # Decrease size
     # internal values needed for resizing down
     pop._resize_parent_size(5)
-    pop.evaluate_and_update(1.1, 1.0)
+    pop._evaluate_and_update(1.1, 1.0)
     pop.elite_count, pop.tourn_count, pop.tourn_size=5, 0, 0
     pop.resize(pop_size=4)
     assert pop.pop_size == 4
@@ -331,13 +331,13 @@ def test_update_optima_minimize(population_instance, niche_idx):
     pop = population_instance
     pop.problem.re__init__(maximize=False)
     pop.current_optima_obj[0] = pop.problem.known_optimum_value
-    pop.populate()
+    pop.populate(np.inf, 0.0)
     
     # Manually set a point to be better than the known optimum
     pop.points[niche_idx, 3, :] = np.array([0.01, 0.01, 0.01])
     initial_optimum = pop.current_optima_obj[0]
     
-    pop.evaluate_and_update(noptimal_slack=1.1, violation_factor=1.0)
+    pop._evaluate_and_update(noptimal_slack=1.1, violation_factor=1.0)
     
     # New optimum should be sum of squares of [0.01, 0.01, 0.01] = 0.0003
     assert pop.current_optima_obj[0] <= initial_optimum
@@ -350,13 +350,13 @@ def test_update_optima_maximize(population_instance, niche_idx):
     pop = population_instance
     pop.problem.re__init__(maximize=True)
     pop.current_optima_obj[0] = pop.problem.known_optimum_value
-    pop.populate()
+    pop.populate(np.inf, 0.0)
 
     # Manually set a point with a high objective value (close to zero)
     pop.points[niche_idx, 3, :] = np.array([0.01, 0.01, 0.01])
     initial_optimum = pop.current_optima_obj[0] 
     
-    pop.evaluate_and_update(noptimal_slack=1.1, violation_factor=1.0)
+    pop._evaluate_and_update(noptimal_slack=1.1, violation_factor=1.0)
     
     # New optimum should be offset -sum of squares of [0.01, 0.01, 0.01] = 2-0.0003
     assert pop.current_optima_obj[0] >= initial_optimum
@@ -366,8 +366,7 @@ def test_update_optima_maximize(population_instance, niche_idx):
 def test_evolve(population_instance):
     """Tests a single evolution step."""
     pop = population_instance
-    pop.populate()
-    pop.evaluate_and_update(1.1, 1.0)
+    pop.populate(np.inf, 1.0)
     
     initial_points = pop.points.copy()
     pop.resize(parent_size=3)
@@ -376,7 +375,7 @@ def test_evolve(population_instance):
     pop_size = pop.pop_size
     ndim = pop.problem.ndim
     parent_size = pop.parent_size
-
+    current_optimum = pop.current_optima[0].copy()
     pop.evolve(
         elite_count=1,
         tourn_count=2,
@@ -385,12 +384,15 @@ def test_evolve(population_instance):
         mutation_sigma=0.5,
         crossover_prob=0.8,
         niche_elitism="selfish",
+        noptimal_slack=np.inf, 
+        violation_factor=0.0,
     )
     
     # The points should have changed after evolution
     assert not np.array_equal(initial_points, pop.points)
     # The best individual (optimum) should be preserved
-    assert np.allclose(pop.points[0, 0, :], pop.current_optima[0])
+    # (Although there may now be a better optimum)
+    assert np.allclose(pop.points[0, 0, :], current_optimum)
 
     assert pop.points.shape == (num_niches, pop_size, ndim), f"Population.points has wrong shape. Expected: {(num_niches, pop_size, ndim)}, got: {pop.points.shape}"
     assert pop.objective_values.shape == (num_niches, pop_size), f"Population.objective_values has wrong shape. Expected: {(num_niches, pop_size)}, got: {pop.objective_values.shape}"
@@ -411,8 +413,7 @@ def test_evolve(population_instance):
 def test_generate_offspring(niche_elitism, population_instance):
     pop = population_instance
     # setup
-    pop.populate()
-    pop.evaluate_and_update(np.inf, 0)
+    pop.populate(np.inf, 0)
     current_optima = pop.current_optima.copy() # selfish niche elites 
     points = pop.points.copy() 
     pop.elite_count=1
@@ -450,8 +451,7 @@ def test_generate_offspring(niche_elitism, population_instance):
 def test_unselfish_niche_elitism(population_instance):
     pop = population_instance
     # setup
-    pop.populate()
-    pop.evaluate_and_update(np.inf, 0)
+    pop.populate(np.inf, 0)
     pop.elite_count=1
     pop.tourn_count=2
     pop.tourn_size=2
@@ -465,7 +465,7 @@ def test_unselfish_niche_elitism(population_instance):
     # execution
     unselfish_niche_fit = -1
     for _ in range(50):
-        pop.evaluate_and_update(np.inf, 0)
+        pop._evaluate_and_update(np.inf, 0)
         pop._select_parents()
 
         pop._generate_offspring()

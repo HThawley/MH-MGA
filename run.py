@@ -2,10 +2,10 @@ import numpy as np
 from numba import njit
 
 from mga.commons.types import DEFAULTS
-DEFAULTS.update_precision(32)
+DEFAULTS.update_precision(64)
 
 from mga.problem_definition import OptimizationProblem
-from mga.mga import MGAProblem
+from mga.mhmga import MGAProblem
 from mga.utils import plotting, profiling
 
 @njit(fastmath=True)
@@ -24,8 +24,8 @@ def main():
     """
     Configures and runs the MGA algorithm.
     """
-    # FILE_PREFIX = "logs/testprob-z"
-    FILE_PREFIX = None
+    FILE_PREFIX = "logs/testprob"
+    # FILE_PREFIX = None
 
     # 1. Define the optimization problem
     problem = OptimizationProblem(
@@ -44,21 +44,36 @@ def main():
         random_seed=1, 
     )
 
-    algorithm.add_niches(num_niches=3)
+    algorithm.add_niches(num_niches=20)
     
     # 3. Run the optimization
     algorithm.step(
         max_iter=200,
-        pop_size=100,
+        pop_size=25,
         elite_count=0.2,
-        tourn_count=-1, # -1 means it will take the remainder of pop_size
-        tourn_size=3,
-        mutation_prob=0.33,
-        mutation_sigma=0.05,
+        tourn_count=-1, 
+        tourn_size=2,
+        mutation_prob=0.5,
+        mutation_sigma=0.3,
         crossover_prob=0.3,
-        niche_elitism=None,#"selfish",
+        niche_elitism="selfish",
         noptimal_slack=1.12,
-        disp_rate=500,
+        disp_rate=50,
+    )
+
+    # 3. Run the optimization
+    algorithm.step(
+        max_iter=200,
+        pop_size=25,
+        elite_count=0.2,
+        tourn_count=-1,
+        tourn_size=2,
+        mutation_prob=0.5,
+        mutation_sigma=0.05,
+        crossover_prob=0.0,
+        niche_elitism="selfish",
+        noptimal_slack=1.12,
+        disp_rate=50,
     )
 
     # 4. Terminate and get results
@@ -69,9 +84,9 @@ def main():
               f"Fitness={results['fitness'][i]:.4f}, "
               f"Objective={results['objective'][i]:.4f}, "
               f"Is N-optimal={results['noptimality'][i]}")
+    
     # 5. Print profiling information and plot results
     # profiling.print_profiler_summary()
-    print(algorithm.population.points.dtype)
     if FILE_PREFIX is not None:
         print("\nGenerating plots...")
         plotting.plot_noptima(FILE_PREFIX)

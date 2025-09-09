@@ -18,7 +18,7 @@ def test_precision_update_good(precision):
     from mga.commons.types import DEFAULTS
     DEFAULTS.update_precision(precision)
     from mga.problem_definition import OptimizationProblem
-    from mga.mga import MGAProblem
+    from mga.mhmga import MGAProblem
     
     problem = OptimizationProblem(dummy, bounds)
     algorithm = MGAProblem(problem)

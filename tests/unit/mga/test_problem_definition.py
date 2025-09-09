@@ -173,19 +173,26 @@ def test_op_integrality_vector_bool_failure(value):
 
 @pytest.mark.parametrize("func", [dummy, array_sum])
 @pytest.mark.parametrize("points", [np.array([0.5, 0.5]), np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])])
-def test_op_constraints_broadcast(func, points):
+def test_op_broadcast(func, points):
     """
     problem.evaluate returns a tuple of two numbers with constraints=True, vectorized=False
     """
-    problem = OptimizationProblem(func, dummy_bounds2, constraints=True, vectorized=False)
+    problem = OptimizationProblem(func, dummy_bounds2, constraints=False, vectorized=False)
     result = problem.evaluate(points)
-    # problem.evaluate should reshape points if ndim==1
+
     points = np.atleast_2d(points)
-    # assert types.is_array_like(result) # too general
+
+    assert isinstance(result, tuple)
+    assert len(result) == 2
     assert type_asserts.array_dtype_is(result, np.ndarray)
-    assert result.shape[0] == points.shape[0]
-    assert result.ndim == 1
-    assert type_asserts.array_dtype_is(result, "numeric")
+    for res in result:
+        assert type_asserts.array_dtype_is(res, "numeric")
+        assert res.shape[0] == points.shape[0]
+        assert res.ndim == 1
+
+    for i in range(len(points)): 
+        assert result[0][i] == func(points[i])
+        assert result[1][i] == 0.
 
 @pytest.mark.parametrize("func", [dummy_c, array_sum_c])
 @pytest.mark.parametrize("points", [np.array([0.5, 0.5]), np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])])
@@ -195,16 +202,21 @@ def test_op_constraints_broadcast(func, points):
     """
     problem = OptimizationProblem(func, dummy_bounds2, constraints=True, vectorized=False)
     result = problem.evaluate(points)
-    # problem.evaluate should reshape points if ndim==1
+
     points = np.atleast_2d(points)
-    # assert types.is_array_like(result) # too general
+
     assert isinstance(result, tuple)
     assert len(result) == 2
     assert type_asserts.array_dtype_is(result, np.ndarray)
     for res in result:
+        assert type_asserts.array_dtype_is(res, "numeric")
         assert res.shape[0] == points.shape[0]
         assert res.ndim == 1
-        assert type_asserts.array_dtype_is(res, "numeric")
+
+    for i in range(len(points)): 
+        assert result[0][i] == func(points[i])[0]
+        assert result[1][i] == func(points[i])[1]
+
 
 @pytest.mark.parametrize("func", [dummy_v, array_sum_v])
 @pytest.mark.parametrize("points", [np.array([0.5, 0.5]), np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])])
@@ -214,25 +226,40 @@ def test_op_vectorized_broadcast(func, points):
     """
     problem = OptimizationProblem(func, dummy_bounds2, constraints=False, vectorized=True)
     result = problem.evaluate(points)
-    # assert types.is_array_like(result) # too general 
-    assert isinstance(result, np.ndarray)
-    assert type_asserts.array_dtype_is(result, "numeric")
-    assert result.shape[0] == points.shape[0]
-    assert result.ndim == 1
+
+    points = np.atleast_2d(points)
+
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    assert type_asserts.array_dtype_is(result, np.ndarray)
+    for res in result:
+        assert type_asserts.array_dtype_is(res, "numeric")
+        assert res.shape[0] == points.shape[0]
+        assert res.ndim == 1
+
+    for i in range(len(points)): 
+        assert result[0][i] == func(np.atleast_2d(points[i]))
+        assert result[1][i] == 0.
 
 @pytest.mark.parametrize("func", [dummy_cv, array_sum_cv])
-def test_op_vectorized_broadcast(func):
+@pytest.mark.parametrize("points", [np.array([0.5, 0.5]), np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])])
+def test_op_vectorized_constraints_broadcast(func, points):
     """
     problem.evaluate returns a tuple of two numpy arrays with constraints=True, vectorized=True
     """
     problem = OptimizationProblem(func, dummy_bounds2, constraints=True, vectorized=True)
-    result = problem.evaluate(np.array([0.5, 0.5]))
-    # assert types.is_array_like(result) # too general 
+    result = problem.evaluate(points)
+
+    points = np.atleast_2d(points)
+
     assert isinstance(result, tuple)
     assert len(result) == 2
-    # assert types.array_dtype_is(result, "arraylike") # too general 
     assert type_asserts.array_dtype_is(result, np.ndarray)
     for res in result:
-        # assert types.is_array_like(result) # too general 
-        assert isinstance(res, np.ndarray)
         assert type_asserts.array_dtype_is(res, "numeric")
+        assert res.shape[0] == points.shape[0]
+        assert res.ndim == 1
+
+    for i in range(len(points)): 
+        assert result[0][i] == func(np.atleast_2d(points[i]))[0]
+        assert result[1][i] == func(np.atleast_2d(points[i]))[1]

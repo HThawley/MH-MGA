@@ -20,7 +20,7 @@ class MGAProblem:
         problem: OptimizationProblem,
         log_dir: str|None = None,
         log_freq: int = 1,
-        random_seed: int|None = None
+        random_seed: int|None = None,
     ):
         """
         Initializes the MGA algorithm
@@ -39,10 +39,10 @@ class MGAProblem:
         self.problem = problem
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None 
-        self.logger = Logger(log_dir, log_freq) if log_dir else None
+        self.logger = Logger(log_dir, log_freq, create_dir=True) if log_dir else None
         
         self.population = None
-        self.current_iter = 0
+        self.current_iter = INT(0)
         self.start_time = dt.now()
 
         # State and hyperparameter storage
@@ -80,7 +80,7 @@ class MGAProblem:
         tourn_size: int = 2,
         mutation_prob: float | tuple[float, float] = 0.3,
         mutation_sigma: float | tuple[float, float] = 0.05,
-        crossover_prob: float = 0.4,
+        crossover_prob: float | tuple[float, float] = 0.4,
         violation_factor: float = 1.0,
         noptimal_slack: float = np.inf,
         niche_elitism: str = "selfish",
@@ -130,7 +130,7 @@ class MGAProblem:
                 raise TypeError("'mutation_prob' expected float dtype")
             for i, elem in enumerate(mutation_prob):
                 if not 0 <= elem <= 1: 
-                    raise ValueError(f"elements in 'mutation_prob' must be in range[0, 1]. Received: {elem} at position {i}")
+                    raise ValueError(f"elements in 'mutation_prob' must be in range [0, 1]. Received: {elem} at position {i}")
             if len(mutation_prob) == 1: mutation_prob = mutation_prob[0]
             elif len(mutation_prob) != 2: 
                 raise ValueError(f"'mutation_prob' should be scalar or of length 2. Received length: {len(mutation_prob)}")
@@ -139,7 +139,7 @@ class MGAProblem:
             pass
         elif type_asserts.is_array_like(mutation_sigma):
             if not type_asserts.array_dtype_is(mutation_sigma, "float"): 
-                raise TypeError("'mutation_prob' expected float dtype")
+                raise TypeError("'mutation_sigma' expected float dtype")
             if len(mutation_sigma) == 1: mutation_sigma = mutation_sigma[0]
             elif len(mutation_sigma) != 2: 
                 raise ValueError(f"'mutation_sigma' should be scalar or of length 2. Received length: {len(mutation_sigma)}")
@@ -182,12 +182,6 @@ class MGAProblem:
             if not type_asserts.array_dtype_is(convergence_criteria, term.Convergence):
                 TypeError(f"elements of 'convergence_criteria' should have dtype `Convergence`")
 
-        # Instantiation
-        if not self._is_populated:
-            if not hasattr(self, "num_niches"):
-                raise RuntimeError("MGA needs niches > 1. Call `.add_niches()` first.")
-            self.populate(pop_size, noptimal_slack, violation_factor)
-
         if elite_count == -1 and tourn_count == -1:
             raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
         elite_count = INT(elite_count) if type_asserts.is_integer(elite_count) else INT(elite_count*pop_size)
@@ -206,6 +200,12 @@ class MGAProblem:
             criteria=[term.Maxiter(max_iter)] + convergence_criteria
         )
 
+        # Instantiation
+        if not self._is_populated:
+            if not hasattr(self, "num_niches") or self.num_niches==0:
+                raise RuntimeError("MGA needs niches > 1. Call `.add_niches()` first.")
+            self.populate(pop_size, noptimal_slack, violation_factor)
+
         # Set parent size 
         self.population.resize(
             pop_size=pop_size, 
@@ -217,6 +217,8 @@ class MGAProblem:
             if disp_rate > 0 and self.current_iter % disp_rate == 0:
                 self._display_progress()
 
+            # TODO: dither mutation/crossover params
+
             self.population.evolve(
                 elite_count=elite_count,
                 tourn_count=tourn_count,
@@ -225,18 +227,14 @@ class MGAProblem:
                 mutation_sigma=mutation_sigma,
                 crossover_prob=crossover_prob,
                 niche_elitism=niche_elitism,
+                noptimal_slack=noptimal_slack,
+                violation_factor=violation_factor,
             )
             
-            self.population.evaluate_and_update(noptimal_slack, violation_factor)
-
             if self.logger:
                 self.logger.log_iteration(self.current_iter, self.population)
 
             self.current_iter += 1
-
-        print("Termination criteria met.")
-        if self.logger:
-            self.logger.finalize(self.population)
 
     def populate(self, pop_size: int, noptimal_slack: float, violation_factor: float):
         """
@@ -255,14 +253,16 @@ class MGAProblem:
                 rng=self.rng,
                 stable_sort=self.stable_sort,
             )
-            self.population.populate()
-            self.population.evaluate_and_update(noptimal_slack, violation_factor)
+            self.population.populate(noptimal_slack, violation_factor)
             self._is_populated = True
 
     def get_results(self) -> dict:
         """
         Returns the final results of the optimization.
         """
+        if self.logger:
+            self.logger.finalize(self.population)
+
         if self.population is None:
             raise RuntimeError("Algorithm has not been run yet.")
         

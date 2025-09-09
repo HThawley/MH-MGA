@@ -104,7 +104,8 @@ class Logger:
             file_prefix: str, 
             save_freq: int, 
             resume: bool = False, 
-            detailed: bool = True
+            detailed: bool = True, 
+            create_dir: bool = True,
         ):
         """
         Initializes all necessary FilePrinters for logging.
@@ -112,7 +113,7 @@ class Logger:
         self.detailed = detailed
         self.nobjective_printer = FilePrinter(
             file_name=f"{file_prefix}-nobjective.csv",
-            save_freq=save_freq, resume=resume, create_dir=True
+            save_freq=save_freq, resume=resume, create_dir=create_dir
         )
         self.noptimality_printer = FilePrinter(
             file_name=f"{file_prefix}-noptimality.csv",
@@ -138,7 +139,7 @@ class Logger:
             )
         self.noptima_printer = FilePrinter(
              file_name=f"{file_prefix}-noptima.csv",
-             save_freq=1, # Only writes once at the end
+             save_freq=-1, # Only writes once at the end
              header=None,
              resume=False # Always overwrite final results
         )
