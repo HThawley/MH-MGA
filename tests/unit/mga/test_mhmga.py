@@ -45,16 +45,16 @@ class MockPopulation(Population):
         self.current_optima_obj = rng.random(num_niches)
         self.current_optima_nop = np.ones(num_niches, dtype=bool)
 
-    def populate(self, **kwargs):
+    def populate(self, *args, **kwargs):
         pass
 
-    def _evaluate_and_update(self, **kwargs):
+    def _evaluate_and_update(self, *args, **kwargs):
         pass
 
-    def evolve(self, **kwargs):
+    def evolve(self, *args, **kwargs):
         pass
 
-    def resize(self, **kwargs):
+    def resize(self, *args, **kwargs):
         pass
 
     def add_niches(self, num_niches):
