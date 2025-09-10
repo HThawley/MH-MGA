@@ -8,6 +8,7 @@ INT, FLOAT = DEFAULTS
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
 from mga.metrics import fitness as fit_metrics
+from mga.metrics import diversity
 
 ### 
 # Can this be made a jitclass??
@@ -187,11 +188,7 @@ class Population:
         # 2. Generate offspring
         self._generate_offspring()
 
-        # 3. Enforce constraints
-        self._apply_bounds()
-        self._apply_integrality()
-
-        # 4. evaluate and update
+        # 3. evaluate and update
         self._evaluate_and_update(noptimal_slack, violation_factor)
 
     def _evaluate_and_update(self, noptimal_slack, violation_factor):
@@ -204,12 +201,10 @@ class Population:
         
         self.penalized_objectives[:] = self.objective_values + self.violations * violation_factor
         self._evaluate_fitness()
+        self._evaluate_diversity()
 
         # Update global optimum
         self._update_optima(noptimal_slack)
-
-        # Evaluate fitness
-        self._evaluate_diversity()
 
     def _select_parents(self):
         """
@@ -282,7 +277,9 @@ class Population:
         elif self.niche_elitism == "unselfish":
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.niche_elites[i-1]
-                    
+
+        self._apply_bounds()
+        # self._apply_integrality() # handled by mut_func
 
     def _update_optima(self, noptimal_slack):
         """
@@ -362,9 +359,31 @@ class Population:
 
     def _evaluate_diversity(self):
         """
-        calculate vesa, shannon, etc.
+        Calculates and returns a vector of diversity metrics for the current population state.
         """
-        pass
+        print("called")
+        nopt_points = self.current_optima[self.current_optima_nop]
+        
+        # VESA
+        if nopt_points.shape[0] >= self.problem.ndim + 1:
+            self.vesa = diversity.volume_estimation_by_shadow_addition(
+                nopt_points, np.ones(nopt_points.shape[0], dtype=bool))
+        else:
+            self.vesa = 0.0
+            
+        # Shannon Index
+        if nopt_points.shape[0] >= 1:
+            self.shannon = diversity.mean_of_shannon_of_projections(
+                nopt_points, np.ones(nopt_points.shape[0], dtype=bool),
+                self.problem.lower_bounds, self.problem.upper_bounds
+            )
+        else:
+            self.shannon = 0.0
+
+        # Fitness statistics
+        self.stds = diversity.std(self.fitnesses, self.is_noptimal)
+        self.variances = diversity.var(self.fitnesses, self.is_noptimal)
+        self.mean_fitness = diversity.mean_of_fitness(self.fitnesses, self.is_noptimal)
     
     def _apply_bounds(self):
         """

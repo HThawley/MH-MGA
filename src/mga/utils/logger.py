@@ -201,42 +201,16 @@ class Logger:
         print("Logging complete.")
 
     def _calculate_diversity_metrics(self, iteration: int, population) -> np.ndarray:
-        """
-        Calculates and returns a vector of diversity metrics for the current population state.
-        """
-        nopt_points = population.current_optima[population.current_optima_nop]
-        
-        # VESA
-        if nopt_points.shape[0] >= population.problem.ndim + 1:
-            vesa = diversity.volume_estimation_by_shadow_addition(
-                nopt_points, np.ones(nopt_points.shape[0], dtype=bool))
-        else:
-            vesa = 0.0
-            
-        # Shannon Index
-        if nopt_points.shape[0] >= 1:
-            shannon = diversity.mean_of_shannon_of_projections(
-                nopt_points, np.ones(nopt_points.shape[0], dtype=bool),
-                population.problem.lower_bounds, population.problem.upper_bounds
-            )
-        else:
-            shannon = 0.0
-
-        # Fitness statistics
-        nopt_mask = population.is_noptimal.any(axis=1) # Which niches have n-optimal points
-        stds = diversity.std(population.fitnesses, population.is_noptimal)
-        variances = diversity.var(population.fitnesses, population.is_noptimal)
-        
         return np.array([[
             iteration,
-            vesa,
-            shannon,
-            np.mean(stds[nopt_mask]) if nopt_mask.any() else 0.0,
-            np.min(stds[nopt_mask]) if nopt_mask.any() else 0.0,
-            np.max(stds[nopt_mask]) if nopt_mask.any() else 0.0,
-            np.mean(variances[nopt_mask]) if nopt_mask.any() else 0.0,
-            np.min(variances[nopt_mask]) if nopt_mask.any() else 0.0,
-            np.max(variances[nopt_mask]) if nopt_mask.any() else 0.0,
+            population.vesa,
+            population.shannon,
+            np.mean(population.stds) if population.stds.size > 0 else 0.0,
+            np.min(population.stds) if population.stds.size > 0 else 0.0,
+            np.max(population.stds) if population.stds.size > 0 else 0.0,
+            np.mean(population.variances) if population.variances.size > 0 else 0.0,
+            np.min(population.variances) if population.variances.size > 0 else 0.0,
+            np.max(population.variances) if population.variances.size > 0 else 0.0,
             diversity.sum_of_fitness(population.fitnesses, population.is_noptimal),
-            diversity.mean_of_fitness(population.fitnesses, population.is_noptimal)
+            population.mean_fitness
         ]])

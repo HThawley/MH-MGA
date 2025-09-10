@@ -56,6 +56,8 @@ class MGAProblem:
         self.crossover_prob = FLOAT(0.0)
         self.niche_elitism = None
         self.noptimal_slack = FLOAT(1.0)
+        self.current_best_obj = FLOAT(0)
+        self.mean_fitness = FLOAT(0)
         
     def add_niches(self, num_niches:int):
         """
@@ -195,10 +197,12 @@ class MGAProblem:
 
         # Setup termination criteria
         if convergence_criteria is None:
-            convergence_criteria = []
-        termination_handler = term.MultiConvergence(
-            criteria=[term.Maxiter(max_iter)] + convergence_criteria
-        )
+            termination_handler = term.Maxiter(max_iter)
+        elif hasattr(convergence_criteria, "__iter__"):
+            termination_handler = term.MultiConvergence([term.Maxiter(max_iter), *convergence_criteria])
+        else: 
+            termination_handler = term.MultiConvergence([term.Maxiter(max_iter), convergence_criteria])
+
 
         # Instantiation
         if not self._is_populated:
@@ -233,6 +237,10 @@ class MGAProblem:
             
             if self.logger:
                 self.logger.log_iteration(self.current_iter, self.population)
+            
+            # provides hooks for termination control
+            self.current_best_obj=self.population.current_optima_obj[0] 
+            self.mean_fitness=self.population.mean_fitness
 
             self.current_iter += 1
 
