@@ -38,11 +38,20 @@ class Pareto:
                          if self.problem.integrality.sum() == 0 else 
                          mutation.mutate_gaussian_niche_mixed)
 
-    def populate(self):
-        self._populate_randomly()
-        self._apply_integrality()
-        self._apply_bounds()
-        self._evaluate()
+    def populate(self, x0=None):
+        if x0 is None:
+            self._populate_randomly()
+            self._apply_integrality()
+            self._apply_bounds()
+            self._evaluate()
+        else: 
+            _clone(self.points, np.atleast_2d(x0))
+            self._apply_integrality()
+            self._apply_bounds()
+            x0_obj, x0_fea = self.problem.evaluate(np.atleast_2d(x0))
+            self.objective_values[:] = x0_obj[0, :]
+            self.is_feasible[:] = x0_fea[0, :]
+        
 
     def resize(self, pop_size: int):
         new_points = np.empty((pop_size, self.ndim), FLOAT)

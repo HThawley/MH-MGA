@@ -1,5 +1,5 @@
 import numpy as np 
-from numba import njit
+from numba import njit, jit
 from datetime import datetime as dt
 import warnings
 
@@ -15,7 +15,8 @@ class MOProblem:
     def __init__(
             self, 
             problem: MultiObjectiveProblem,
-            random_seed: int = None,
+            x0: np.ndarray|None = None,
+            random_seed: int|None = None,
             ):
         if not isinstance(problem, MultiObjectiveProblem):
             raise TypeError("problem must be an instance of MultiObjectiveProblem")
@@ -24,7 +25,8 @@ class MOProblem:
         self.problem = problem
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None
-        
+        self.x0 = x0
+
         self.population = None
         self.current_iter = 0
         self.start_time = dt.now()

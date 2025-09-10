@@ -1,5 +1,6 @@
 import numpy as np
 from datetime import datetime as dt
+import warnings
 
 from mga.commons.types import DEFAULTS
 INT, FLOAT = DEFAULTS
@@ -18,6 +19,7 @@ class MGAProblem:
     def __init__(
         self,
         problem: OptimizationProblem,
+        x0: np.ndarray|None,
         log_dir: str|None = None,
         log_freq: int = 1,
         random_seed: int|None = None,
@@ -40,7 +42,17 @@ class MGAProblem:
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None 
         self.logger = Logger(log_dir, log_freq, create_dir=True) if log_dir else None
-        
+        if x0 is not None:
+            if not isinstance(x0, np.ndarray): 
+                raise TypeError
+            if not x0.dtype != FLOAT: 
+                warnings.warn("x0 will be cast to float")
+            if not x0.ndim ==1:
+                raise NotImplementedError
+            if not len(x0) == self.problem.ndim:
+                raise ValueError
+        self.x0 = x0
+
         self.population = None
         self.current_iter = INT(0)
         self.start_time = dt.now()
@@ -216,12 +228,38 @@ class MGAProblem:
             parent_size=tourn_count+elite_count, 
             )
 
+        ## TODO: refactor population
+        # self.population.update_hyperparameters(
+        #     elite_count, 
+        #     tournn_count, 
+        #     tourn_size, 
+        #     mutation_prob,
+        #     mutation_sigma,
+        #     crossover_prob,
+        #     violation_factor,
+        #     noptimal_slack,
+        #     niche_elitism, 
+        # )
+
         # Main algorithm loop
         while not termination_handler(self):
             if disp_rate > 0 and self.current_iter % disp_rate == 0:
                 self._display_progress()
 
             # TODO: dither mutation/crossover params
+
+
+            ## TODO: refactor population
+            # self.population.select_parents(elite_count, tourn_count, tourn_size)
+            # self.population.generate_offspring(mutation_prob, mutation_sigma, crossover_prob, niche_elitism)
+            # if self.problem.objective_jitted:
+            #     self.population.evaluate_objective(violation_factor) 
+            # else: 
+            #     # loop through niches
+            #     self.population.objective_values, self.population.violations = self.problem.evaluate(self.population.points)
+            # self.population.evaluate_fitness()
+            # self.population.evaluate_diversity() ##TODO: hooks for termination
+            # self.population.update_optima(noptimal_slack)
 
             self.population.evolve(
                 elite_count=elite_count,
@@ -261,7 +299,7 @@ class MGAProblem:
                 rng=self.rng,
                 stable_sort=self.stable_sort,
             )
-            self.population.populate(noptimal_slack, violation_factor)
+            self.population.populate(noptimal_slack, violation_factor, self.x0)
             self._is_populated = True
 
     def get_results(self) -> dict:

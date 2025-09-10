@@ -1,4 +1,5 @@
 import numpy as np
+from numba.core.registry import CPUDispatcher
 from collections.abc import Callable
 
 from mga.commons.types import DEFAULTS
@@ -69,6 +70,10 @@ class OptimizationProblem:
 
         # instantiation
         self.objective = objective
+        if isinstance(objective, CPUDispatcher):
+            self.objective_jitted = True
+        else: 
+            self.objective_jitted = False
         self.lower_bounds, self.upper_bounds = bounds
         self.lower_bounds = self.lower_bounds.astype(FLOAT)
         self.upper_bounds = self.upper_bounds.astype(FLOAT)

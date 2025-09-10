@@ -57,7 +57,7 @@ def run_optimize(hyperparameters, timeout, seed):
         fkwargs = {},
         )
 
-    algorithm = MGAProblem(problem, None, 0, seed)
+    algorithm = MGAProblem(problem, None, None, 0, seed)
     algorithm.add_niches(20)
     algorithm.step(
         **hyperparameters,
@@ -150,6 +150,7 @@ def main():
 
     algorithm = MOProblem(
         problem=problem,
+        x0 = np.array([200, 25, 0.2, 2, 0.5, 0.3, 0.3, 1])
     )
 
     algorithm.step(

@@ -123,16 +123,24 @@ class FixedValue(Convergence):
             target_value: float,
             maximize: bool,
             attribute: str = None, # named attribute of intermediate_result object
+            attribute_in_population: bool = False,
             ):
         self.target_value = target_value
         self.sense = 1.0 if maximize else -1.0
         self.attribute = attribute
+        self.attribute_in_population = attribute_in_population
         
     def __call__(
             self, 
             intermediate_result,
             ):
-        value = getattr(intermediate_result, self.attribute) if self.attribute is not None else intermediate_result
+        if self.attribute is not None: 
+            if self.attribute_in_population:
+                value = getattr(intermediate_result.population, self.attribute) if self.attribute is not None else intermediate_result
+            else: 
+                value = getattr(intermediate_result, self.attribute) if self.attribute is not None else intermediate_result
+        else: 
+            value = intermediate_result
 
         delta = self.sense * (value - self.target_value)
         if delta > 0: 
@@ -182,6 +190,7 @@ class ArithmeticStagnation(Convergence):
             improvement: int|float, 
             maximize: bool = False,
             attribute: str = None, # named attribute of intermediate_result object
+            attribute_in_population: bool = False,
             ):
         self.i = 0
         self.niter = niter
@@ -189,13 +198,19 @@ class ArithmeticStagnation(Convergence):
         self.sense = -1 if maximize else 1
         self.prev = self.sense * float('inf') 
         self.attribute = attribute
+        self.attribute_in_population = attribute_in_population
         
     def __call__(
             self, 
             intermediate_result
             ):
-        value = getattr(intermediate_result, self.attribute) if self.attribute is not None else intermediate_result
-
+        if self.attribute is not None:
+            if self.attribute_in_population:
+                value = getattr(intermediate_result.population, self.attribute) if self.attribute is not None else intermediate_result
+            else: 
+                value = getattr(intermediate_result, self.attribute) if self.attribute is not None else intermediate_result
+        else: 
+            value = intermediate_result
         delta = (self.prev - value) * self.sense
         self.prev = value
         if delta < self.improvement:
@@ -231,6 +246,7 @@ class GradientStagnation(Convergence):
             improvement: int|float, 
             maximize: bool = False,
             attribute: str = None, # named attribute of intermediate_result object
+            attribute_in_population: bool = False,
             ):
         assert window >= 2
         self.window = window
@@ -238,12 +254,19 @@ class GradientStagnation(Convergence):
         self.sense = -1 if maximize else 1
         self.prev = [self.sense * float('inf')]
         self.attribute = attribute
+        self.attribute_in_population = attribute_in_population
         
     def __call__(
             self, 
             intermediate_result
             ):
-        value = getattr(intermediate_result, self.attribute) if self.attribute is not None else intermediate_result
+        if self.attribute is not None:
+            if self.attribute_in_population: 
+                value = getattr(intermediate_result.population, self.attribute) 
+            else:
+                value = getattr(intermediate_result, self.attribute) 
+        else: 
+            value = intermediate_result
         self.prev.append(value)
         if len(self.prev) <= self.window:
             return False

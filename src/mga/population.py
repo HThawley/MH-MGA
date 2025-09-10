@@ -62,14 +62,31 @@ class Population:
                          if self.problem.integrality.sum() == 0 else 
                          mutation.mutate_gaussian_population_mixed)
 
-    def populate(self, noptimal_slack: float, violation_factor: float):
+    def populate(self, noptimal_slack: float, violation_factor: float, x0=None):
         """
         populates the population points with a uniform distribution
         """
-        self._populate_randomly(INT(0), self.num_niches)
-        self._apply_integrality()
-        self._apply_bounds()
-        self._evaluate_and_update(noptimal_slack, violation_factor)
+        if x0 is None:
+            self._populate_randomly(INT(0), self.num_niches)
+            self._apply_integrality()
+            self._apply_bounds()
+            self._evaluate_and_update(noptimal_slack, violation_factor)
+
+        else: 
+            _clone(self.points, np.atleast_3d(x0))
+            self._apply_integrality()
+            self._apply_bounds()
+            x0_obj, x0_vio = self.problem.evaluate(np.atleast_2d(x0))
+            self.objective_values[:] = x0_obj[0, 0]
+            self.violations[:] = x0_vio[0, 0]
+        
+            self.penalized_objectives[:] = self.objective_values + self.violations * violation_factor
+            self._evaluate_fitness()
+            self._evaluate_diversity()
+
+        # Update global optimum
+        self._update_optima(noptimal_slack)
+
 
     def _populate_randomly(self, start_idx, end_idx):
         """Helper to populate a slice of niches with random points."""
@@ -361,7 +378,6 @@ class Population:
         """
         Calculates and returns a vector of diversity metrics for the current population state.
         """
-        print("called")
         nopt_points = self.current_optima[self.current_optima_nop]
         
         # VESA
@@ -575,12 +591,14 @@ def _add_niche_to_array(old_array, num_niches):
 
 @njit
 def _clone(target, start_pop):
+    nniches = start_pop.shape[0]
     nindividuals = start_pop.shape[1]
     for i in range(target.shape[0]):
+        i_n = i%nniches
         for j in range(target.shape[1]):
-            jn = j%nindividuals
+            j_n = j%nindividuals
             for k in range(target.shape[2]):
-                target[i, j, k] = start_pop[i, jn, k]
+                target[i, j, k] = start_pop[i_n, j_n, k]
 
 @njit
 def _noptimal_threshold(optimal_obj, slack, maximize):
