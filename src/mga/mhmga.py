@@ -19,7 +19,7 @@ class MGAProblem:
     def __init__(
         self,
         problem: OptimizationProblem,
-        x0: np.ndarray|None,
+        x0: np.ndarray|None=None,
         log_dir: str|None = None,
         log_freq: int = 1,
         random_seed: int|None = None,
@@ -185,8 +185,8 @@ class MGAProblem:
             raise ValueError(f"'niche_elitism' expected one of (`None`, 'selfish', 'unselfish'). Received: {niche_elitism}")
         if not type_asserts.is_integer(disp_rate): 
             raise TypeError(f"'disp_rate' expected an int. Received: {type(disp_rate)}")
-        if disp_rate < 0: 
-            raise ValueError(f"'disp_rate' cannot be negative. Received: {disp_rate}")
+        if disp_rate < 0 and disp_rate != -1: 
+            raise ValueError(f"The only allowable negative 'disp_rate' is -1. Received: {disp_rate}")
         disp_rate = INT(disp_rate)
         if convergence_criteria is None: pass
         elif isinstance(convergence_criteria, term.Convergence): pass
@@ -281,6 +281,9 @@ class MGAProblem:
             self.mean_fitness=self.population.mean_fitness
 
             self.current_iter += 1
+        if disp_rate == -1:
+            self._display_progress()
+
 
     def populate(self, pop_size: int, noptimal_slack: float, violation_factor: float):
         """

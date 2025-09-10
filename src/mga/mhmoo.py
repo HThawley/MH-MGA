@@ -61,6 +61,7 @@ class MOProblem:
 
         if not self._is_populated:
             self.populate(pop_size)
+        mutation_sigma = mutation_sigma*(self.problem.upper_bounds - self.problem.lower_bounds)
 
         # Main algorithm loop
         while not termination_handler(self):
@@ -68,7 +69,7 @@ class MOProblem:
                 self._display_progress()
 
             # TODO: dither mutation/crossover params
-           
+            # TODO: broadcast mutation_sigma
             self.population.evolve(
                 npareto = self.npareto,
                 mutation_prob=mutation_prob,
@@ -103,7 +104,7 @@ class MOProblem:
         
         return {
             "pareto": self.population.pareto,
-            "objectives": self.population.objective_values,
+            "objectives": self.population.pareto_objs,
         }
 
     def _display_progress(self):

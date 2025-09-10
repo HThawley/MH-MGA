@@ -133,7 +133,7 @@ def Optimize(x, n_repeat=3):
     return np.array([time.total_seconds(), shannon, nnopt]), np.ones(3, bool)
     
 
-def main():
+def main(plot=True):
 
     problem = MultiObjectiveProblem(
         Optimize,
@@ -154,8 +154,17 @@ def main():
     )
 
     algorithm.step(
-        max_iter=30,
-        pop_size=100,
+        max_iter=5,
+        pop_size=5,
+        npareto=200,
+        mutation_prob=0.5,
+        mutation_sigma=0.2,
+        crossover_prob=0.3,
+        disp_rate=1,
+        )
+    algorithm.step(
+        max_iter=25,
+        pop_size=25,
         npareto=200,
         mutation_prob=0.5,
         mutation_sigma=0.2,
@@ -167,13 +176,16 @@ def main():
     pareto_points = results["pareto"]
     pareto_objectives = results["objectives"]
 
-    pd.DataFrame(pareto_points).to_csv("pareto_points.csv", index=False, header=False)
-    pd.DataFrame(pareto_objectives).to_csv("pareto_objectives.csv", index=False, header=False)
+    pd.DataFrame(pareto_points).to_csv("logs/pareto_points.csv", index=False, header=False)
+    pd.DataFrame(pareto_objectives).to_csv("logs/pareto_objectives.csv", index=False, header=False)
+    
+    if not plot: 
+        return
     # raise KeyboardInterrupt
-    pareto_points = pd.read_csv("pareto_points.csv", header=None).to_numpy()
-    pareto_objectives = pd.read_csv("pareto_objectives.csv", header=None).to_numpy()
+    pareto_points = pd.read_csv("logs/pareto_points.csv", header=None).to_numpy()
+    pareto_objectives = pd.read_csv("logs/pareto_objectives.csv", header=None).to_numpy()
 
-    #%% 
+    
     
     objectives = ["time", "shannon", "n_noptima"]
     for i in range(3):
@@ -182,7 +194,7 @@ def main():
         ax.set_xlabel(f"{objectives[i-1]}")
         ax.set_ylabel(f"{objectives[i]}")
 
-    #%%
+
     
     def normalise(array):
         lb = array.min(axis=0)

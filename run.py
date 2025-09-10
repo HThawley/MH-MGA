@@ -39,6 +39,7 @@ def main():
     # 2. Configure the MGA algorithm
     algorithm = MGAProblem(
         problem=problem,
+        x0=None,
         log_dir=FILE_PREFIX,
         log_freq=500,
         random_seed=1, 
@@ -58,7 +59,7 @@ def main():
         crossover_prob=0.3,
         niche_elitism="selfish",
         noptimal_slack=1.12,
-        disp_rate=50,
+        disp_rate=-1,
     )
 
     # 3. Run the optimization
