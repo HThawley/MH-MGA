@@ -254,4 +254,4 @@ def main(calc = True, plot=True):
 if __name__=="__main__":
     best_time = td.max
 
-    main(True, True)
+    main(False, True)

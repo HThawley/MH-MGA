@@ -66,7 +66,7 @@ class Pareto:
             _clone(new_objectives, self.objective_values)
             _overwrite(new_objectives, self.pareto_objs)
             _clone(new_feasible, self.is_feasible)
-            _new_feasible[:self.pareto.shape[0], :] = True
+            new_feasible[:self.pareto.shape[0], :] = True
 
             self.points = new_points
             self.objective_values = new_objectives
@@ -219,8 +219,11 @@ def _select_pareto(points, objective, maximize, is_feasible):
                     candidate_better = True
                 elif candidate_obj[n] > current_obj[n]:
                     current_better = True
-
-            if candidate_better and not current_better:
+          
+            if (not candidate_better) and (not current_better):
+                dominated = True
+                break
+            elif candidate_better and not current_better:
                 dominated_mask[k] = True
             elif current_better and not candidate_better:
                 dominated = True
