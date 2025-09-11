@@ -149,6 +149,12 @@ def _apply_bounds(points, lb, ub):
             points[j, k] = min(ub[k], max(lb[k], points[j, k]))
 
 @njit
+def _overwrite(target, elites):
+    for j in range(elites.shape[0]):
+        for k in range(elites.shape[1]):
+            target[j, k] = elites[j, k]
+
+@njit
 def _clone(target, start_pop):
     nindividuals = start_pop.shape[0]
     for j in range(target.shape[0]):
@@ -216,7 +222,7 @@ def _select_pareto(points, objective, maximize, is_feasible):
                 is_candidate_dominated = True
                 break
             elif candidate_is_better and not pareto_is_better: # Candidate dominates Pareto point
-                dominated_in_current_front_mask[j] = True
+                dominated_in_current_front_mask[k] = True
             
                 # Update Pareto Front
         if is_candidate_dominated:
