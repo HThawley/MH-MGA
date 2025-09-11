@@ -61,6 +61,8 @@ class MOProblem:
 
         if not self._is_populated:
             self.populate(pop_size)
+        else: 
+            self.population.resize(pop_size)
         mutation_sigma = mutation_sigma*(self.problem.upper_bounds - self.problem.lower_bounds)
 
         # Main algorithm loop

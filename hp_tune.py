@@ -154,7 +154,7 @@ def main(calc = True, plot=True):
         )
 
         algorithm.step(
-            max_iter=5,
+            max_iter=2,
             pop_size=5,
             npareto=200,
             mutation_prob=0.5,
@@ -165,12 +165,13 @@ def main(calc = True, plot=True):
         algorithm.step(
             max_iter=50,
             pop_size=200,
-            npareto=100,
+            npareto=500,
             mutation_prob=0.5,
             mutation_sigma=0.2,
             crossover_prob=0.3,
             disp_rate=1,
             )
+        print(algorithm.population.points.shape)
 
         results = algorithm.get_results()
         pareto_points = results["pareto"]
@@ -204,12 +205,12 @@ def main(calc = True, plot=True):
                         retarr[i, j] = ret
             return retarr
         
-        def normalise(array):
+        def normalise(array, lb, ub):
             lb = array.min(axis=0)
             ub = array.max(axis=0)
             return zero_safe_divide(array - lb, ub -lb, 0)
 
-        def generate_ticklabels(array, nticks):
+        def generate_ticklabels(array, nticks, lb, ub):
             lb = array.min(axis=0)
             ub = array.max(axis=1)
             
@@ -225,14 +226,14 @@ def main(calc = True, plot=True):
         pareto_objectives = pareto_objectives[time_mask, :]
         
         lb, ub = pareto_objectives.min(axis=0), pareto_objectives.max(axis=0)
-        normal_pareto = normalise(pareto_objectives)
+        normal_pareto = normalise(pareto_objectives, lb, ub)
         # print(229)
         cloud = pv.PolyData(normal_pareto)
         # print(231)
         surf = cloud.reconstruct_surface()
         # surf = cloud.delaunay_3d()
         # print(234)
-        ticks_norm, ticks = generate_ticklabels(pareto_objectives, 5) # label normalised axes with unnormalised labels
+        ticks_norm, ticks = generate_ticklabels(pareto_objectives, 5, lb, ub) # label normalised axes with unnormalised labels
         xticks, yticks, zticks = ticks
         # print(237)
         plotter = pv.Plotter()

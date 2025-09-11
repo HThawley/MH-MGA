@@ -54,7 +54,7 @@ class Pareto:
         
 
     def resize(self, pop_size: int):
-        new_points = np.empty((pop_size, self.ndim), FLOAT)
+        new_points = np.empty((pop_size, self.problem.ndim), FLOAT)
         new_objectives = np.empty((pop_size, self.problem.n_objs), FLOAT)
         new_feasible = np.empty((pop_size, self.problem.n_objs), np.bool_)
 
@@ -62,8 +62,12 @@ class Pareto:
             raise ValueError("Reducing 'pop_size' may lose pareto efficient points")
         else: 
             _clone(new_points, self.points)
+            _overwrite(new_points, self.pareto)
             _clone(new_objectives, self.objective_values)
+            _overwrite(new_objectives, self.pareto_objs)
             _clone(new_feasible, self.is_feasible)
+            _new_feasible[:self.pareto.shape[0], :] = True
+
             self.points = new_points
             self.objective_values = new_objectives
             self.is_feasible = new_feasible
