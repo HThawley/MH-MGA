@@ -195,7 +195,7 @@ def _select_pareto(points, objective, maximize, is_feasible):
             else:
                 processed_obj[idx_j, n] = objective[j, n]
 
-    pareto_local_indices = np.empty(nfeas, dtype=np.int)
+    pareto_local_indices = np.empty(nfeas, dtype=np.intp)
     pareto_count = 0
 
     for j in range(nfeas):
