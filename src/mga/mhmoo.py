@@ -69,7 +69,6 @@ class MOProblem:
                 self._display_progress()
 
             # TODO: dither mutation/crossover params
-            # TODO: broadcast mutation_sigma
             self.population.evolve(
                 npareto = self.npareto,
                 mutation_prob=mutation_prob,

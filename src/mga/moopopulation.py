@@ -30,7 +30,7 @@ class Pareto:
 
         # Overall best found
         self.pareto = np.empty((0, problem.ndim), dtype=FLOAT)
-        self.paretos_objs = np.empty((0, problem.n_objs), dtype=FLOAT)
+        self.pareto_objs = np.empty((0, problem.n_objs), dtype=FLOAT)
 
         # Auxiliary functions
         self.cx_func = crossover._cx_two_point if problem.ndim > 2 else crossover._cx_one_point
@@ -98,14 +98,21 @@ class Pareto:
         self.mut_func(self.points, self.mutation_sigma, self.mutation_prob, 
                       self.rng, self.problem.integrality, self.problem.boolean_mask, startidx=0)
         self._apply_bounds()
+        _overwrite(self.points, self.pareto)
+        
 
     def _evaluate(self):
         """
         Evaluates objectives
         """
+        current_pareto_size = self.pareto.shape[0]
         # Evaluate objectives and apply penalties
-        self.objective_values[:], self.is_feasible[:] = self.problem.evaluate(self.points)
+        self.objective_values[current_pareto_size:], self.is_feasible[current_pareto_size:] = self.problem.evaluate(self.points[current_pareto_size:])
+        self.objective_values[:current_pareto_size] = self.pareto_objs[:]
+        self.is_feasible[:current_pareto_size] = True
         
+
+
     def _apply_bounds(self):
         """
         Clips the population points to stay within the defined bounds.
@@ -164,11 +171,7 @@ def _clone(target, start_pop):
 
 @njit
 def _select_pareto(points, objective, maximize, is_feasible):
-    """
-    Select pareto efficeint solutions as parents
-    """
     popsize, n_objs = objective.shape
-    # Correctly handle minimization/maximization
 
     feasible_mask = np.ones(popsize, dtype=np.bool_)
     for i in range(popsize):
@@ -176,77 +179,64 @@ def _select_pareto(points, objective, maximize, is_feasible):
             if not is_feasible[i, j]:
                 feasible_mask[i] = False
                 break
+
     feasible_indices = np.where(feasible_mask)[0]
 
     if feasible_indices.size == 0:
-         return (np.empty((0, points.shape[1]), points.dtype), 
+        return (np.empty((0, points.shape[1]), points.dtype),
                 np.empty((0, n_objs), objective.dtype))
-    
-    nfeas = feasible_indices.shape[0]
 
+    nfeas = feasible_indices.shape[0]
     processed_obj = np.empty((nfeas, n_objs), dtype=objective.dtype)
-    
-    for j in range(nfeas):
+    for idx_j, j in enumerate(feasible_indices):
         for n in range(n_objs):
             if maximize[n]:
-                processed_obj[j, n] = -objective[feasible_indices[j], n]
+                processed_obj[idx_j, n] = -objective[j, n]
             else:
-                processed_obj[j, n] = objective[feasible_indices[j], n]
+                processed_obj[idx_j, n] = objective[j, n]
 
-    pareto_indices_local = np.zeros(nfeas, dtype=np.int64)
+    pareto_local_indices = np.empty(nfeas, dtype=np.int)
     pareto_count = 0
 
-    # Main Loop: Iterate through each candidate solution
     for j in range(nfeas):
         candidate_obj = processed_obj[j]
-        is_candidate_dominated = False
-        # Track which of the *current* Pareto solutions are dominated by the new candidate. 
-        dominated_in_current_front_mask = np.zeros(pareto_count, dtype=np.bool_)
-        #  Inner Loop: Compare candidate against the current Pareto front 
+        dominated = False
+
+        dominated_mask = np.zeros(pareto_count, dtype=np.bool_)
+
         for k in range(pareto_count):
-            current_pareto_local_idx = pareto_indices_local[k]
-            current_pareto_obj = processed_obj[current_pareto_local_idx]
-            
-            candidate_is_better = False
-            pareto_is_better = False
+            current_idx = pareto_local_indices[k]
+            current_obj = processed_obj[current_idx]
+
+            candidate_better = False
+            current_better = False
             for n in range(n_objs):
-                if candidate_obj[n] < current_pareto_obj[n]:
-                    candidate_is_better = True
-                elif current_pareto_obj[n] < candidate_obj[n]:
-                    pareto_is_better = True
-            
-            if not candidate_is_better and not pareto_is_better: # They are equal
-                is_candidate_dominated = True
+                if candidate_obj[n] < current_obj[n]:
+                    candidate_better = True
+                elif candidate_obj[n] > current_obj[n]:
+                    current_better = True
+
+            if candidate_better and not current_better:
+                dominated_mask[k] = True
+            elif current_better and not candidate_better:
+                dominated = True
                 break
-            elif pareto_is_better and not candidate_is_better: # Pareto point dominates candidate
-                is_candidate_dominated = True
-                break
-            elif candidate_is_better and not pareto_is_better: # Candidate dominates Pareto point
-                dominated_in_current_front_mask[k] = True
-            
-                # Update Pareto Front
-        if is_candidate_dominated:
+
+        if dominated:
             continue
-        # The candidate is not dominated. We now rebuild the Pareto set by:
-        # 1. Keeping the old members that were NOT dominated by the candidate.
-        # 2. Adding the new candidate.
-        # This copies over the surviving indices to the front of the array.
+
         write_idx = 0
         for k in range(pareto_count):
-            if not dominated_in_current_front_mask[k]:
-                pareto_indices_local[write_idx] = pareto_indices_local[k]
+            if not dominated_mask[k]:
+                pareto_local_indices[write_idx] = pareto_local_indices[k]
                 write_idx += 1
-        # Add the new candidate's index to the end of the filtered list.
-        pareto_indices_local[write_idx] = j
-        # Update the count of solutions on the front.
-        pareto_count = write_idx + 1
-    final_local_indices = pareto_indices_local[:pareto_count]
-    
-    pareto = np.empty((pareto_count, points.shape[1]), points.dtype)
-    pareto_objs = np.empty((pareto_count, n_objs), objective.dtype)
 
-    final_indices = feasible_indices[final_local_indices]
-    pareto[:] = points[final_indices, :]
-    pareto_objs[:] = objective[final_indices, :]
-    
-    return pareto, pareto_objs
+        pareto_local_indices[write_idx] = j
+        pareto_count = write_idx + 1
+
+    final_indices = feasible_indices[pareto_local_indices[:pareto_count]]
+    pareto_points = points[final_indices]
+    pareto_objs = objective[final_indices]
+
+    return pareto_points, pareto_objs
+
