@@ -133,114 +133,124 @@ def Optimize(x, n_repeat=3):
     return np.array([time.total_seconds(), shannon, nnopt]), np.ones(3, bool)
     
 
-def main(plot=True):
-
-    problem = MultiObjectiveProblem(
-        Optimize,
-        bounds=(
-            np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
-            np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
-            ),
-        n_objs=3,
-        maximize=np.array([False, True, True]),
-        vectorized=False,
-        feasibility=True,
-        integrality=np.array([True, True, False, True, False, False, False, True]),
-    )
-
-    algorithm = MOProblem(
-        problem=problem,
-        x0 = np.array([200, 25, 0.2, 2, 0.5, 0.3, 0.3, 1])
-    )
-
-    algorithm.step(
-        max_iter=5,
-        pop_size=5,
-        npareto=200,
-        mutation_prob=0.5,
-        mutation_sigma=0.2,
-        crossover_prob=0.3,
-        disp_rate=1,
-        )
-    algorithm.step(
-        max_iter=25,
-        pop_size=25,
-        npareto=200,
-        mutation_prob=0.5,
-        mutation_sigma=0.2,
-        crossover_prob=0.3,
-        disp_rate=1,
+def main(calc = True, plot=True):
+    if calc:
+        problem = MultiObjectiveProblem(
+            Optimize,
+            bounds=(
+                np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
+                np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
+                ),
+            n_objs=3,
+            maximize=np.array([False, True, True]),
+            vectorized=False,
+            feasibility=True,
+            integrality=np.array([True, True, False, True, False, False, False, True]),
         )
 
-    results = algorithm.get_results()
-    pareto_points = results["pareto"]
-    pareto_objectives = results["objectives"]
+        algorithm = MOProblem(
+            problem=problem,
+            x0 = np.array([200, 25, 0.2, 2, 0.5, 0.3, 0.3, 1])
+        )
 
-    pd.DataFrame(pareto_points).to_csv("logs/pareto_points.csv", index=False, header=False)
-    pd.DataFrame(pareto_objectives).to_csv("logs/pareto_objectives.csv", index=False, header=False)
+        algorithm.step(
+            max_iter=5,
+            pop_size=5,
+            npareto=200,
+            mutation_prob=0.5,
+            mutation_sigma=0.2,
+            crossover_prob=0.3,
+            disp_rate=1,
+            )
+        algorithm.step(
+            max_iter=50,
+            pop_size=200,
+            npareto=100,
+            mutation_prob=0.5,
+            mutation_sigma=0.2,
+            crossover_prob=0.3,
+            disp_rate=1,
+            )
+
+        results = algorithm.get_results()
+        pareto_points = results["pareto"]
+        pareto_objectives = results["objectives"]
+
+        pd.DataFrame(pareto_points).to_csv("logs/pareto_points.csv", index=False, header=False)
+        pd.DataFrame(pareto_objectives).to_csv("logs/pareto_objectives.csv", index=False, header=False)
     
-    if not plot: 
-        return
-    # raise KeyboardInterrupt
-    pareto_points = pd.read_csv("logs/pareto_points.csv", header=None).to_numpy()
-    pareto_objectives = pd.read_csv("logs/pareto_objectives.csv", header=None).to_numpy()
-
-    
-    
-    objectives = ["time", "shannon", "n_noptima"]
-    for i in range(3):
-        fig, ax = plt.subplots()
-        ax.scatter(pareto_objectives[:, i-1], pareto_objectives[:, i])
-        ax.set_xlabel(f"{objectives[i-1]}")
-        ax.set_ylabel(f"{objectives[i]}")
-
-
-    
-    def normalise(array):
-        lb = array.min(axis=0)
-        ub = array.max(axis=0)
-        return (array - lb) / (ub -lb)
-
-    def generate_ticklabels(array, nticks):
-        lb = array.min(axis=0)
-        ub = array.max(axis=1)
+    if plot: 
         
-        ticks_norm = np.linspace(0, 1, 5)
-        
-        ticks = []
-        for i in range(array.shape[1]):
-            ticks.append([f"{val:.2f}" for val in np.linspace(lb[i], ub[i], nticks)])
-        return ticks_norm, ticks
-    
-    time_mask = pareto_objectives[:, 0] < pareto_objectives[:, 0].min()*2
-    pareto_points = pareto_points[time_mask, :]
-    pareto_objectives = pareto_objectives[time_mask, :]
-    
-    lb, ub = pareto_objectives.min(axis=0), pareto_objectives.max(axis=0)
-    normal_pareto = normalise(pareto_objectives)
-    cloud = pv.PolyData(normal_pareto)
-    surf = cloud.reconstruct_surface()
-    # surf = cloud.delaunay_3d()
-    
-    ticks_norm, ticks = generate_ticklabels(pareto_objectives, 5) # label normalised axes with unnormalised labels
-    xticks, yticks, zticks = ticks
-    
-    plotter = pv.Plotter()
-    
-    plotter.add_mesh(surf, show_edges=True)#, cmap="viridis")
-    
-    # plotter.add_points(cloud, color="blue", render_points_as_spheres=True, point_size=10)
+        # raise KeyboardInterrupt
+        pareto_points = pd.read_csv("logs/pareto_points.csv", header=None).to_numpy()
+        pareto_objectives = pd.read_csv("logs/pareto_objectives.csv", header=None).to_numpy()
 
-    plotter.show_grid(
-        xtitle=objectives[0],
-        ytitle=objectives[1],
-        ztitle=objectives[2],
-        axes_ranges=[i for j in zip(lb, ub) for i in j]
-        )
-    plotter.view_isometric()
-    plotter.show()
+        
+        
+        objectives = ["time", "shannon", "n_noptima"]
+        for i in range(3):
+            fig, ax = plt.subplots()
+            ax.scatter(pareto_objectives[:, i-1], pareto_objectives[:, i])
+            ax.set_xlabel(f"{objectives[i-1]}")
+            ax.set_ylabel(f"{objectives[i]}")
+
+        def zero_safe_divide(num, denom, ret):
+            retarr = np.empty_like(num)
+            for i in range(retarr.shape[0]):
+                for j in range(retarr.shape[1]):
+                    if denom[j] != 0:
+                        retarr[i, j] = num[i, j] / denom[j]
+                    else: 
+                        retarr[i, j] = ret
+            return retarr
+        
+        def normalise(array):
+            lb = array.min(axis=0)
+            ub = array.max(axis=0)
+            return zero_safe_divide(array - lb, ub -lb, 0)
+
+        def generate_ticklabels(array, nticks):
+            lb = array.min(axis=0)
+            ub = array.max(axis=1)
+            
+            ticks_norm = np.linspace(0, 1, 5)
+            
+            ticks = []
+            for i in range(array.shape[1]):
+                ticks.append([f"{val:.2f}" for val in np.linspace(lb[i], ub[i], nticks)])
+            return ticks_norm, ticks
+        
+        time_mask = pareto_objectives[:, 0] < pareto_objectives[:, 0].min()*2
+        pareto_points = pareto_points[time_mask, :]
+        pareto_objectives = pareto_objectives[time_mask, :]
+        
+        lb, ub = pareto_objectives.min(axis=0), pareto_objectives.max(axis=0)
+        normal_pareto = normalise(pareto_objectives)
+        # print(229)
+        cloud = pv.PolyData(normal_pareto)
+        # print(231)
+        surf = cloud.reconstruct_surface()
+        # surf = cloud.delaunay_3d()
+        # print(234)
+        ticks_norm, ticks = generate_ticklabels(pareto_objectives, 5) # label normalised axes with unnormalised labels
+        xticks, yticks, zticks = ticks
+        # print(237)
+        plotter = pv.Plotter()
+        # print(239)
+        plotter.add_mesh(surf, show_edges=True)#, cmap="viridis")
+        # print(241)
+        # plotter.add_points(cloud, color="blue", render_points_as_spheres=True, point_size=10)
+        # print(243)
+        plotter.show_grid(
+            xtitle=objectives[0],
+            ytitle=objectives[1],
+            ztitle=objectives[2],
+            axes_ranges=[i for j in zip(lb, ub) for i in j]
+            )
+        plotter.view_isometric()
+        plotter.show()
 
 if __name__=="__main__":
     best_time = td.max
 
-    main()
+    main(True, True)
