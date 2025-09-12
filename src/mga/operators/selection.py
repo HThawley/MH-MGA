@@ -97,13 +97,13 @@ def _do_tournament(criteria, maximize, indices):
     return _selected_idx
 
 @njit
-def _select_tournament(selected, niche, objective, n, tournsize, rng, maximize):
+def _select_tournament(selected, niche, objective, n, tourn_size, rng, maximize):
     """
     Selects {n} individuals from a population according to selection tournament
     """
     if n == 0:
         return
-    indices = np.empty(tournsize, INT)
+    indices = np.empty(tourn_size, INT)
     
     for m in range(n):
         _draw_tournament_indices(indices, niche.shape[0], rng)
@@ -111,28 +111,28 @@ def _select_tournament(selected, niche, objective, n, tournsize, rng, maximize):
         selected[m, :] = niche[_selected_idx, :]
 
 @njit
-def _select_tournament_with_fallback(selected, niche, fitness, is_noptimal, objective, n, tournsize, rng, maximize):
+def _select_tournament_with_fallback(selected, niche, fitness, is_noptimal, objective, n, tourn_size, rng, maximize):
     """select on fitness preferred. fitness always maximised. 
     objective max/minimized based on value of `maximize`"""
     if n == 0: 
         return
 
-    _nopt = 0 
-    for i in range(len(is_noptimal)):
-        if is_noptimal[i]:
-            _nopt += 1 
+    # _nopt = 0 
+    # for i in range(len(is_noptimal)):
+    #     if is_noptimal[i]:
+    #         _nopt += 1 
 
-    indices = np.empty(tournsize, INT)
-    # noptimality_threshold = tournsize / 2 
-    noptimality_threshold = len(selected) / 2 
+    indices = np.empty(tourn_size, INT)
+    noptimality_threshold = tourn_size / 2 
+    # noptimality_threshold = len(selected) / 2 
     
     for m in range(n):
         _draw_tournament_indices(indices, niche.shape[0], rng)
         
-        # _nopt = 0
-        # for idx in indices:
-        #     if is_noptimal[idx]:
-        #         _nopt+=1 
+        _nopt = 0
+        for idx in indices:
+            if is_noptimal[idx]:
+                _nopt+=1 
 
         if _nopt <= noptimality_threshold: # mostly non-noptimal
             _selected_idx = _do_tournament(objective, maximize, indices)

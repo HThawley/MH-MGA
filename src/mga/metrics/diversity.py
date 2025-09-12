@@ -7,7 +7,7 @@ INT, FLOAT = DEFAULTS
 # API functions
 
 @njit 
-def mean_of_shannon_of_projections(points, feasibility, lb, ub):
+def mean_of_shannon_of_projections(points, is_noptimal, lb, ub):
     """
     mean of shannon index along each dimension of a set of points
     To be called on problem.noptima 
@@ -16,7 +16,7 @@ def mean_of_shannon_of_projections(points, feasibility, lb, ub):
     nbin = max(2, int(npoint**0.5)) # sqrt of number of samples, consider updating later 
     acc = 0
     counts = np.zeros(nbin, dtype=INT)
-    feasible_points = points[feasibility].T
+    feasible_points = points[is_noptimal].T
     for k in range(ndim):
         counts[:] = 0
         acc += _shannon_index(feasible_points[k], lb[k], ub[k], nbin, npoint, counts)
@@ -25,26 +25,26 @@ def mean_of_shannon_of_projections(points, feasibility, lb, ub):
     return acc 
 
 @njit
-def sum_of_fitness(fitness, noptimality):
+def sum_of_fitness(fitness, is_noptimal):
     """ sum of maximum (noptimal) fitness of each population""" 
     acc = 0
     for i in range(fitness.shape[0]):
         _max = 0
         for j in range(fitness.shape[1]):
-            if noptimality[i, j]:
+            if is_noptimal[i, j]:
                 if fitness[i, j] > _max:
                     _max = fitness[i, j]
         acc += _max
     return acc
 
 @njit 
-def mean_of_fitness(fitness, noptimality):
-    return sum_of_fitness(fitness, noptimality) / fitness.shape[0]
+def mean_of_fitness(fitness, is_noptimal):
+    return sum_of_fitness(fitness, is_noptimal) / fitness.shape[0]
 
 @njit
-def volume_estimation_by_shadow_addition(points, feasibility):
+def volume_estimation_by_shadow_addition(points, is_noptimal):
     vesa = 0.0
-    feasible_points = points[feasibility].T
+    feasible_points = points[is_noptimal].T
     for k in prange(points.shape[1]):
         for _k in range(k + 1, points.shape[1]):
             projection = np.stack((feasible_points[k], feasible_points[_k]), axis=-1)
@@ -52,14 +52,14 @@ def volume_estimation_by_shadow_addition(points, feasibility):
     return vesa
 
 @njit
-def std(quantity, noptimality):
+def std(quantity, is_noptimal):
     """ standard deviation. `quantity` may be problem.objective or problem.fitness"""
-    return _stat_measure(quantity, noptimality, np.std)
+    return _stat_measure(quantity, is_noptimal, np.std)
 
 @njit
-def var(quantity, noptimality):
+def var(quantity, is_noptimal):
     """ statistical variation. `quantity` may be problem.objective or problem.fitness"""
-    return _stat_measure(quantity, noptimality, np.var)
+    return _stat_measure(quantity, is_noptimal, np.var)
 
 # private helper functions
 
@@ -86,16 +86,16 @@ def _shannon_index(values, lb, ub, nbin, npoint, counts):
     return H 
 
 @njit
-def _stat_measure(quantity, noptimality, stat):
+def _stat_measure(quantity, is_noptimal, stat):
     result = np.empty(quantity.shape[0])
     for i in range(quantity.shape[0]):
         _feas = False
-        for j in range(noptimality.shape[1]):
-            if noptimality[i, j] is True:
+        for j in range(is_noptimal.shape[1]):
+            if is_noptimal[i, j] is True:
                 _feas = True
                 break
         if _feas is True:
-            result[i] = stat(quantity[i][noptimality[i]])
+            result[i] = stat(quantity[i][is_noptimal[i]])
         else: 
             result[i] = np.inf
     return result

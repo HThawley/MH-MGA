@@ -171,7 +171,6 @@ def main(calc = True, plot=True):
             crossover_prob=0.3,
             disp_rate=1,
             )
-        print(algorithm.population.points.shape)
 
         results = algorithm.get_results()
         pareto_points = results["pareto"]

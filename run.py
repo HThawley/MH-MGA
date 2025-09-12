@@ -49,33 +49,33 @@ def main():
     
     # 3. Run the optimization
     algorithm.step(
-        max_iter=200,
-        pop_size=25,
-        elite_count=0.2,
+        max_iter=100,
+        pop_size=10,
+        elite_count=0.8,
         tourn_count=-1, 
-        tourn_size=2,
-        mutation_prob=0.5,
-        mutation_sigma=0.3,
-        crossover_prob=0.3,
+        tourn_size=3,
+        mutation_prob=0.43,
+        mutation_sigma=0.06,
+        crossover_prob=0.72,
         niche_elitism="selfish",
         noptimal_slack=1.12,
         disp_rate=-1,
     )
 
-    # 3. Run the optimization
-    algorithm.step(
-        max_iter=200,
-        pop_size=25,
-        elite_count=0.2,
-        tourn_count=-1,
-        tourn_size=2,
-        mutation_prob=0.5,
-        mutation_sigma=0.05,
-        crossover_prob=0.0,
-        niche_elitism="selfish",
-        noptimal_slack=1.12,
-        disp_rate=50,
-    )
+    # # 3. Run the optimization
+    # algorithm.step(
+    #     max_iter=200,
+    #     pop_size=25,
+    #     elite_count=0.2,
+    #     tourn_count=-1,
+    #     tourn_size=2,
+    #     mutation_prob=0.5,
+    #     mutation_sigma=0.05,
+    #     crossover_prob=0.0,
+    #     niche_elitism="selfish",
+    #     noptimal_slack=1.12,
+    #     disp_rate=50,
+    # )
 
     # 4. Terminate and get results
     results = algorithm.get_results()

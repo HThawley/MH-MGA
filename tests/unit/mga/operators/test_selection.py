@@ -178,12 +178,109 @@ def test_do_tournament(objective, maximize, indices):
     else: 
         assert _selected_idx == indices[np.where(objective[indices] == objective[indices].min())[0]][0]
 
-# def test_select_tournament
-# def test_select_tournament_with_fallback
-# def test_select_elite_with_fallback
+@pytest.mark.parametrize("maximize", [True, False])
+def test_select_elite_with_fallback(niche, fitness, is_noptimal, objective, maximize):
+    selected = np.empty((1, niche.shape[1]), np.float64)
+    sl.select_elite_with_fallback(selected, niche, fitness, is_noptimal, objective, maximize)
+    idx = int(selected[0, 0])
+    if is_noptimal.any():
+        # should select by best noptimal fitness
+        assert is_noptimal[idx]
+        assert fitness[idx] == fitness[is_noptimal].max()
+    else:
+        # fallback to objective
+        if maximize:
+            assert objective[idx] == objective.max()
+        else:
+            assert objective[idx] == objective.min()
 
+@pytest.mark.parametrize("n", [0, 1, 5])
+@pytest.mark.parametrize("maximize", [True, False])
+def test_select_tournament(niche, objective, rng, n, maximize):
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    sl._select_tournament(selected, niche, objective, n, 5, rng, maximize)
+    assert selected.shape[0] == n
+    for row in selected:
+        assert row[0] in niche.flatten()
 
-#     test that they select the right amount by each method only
-#     selection mechanics are covered already
-# def test_selection 
-# def test_selection_with_fallback
+@pytest.mark.parametrize("n", [1, 2, 5])
+@pytest.mark.parametrize("maximize", [True, False])
+def test_select_tournament_mechanism(niche, objective, n, maximize, rng):
+    tourn_size = 4
+    draws = rng.integers(0, niche.shape[0], tourn_size * n)
+    rng = mock_rngn(draws)
+    selected = np.empty((n, 1), np.float64)
+    sl._select_tournament(selected, niche, objective, n, tourn_size, rng, maximize)
+    expected = []
+    for round_i in range(n):
+        round_draws = draws[round_i * tourn_size : (round_i + 1) * tourn_size]
+        if maximize:
+            expected_idx = round_draws[np.argmax(objective[round_draws])]
+        else:
+            expected_idx = round_draws[np.argmin(objective[round_draws])]
+        expected.append(niche[expected_idx, 0])
+    assert np.allclose(selected.flatten(), expected)
+
+@pytest.mark.parametrize("n", [0, 1, 5])
+@pytest.mark.parametrize("maximize", [True, False])
+def test_select_tournament_with_fallback(niche, fitness, is_noptimal, objective, rng, n, maximize):
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    sl._select_tournament_with_fallback(
+        selected, niche, fitness, is_noptimal, objective, n, 5, rng, maximize
+    )
+    assert selected.shape[0] == n
+    if n > 0:
+        idx = selected.astype(int).flatten()
+        assert np.isin(idx, np.arange(len(niche))).all()
+
+@pytest.mark.parametrize("draws, expect_fallback",[
+    (np.array([0, 1, 2, 3, 4, 10, 11, 12, 13, 14], dtype=np.int64), True),
+    (np.array([50, 51, 52, 53, 54, 60, 61, 62, 63, 64], dtype=np.int64), False),
+    ],
+)
+@pytest.mark.parametrize("maximize", [True, False])
+def test_select_tournament_with_fallback_mechanism(niche, fitness, is_noptimal, objective, draws, expect_fallback, maximize):
+    rng = mock_rngn(draws)
+    n = 2
+    tourn_size = 5
+    selected = np.empty((n, niche.shape[1]), np.float64)
+    sl._select_tournament_with_fallback(selected, niche, fitness, is_noptimal, objective, n, tourn_size, rng, maximize)
+
+    for round_i in range(n):
+        round_draws = draws[round_i * tourn_size : (round_i + 1) * tourn_size]
+        if expect_fallback:
+            if maximize:
+                expected_idx = round_draws[np.argmax(objective[round_draws])]
+            else:
+                expected_idx = round_draws[np.argmin(objective[round_draws])]
+        else:
+            expected_idx = round_draws[np.argmax(fitness[round_draws])]
+        assert int(selected[round_i, 0]) == int(niche[expected_idx, 0])
+
+@pytest.mark.parametrize("maximize", [True, False])
+def test_selection(niche, objective, rng, maximize):
+    elite_count, tourn_count = 3, 5
+    selected = np.empty((elite_count + tourn_count, niche.shape[1]), np.float64)
+    sl.selection(selected, niche, objective, maximize, elite_count, tourn_count, 3, rng, True)
+    assert selected.shape[0] == elite_count + tourn_count
+    elite = selected[:elite_count]
+    tourn = selected[elite_count:]
+    # elites must be best by objective
+    if maximize:
+        assert objective[elite.flatten().astype(int)].min() >= np.partition(objective, -elite_count)[-elite_count]
+    else:
+        assert objective[elite.flatten().astype(int)].max() <= np.partition(objective, elite_count)[:elite_count].max()
+    assert tourn.shape[0] == tourn_count
+
+@pytest.mark.parametrize("maximize", [True, False])
+def test_selection_with_fallback(niche, fitness, is_noptimal, objective, maximize):
+    elite_count, tourn_count = 2, 4
+    selected = np.empty((elite_count + tourn_count, 1), np.float64)
+    rng = sl.np.random.default_rng(3)
+    sl.selection_with_fallback(
+        selected, niche, fitness, is_noptimal, objective,
+        maximize, elite_count, tourn_count, 3, rng, True
+    )
+    assert selected.shape[0] == elite_count + tourn_count
+    idx = selected.astype(int).flatten()
+    assert np.isin(idx, np.arange(len(niche))).all()
