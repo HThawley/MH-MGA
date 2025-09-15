@@ -27,10 +27,15 @@ class Pareto:
         self.points = np.empty((pop_size, problem.ndim), dtype=FLOAT)
         self.objective_values = np.empty((pop_size, self.problem.n_objs), dtype=FLOAT)
         self.is_feasible = np.empty((pop_size, self.problem.n_objs), dtype=np.bool_)
-
+        self.parents = np.empty((0, problem.ndim), dtype=FLOAT)
         # Overall best found
         self.pareto = np.empty((0, problem.ndim), dtype=FLOAT)
         self.pareto_objs = np.empty((0, problem.n_objs), dtype=FLOAT)
+
+        # NSGA-II
+        self.ranks = np.empty(pop_size, dtype=INT)
+        self.crowding_distances = np.empty(pop_size, dtype=FLOAT)
+        self.fitness_scores = np.empty(pop_size, dtype=FLOAT)        
 
         # Auxiliary functions
         self.cx_func = crossover._cx_two_point if problem.ndim > 2 else crossover._cx_one_point
@@ -51,44 +56,78 @@ class Pareto:
             x0_obj, x0_fea = self.problem.evaluate(np.atleast_2d(x0))
             self.objective_values[:] = x0_obj[0, :]
             self.is_feasible[:] = x0_fea[0, :]
+        self._update_ranks_and_crowding()
+
+    def resize(self, pop_size: int=None, parent_size:int=None):
+        if pop_size is not None: 
+            self._resize_pop_size(pop_size)
+        if parent_size is not None:
+            self._resize_parent_size(parent_size)
+
+    def _resize_parent_size(self, parent_size):
+        parents = np.empty((parent_size, self.problem.ndim), FLOAT)
+        _clone(parents, self.parents)
+        self.parents = parents
+
+    def _resize_pop_size(self, pop_size):
+        points = np.empty((pop_size, self.problem.ndim), FLOAT)
+        objectives = np.empty((pop_size, self.problem.n_objs), FLOAT)
+        feasible = np.empty((pop_size, self.problem.n_objs), np.bool_)
         
-
-    def resize(self, pop_size: int):
-        new_points = np.empty((pop_size, self.problem.ndim), FLOAT)
-        new_objectives = np.empty((pop_size, self.problem.n_objs), FLOAT)
-        new_feasible = np.empty((pop_size, self.problem.n_objs), np.bool_)
-
         if pop_size < self.pop_size:
-            raise ValueError("Reducing 'pop_size' may lose pareto efficient points")
+            # When reducing, keep best solutions based on rank and crowding
+            best_indices = self._select_best_solutions(pop_size)
+            points[:] = self.points[best_indices]
+            objectives[:] = self.objective_values[best_indices]
+            feasible[:] = self.is_feasible[best_indices]
         else: 
-            _clone(new_points, self.points)
-            _overwrite(new_points, self.pareto)
-            _clone(new_objectives, self.objective_values)
-            _overwrite(new_objectives, self.pareto_objs)
-            _clone(new_feasible, self.is_feasible)
-            new_feasible[:self.pareto.shape[0], :] = True
+            _clone(points, self.points)
+            _clone(objectives, self.objective_values)
+            _clone(feasible, self.is_feasible)
+            feasible[:self.pareto.shape[0], :] = True
 
-            self.points = new_points
-            self.objective_values = new_objectives
-            self.is_feasible = new_feasible
+        self.points = points
+        self.objective_values = objectives
+        self.is_feasible = feasible
+        self.ranks = np.empty(pop_size, dtype=INT)
+        self.crowding_distances =  np.empty(pop_size, dtype=FLOAT)
+        self.fitness_scores = np.empty(pop_size, dtype=FLOAT)
             
         self.pop_size = pop_size
 
     def evolve(
             self, 
-            npareto: int,
+            pareto_size: int,
+            elite_count: int, 
+            tourn_count: int, 
+            tourn_size: int,
             mutation_prob: float,
             mutation_sigma: float, 
             crossover_prob: float, 
             ):
-        self.npareto = npareto
+        self.pareto_size = pareto_size
+        self.elite_count = elite_count
+        self.tourn_count = tourn_count
+        self.tourn_size = tourn_size
+
+        if self.parents.shape[0] != self.elite_count + self.tourn_count:
+            self.resize(parent_size = self.elite_count + self.tourn_count)
+
         self.mutation_prob = mutation_prob
         self.mutation_sigma = mutation_sigma
         self.crossover_prob = crossover_prob
-
+        
+        self._update_ranks_and_crowding()
         self._select_pareto()
+
+        self._select_parents()
         self._generate_offspring()
         self._evaluate()
+
+    def select_parents(self):
+        selection.selection(
+            self.parents, self.points, self.ranks, False, self.elite_count, self.tourn_count, self.tourn_size, self.rng, self.stable_sort
+        )
 
     def _select_pareto(self):
         self.pareto, self.pareto_objs = _select_pareto(
@@ -96,13 +135,13 @@ class Pareto:
         )
 
     def _generate_offspring(self):
-        _clone(self.points, self.pareto)
+        _clone(self.points, self.parents)
 
         crossover.crossover_niche(self.points, self.mutation_prob, self.cx_func, self.rng, start_idx=0)
         self.mut_func(self.points, self.mutation_sigma, self.mutation_prob, 
                       self.rng, self.problem.integrality, self.problem.boolean_mask, startidx=0)
         self._apply_bounds()
-        _overwrite(self.points, self.pareto)
+        self._apply_integrality()
         
 
     def _evaluate(self):
@@ -115,7 +154,74 @@ class Pareto:
         self.objective_values[:current_pareto_size] = self.pareto_objs[:]
         self.is_feasible[:current_pareto_size] = True
         
+    def _update_ranks_and_crowding(self):
+        """
+        Update ranks using non-dominated sorting and calculate crowding distances.
+        """
+        # Get feasible solutions
+        feasible_mask = np.all(self.is_feasible, axis=1)
+        n_feasible = np.sum(feasible_mask)
+        
+        if n_feasible == 0:
+            self.ranks[:] = 0
+            self.crowding_distances[:] = 0
+            return
+        
+        # Non-dominated sorting
+        self.ranks[:] = np.inf  # Initialize with worst rank
+        remaining_indices = np.where(feasible_mask)[0]
+        current_rank = 0
+        
+        while len(remaining_indices) > 0:
+            # Find non-dominated solutions in remaining set
+            non_dominated_mask = _find_non_dominated(
+                self.objective_values[remaining_indices],
+                self.problem.maximize
+            )
+            
+            non_dominated_indices = remaining_indices[non_dominated_mask]
+            self.ranks[non_dominated_indices] = current_rank
+            
+            # Calculate crowding distance for this front
+            self._calculate_crowding_distance(non_dominated_indices)
+            
+            # Remove non-dominated from remaining
+            remaining_indices = remaining_indices[~non_dominated_mask]
+            current_rank += 1
+        
+        # Assign worst rank to infeasible solutions
+        self.ranks[~feasible_mask] = current_rank
+        self.crowding_distances[~feasible_mask] = 0
 
+    def _calculate_crowding_distance(self, indices: np.ndarray):
+        """
+        Calculate crowding distance for a set of solutions.
+        """
+        if len(indices) <= 2:
+            self.crowding_distances[indices] = np.inf
+            return
+        
+        n_solutions = len(indices)
+        distances = np.zeros(n_solutions)
+        
+        for obj_idx in range(self.problem.n_objs):
+            # Sort by objective
+            obj_values = self.objective_values[indices, obj_idx]
+            sorted_idx = np.argsort(obj_values)
+            
+            # Boundary points get infinite distance
+            distances[sorted_idx[0]] = np.inf
+            distances[sorted_idx[-1]] = np.inf
+            
+            # Calculate distances for interior points
+            obj_range = obj_values[sorted_idx[-1]] - obj_values[sorted_idx[0]]
+            if obj_range > 0:
+                for i in range(1, n_solutions - 1):
+                    distances[sorted_idx[i]] += (
+                        obj_values[sorted_idx[i + 1]] - obj_values[sorted_idx[i - 1]]
+                    ) / obj_range
+        
+        self.crowding_distances[indices] = distances
 
     def _apply_bounds(self):
         """
@@ -172,6 +278,47 @@ def _clone(target, start_pop):
         jn = j%nindividuals
         for k in range(target.shape[1]):
             target[j, k] = start_pop[jn, k]
+
+@njit
+def _find_non_dominated(objectives, maximize):
+    """
+    Find non-dominated solutions in objective space.
+    """
+    n_solutions = objectives.shape[0]
+    n_objs = objectives.shape[1]
+    is_non_dominated = np.ones(n_solutions, dtype=np.bool_)
+    
+    for i in range(n_solutions):
+        if not is_non_dominated[i]:
+            continue
+            
+        for j in range(n_solutions):
+            if i == j or not is_non_dominated[j]:
+                continue
+            
+            # Check if j dominates i
+            j_dominates_i = True
+            j_better_in_at_least_one = False
+            
+            for obj_idx in range(n_objs):
+                if maximize[obj_idx]:
+                    if objectives[j, obj_idx] < objectives[i, obj_idx]:
+                        j_dominates_i = False
+                        break
+                    elif objectives[j, obj_idx] > objectives[i, obj_idx]:
+                        j_better_in_at_least_one = True
+                else:
+                    if objectives[j, obj_idx] > objectives[i, obj_idx]:
+                        j_dominates_i = False
+                        break
+                    elif objectives[j, obj_idx] < objectives[i, obj_idx]:
+                        j_better_in_at_least_one = True
+            
+            if j_dominates_i and j_better_in_at_least_one:
+                is_non_dominated[i] = False
+                break
+    
+    return is_non_dominated
 
 @njit
 def _select_pareto(points, objective, maximize, is_feasible):

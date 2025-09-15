@@ -44,6 +44,8 @@ class MockPopulation(Population):
         self.current_optima_fit = rng.random(num_niches)
         self.current_optima_obj = rng.random(num_niches)
         self.current_optima_nop = np.ones(num_niches, dtype=bool)
+        self.mean_fitness=0
+        self.current_best_obj=0
 
     def populate(self, *args, **kwargs):
         pass

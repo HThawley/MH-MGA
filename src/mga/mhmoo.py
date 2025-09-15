@@ -44,6 +44,9 @@ class MOProblem:
             max_iter: int|float = np.inf, # max no of iterations in this step
             pop_size: int = 100, # max no of individuals in each niche
             npareto: int = None,
+            elite_count: int | float = 0.2, 
+            tourn_count: int | float = 0.8,
+            tourn_size: int = 2,
             mutation_prob: float|tuple[float, float] = (0.5, 0.75), # mutation probability
             mutation_sigma: float|tuple[float, float] = 0.1, # standard deviation of gaussian noise for mutation (gets scaled)
             crossover_prob: float|tuple[float, float] = 0.4, # crossover probability
@@ -51,6 +54,17 @@ class MOProblem:
             convergence_criteria: None|term.Convergence|list[term.Convergence] = None,
             ):
         self.npareto = pop_size if npareto is None else npareto
+
+        if elite_count == -1 and tourn_count == -1:
+            raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
+        elite_count = INT(elite_count) if type_asserts.is_integer(elite_count) else INT(elite_count*pop_size)
+        tourn_count = INT(tourn_count) if type_asserts.is_integer(tourn_count) else INT(tourn_count*pop_size)
+        elite_count = pop_size - tourn_count if elite_count == -1 else elite_count
+        tourn_count = pop_size - elite_count if tourn_count == -1 else tourn_count
+        if elite_count + tourn_count > pop_size:
+            raise ValueError("'elite_count' + 'tourn_count' should be weakly less than 'pop_size'")
+        if tourn_size > pop_size:
+            raise ValueError("'tourn_size' should be less than 'pop_size'")
 
         # Setup termination criteria
         if convergence_criteria is None:
