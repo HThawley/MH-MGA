@@ -6,6 +6,7 @@ from time import perf_counter
 import pyvista as pv
 import pandas as pd
 import matplotlib.pyplot as plt
+from multiprocessing import Pool, cpu_count
 
 from mga.commons.types import DEFAULTS
 DEFAULTS.update_precision(64)
@@ -92,8 +93,7 @@ def run_optimize(hyperparameters, timeout, seed):
     )
     return algorithm.population.shannon, algorithm.population.current_optima_nop.sum()
 
-def Optimize(x, n_repeat=3):
-    global best_time
+def Optimize(x, best_time, n_repeat=3):
     hyperparameters = dict(zip(
         ("max_iter", "pop_size", "elite_count", "tourn_size", 
          "mutation_prob", "mutation_sigma", "crossover_prob", "niche_elitism"), x))
@@ -127,23 +127,33 @@ def Optimize(x, n_repeat=3):
     shannon /= n_repeat
     nnopt /= n_repeat
     time = td(seconds=time/n_repeat)
-    if time < best_time:
-        best_time = time
 
     return np.array([time.total_seconds(), shannon, nnopt]), np.ones(3, bool)
     
+def OptimizeParallelWrapper(xs, n_repeat=3):
+    global best_time
+    ncpus = cpu_count() // 2
+    with Pool(processes=min(len(xs), ncpus)) as process_pool:
+        result = process_pool.starmap(Optimize, [(x, best_time) for x in xs])
+
+    objectives = np.stack([res[0] for res in result])
+    feasibility = np.stack([res[1] for res in result])
+
+    for time in objectives[:, 0]:
+        best_time = min(best_time, td(seconds=time))
+    return objectives, feasibility
 
 def main(calc = True, plot=True):
     if calc:
         problem = MultiObjectiveProblem(
-            Optimize,
+            OptimizeParallelWrapper,
             bounds=(
                 np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
                 np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
                 ),
             n_objs=3,
             maximize=np.array([False, True, True]),
-            vectorized=False,
+            vectorized=True,
             feasibility=True,
             integrality=np.array([True, True, False, True, False, False, False, True]),
         )
@@ -156,7 +166,7 @@ def main(calc = True, plot=True):
         algorithm.step(
             max_iter=2,
             pop_size=5,
-            npareto=200,
+            pareto_size=200,
             elite_count=0.2,
             tourn_count=-1,
             tourn_size=2,
@@ -168,7 +178,7 @@ def main(calc = True, plot=True):
         algorithm.step(
             max_iter=50,
             pop_size=200,
-            npareto=500,
+            pareto_size=500,
             elite_count=0.2,
             tourn_count=-1,
             tourn_size=2,
@@ -257,6 +267,6 @@ def main(calc = True, plot=True):
         plotter.show()
 
 if __name__=="__main__":
-    best_time = td.max
+    best_time = td(seconds=10)
 
-    main(False, True)
+    main(True, True)
