@@ -179,18 +179,18 @@ class MultiObjectiveProblem:
         obj_values = np.empty((num_points, self.n_objs), dtype=FLOAT)
         is_feasible = np.ones((num_points, self.n_objs), dtype=np.bool_)
 
-        if self.vectorized:
-            if self.feasibility:
+        if self.feasibility:
+            if self.vectorized:
                 obj_values, is_feasible = self.objective(points, *self.fargs, **self.fkwargs)
             else:
-                obj_values = self.objective(points, *self.fargs, **self.fkwargs)
-        else: 
-            if self.feasibility:
                 for j in range(num_points):
-                    obj_values[j, :], is_feasible[j, :] = self.objective(
-                        points[j, :], *self.fargs, **self.fkwargs)
+                        obj_values[j, :], is_feasible[j, :] = self.objective(points[j, :], *self.fargs, **self.fkwargs)
+    
+        else: 
+            if self.vectorized:
+                obj_values[:] = self.objective(points, *self.fargs, **self.fkwargs)
             else:
                 for j in range(num_points):
                     obj_values[j, :] = self.objective(points[j, :], *self.fargs, **self.fkwargs)
-        
+       
         return obj_values, is_feasible

@@ -34,7 +34,7 @@ class MOProblem:
         # State and hyperparameter storage
         self._is_populated = False
         self.pop_size = INT(0)
-        self.npareto = INT(0.0)
+        self.pareto_size = INT(0.0)
         self.mutation_prob = FLOAT(0.0)
         self.mutation_sigma = FLOAT(0.0)
         self.crossover_prob = FLOAT(0.0)
@@ -43,7 +43,7 @@ class MOProblem:
             self, 
             max_iter: int|float = np.inf, # max no of iterations in this step
             pop_size: int = 100, # max no of individuals in each niche
-            npareto: int = None,
+            pareto_size: int = None,
             elite_count: int | float = 0.2, 
             tourn_count: int | float = 0.8,
             tourn_size: int = 2,
@@ -53,7 +53,7 @@ class MOProblem:
             disp_rate: int = 0,
             convergence_criteria: None|term.Convergence|list[term.Convergence] = None,
             ):
-        self.npareto = pop_size if npareto is None else npareto
+        self.pareto_size = pop_size if pareto_size is None else pareto_size
 
         if elite_count == -1 and tourn_count == -1:
             raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
@@ -77,19 +77,21 @@ class MOProblem:
             self.populate(pop_size)
         else: 
             self.population.resize(pop_size)
-        mutation_sigma = mutation_sigma*(self.problem.upper_bounds - self.problem.lower_bounds)
 
         # Main algorithm loop
         while not termination_handler(self):
             if disp_rate > 0 and self.current_iter % disp_rate == 0:
                 self._display_progress()
 
-            # TODO: dither mutation/crossover params
+            sigma = dither(mutation_sigma, self.rng)*(self.problem.upper_bounds - self.problem.lower_bounds)
             self.population.evolve(
-                npareto = self.npareto,
-                mutation_prob=mutation_prob,
-                mutation_sigma=mutation_sigma,
-                crossover_prob=crossover_prob,
+                pareto_size=self.pareto_size,
+                elite_count=elite_count, 
+                tourn_count=tourn_count, 
+                tourn_size=tourn_size,
+                mutation_prob=dither(mutation_prob, self.rng),
+                mutation_sigma=sigma, 
+                crossover_prob=dither(crossover_prob, self.rng),
             )
             self.current_iter += 1
         
@@ -127,4 +129,15 @@ class MOProblem:
         Prints the current progress of the algorithm to the console.
         """
         elapsed = dt.now() - self.start_time
-        print(f"Iter: {self.current_iter}. Pareto front: {self.population.pareto.shape[0]}/{self.npareto}. Time: {elapsed}")
+        print(f"Iter: {self.current_iter}. Pareto front: {self.population.pareto.shape[0]}/{self.pareto_size}. Time: {elapsed}")
+
+
+def dither(parameter, rng):
+    if hasattr(parameter, "__iter__"):
+        return _dither(*parameter, rng)
+    else:
+        return parameter
+
+@njit
+def _dither(lower, upper, rng):
+    return rng.uniform(lower, upper)

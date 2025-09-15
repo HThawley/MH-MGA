@@ -66,7 +66,8 @@ class Pareto:
 
     def _resize_parent_size(self, parent_size):
         parents = np.empty((parent_size, self.problem.ndim), FLOAT)
-        _clone(parents, self.parents)
+        if self.parents.shape[0] > 0:
+            _clone(parents, self.parents)
         self.parents = parents
 
     def _resize_pop_size(self, pop_size):
@@ -124,7 +125,7 @@ class Pareto:
         self._generate_offspring()
         self._evaluate()
 
-    def select_parents(self):
+    def _select_parents(self):
         selection.selection(
             self.parents, self.points, self.ranks, False, self.elite_count, self.tourn_count, self.tourn_size, self.rng, self.stable_sort
         )
@@ -148,11 +149,8 @@ class Pareto:
         """
         Evaluates objectives
         """
-        current_pareto_size = self.pareto.shape[0]
         # Evaluate objectives and apply penalties
-        self.objective_values[current_pareto_size:], self.is_feasible[current_pareto_size:] = self.problem.evaluate(self.points[current_pareto_size:])
-        self.objective_values[:current_pareto_size] = self.pareto_objs[:]
-        self.is_feasible[:current_pareto_size] = True
+        self.objective_values[:], self.is_feasible[:] = self.problem.evaluate(self.points)
         
     def _update_ranks_and_crowding(self):
         """
@@ -168,7 +166,7 @@ class Pareto:
             return
         
         # Non-dominated sorting
-        self.ranks[:] = np.inf  # Initialize with worst rank
+        self.ranks[:] = self.ranks.shape[0]+1 # Initialize with worst rank
         remaining_indices = np.where(feasible_mask)[0]
         current_rank = 0
         
