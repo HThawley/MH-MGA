@@ -93,7 +93,9 @@ def run_optimize(hyperparameters, timeout, seed):
     )
     return algorithm.population.shannon, algorithm.population.current_optima_nop.sum()
 
-def Optimize(x, best_time, n_repeat=3):
+# def Optimize(x, best_time, n_repeat=3):
+def Optimize(x, n_repeat=3):
+    global best_time
     hyperparameters = dict(zip(
         ("max_iter", "pop_size", "elite_count", "tourn_size", 
          "mutation_prob", "mutation_sigma", "crossover_prob", "niche_elitism"), x))
@@ -128,26 +130,28 @@ def Optimize(x, best_time, n_repeat=3):
     nnopt /= n_repeat
     time = td(seconds=time/n_repeat)
 
+    best_time = min(best_time, time)
+
     return np.array([time.total_seconds(), shannon, nnopt]), np.ones(3, bool)
     
-def OptimizeParallelWrapper(xs, n_repeat=3):
-    global best_time
-    ncpus = cpu_count() // 2
-    with Pool(processes=min(len(xs), ncpus)) as process_pool:
-        result = process_pool.starmap(Optimize, [(x, best_time) for x in xs])
+# def OptimizeParallelWrapper(xs, n_repeat=3):
+#     global best_time
+#     ncpus = cpu_count() // 2
+#     with Pool(processes=min(len(xs), ncpus)) as process_pool:
+#         result = process_pool.starmap(Optimize, [(x, best_time) for x in xs])
 
-    objectives = np.stack([res[0] for res in result])
-    feasibility = np.stack([res[1] for res in result])
+#     objectives = np.stack([res[0] for res in result])
+#     feasibility = np.stack([res[1] for res in result])
 
-    for time in objectives[:, 0]:
-        if time < np.inf:
-            best_time = min(best_time, td(seconds=time))
-    return objectives, feasibility
+#     for time in objectives[:, 0]:
+#         if time < np.inf:
+#             best_time = min(best_time, td(seconds=time))
+#     return objectives, feasibility
 
 def main(calc = True, plot=True):
     if calc:
         problem = MultiObjectiveProblem(
-            OptimizeParallelWrapper,
+            Optimize,
             bounds=(
                 np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
                 np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
