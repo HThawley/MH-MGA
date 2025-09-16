@@ -140,7 +140,7 @@ def OptimizeParallelWrapper(xs, n_repeat=3):
     feasibility = np.stack([res[1] for res in result])
 
     for time in objectives[:, 0]:
-        best_time = min(best_time, td(seconds=time))
+        best_time = min(best_time, td(seconds=time)).total_seconds()
     return objectives, feasibility
 
 def main(calc = True, plot=True):
@@ -267,6 +267,6 @@ def main(calc = True, plot=True):
         plotter.show()
 
 if __name__=="__main__":
-    best_time = td(seconds=10)
+    best_time = td(seconds=1)
 
     main(True, True)
