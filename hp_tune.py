@@ -140,7 +140,8 @@ def OptimizeParallelWrapper(xs, n_repeat=3):
     feasibility = np.stack([res[1] for res in result])
 
     for time in objectives[:, 0]:
-        best_time = min(best_time, td(seconds=time)).total_seconds()
+        if time < np.inf:
+            best_time = min(best_time, td(seconds=time))
     return objectives, feasibility
 
 def main(calc = True, plot=True):
