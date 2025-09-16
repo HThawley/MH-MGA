@@ -158,7 +158,7 @@ def main(calc = True, plot=True):
                 ),
             n_objs=3,
             maximize=np.array([False, True, True]),
-            vectorized=True,
+            vectorized=False,
             feasibility=True,
             integrality=np.array([True, True, False, True, False, False, False, True]),
         )
