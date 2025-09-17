@@ -141,7 +141,7 @@ def main(calc = True, plot=True):
                 np.array([50,    10,    0.0, 2,  0.0, 0.0, 0.0, 0]), 
                 np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
                 ),
-            n_objs=3,
+            n_objs=4,
             maximize=np.array([False, True, True, True]),
             vectorized=False,
             feasibility=True,
@@ -191,10 +191,8 @@ def main(calc = True, plot=True):
         pareto_points = pd.read_csv("logs/pareto_points.csv", header=None).to_numpy()
         pareto_objectives = pd.read_csv("logs/pareto_objectives.csv", header=None).to_numpy()
 
-        
-        
-        objectives = ["time", "shannon", "n_noptima"]
-        for i in range(3):
+        objectives = ["time", "shannon", "vesa" "n_noptima"]
+        for i in range(4):
             fig, ax = plt.subplots()
             ax.scatter(pareto_objectives[:, i-1], pareto_objectives[:, i])
             ax.set_xlabel(f"{objectives[i-1]}")
@@ -257,6 +255,6 @@ def main(calc = True, plot=True):
         plotter.show()
 
 if __name__=="__main__":
-    best_time = td(seconds=2)
+    best_time = td(seconds=5)
 
-    main(True, True)
+    main(True, False)
