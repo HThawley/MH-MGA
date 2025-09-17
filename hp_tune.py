@@ -85,7 +85,7 @@ def Optimize(x, n_repeat=3):
     for k in ("max_iter", "pop_size", "tourn_size"):
         hyperparameters[k] = int(hyperparameters[k])
     if hyperparameters["tourn_size"] >= hyperparameters["pop_size"]:
-        return np.full(3, np.inf), np.zeros(3, bool)
+        return np.full(4, np.inf), np.zeros(4, bool)
 
     hyperparameters["niche_elitism"] = {0:None, 
                                         1:"selfish", 
@@ -117,7 +117,7 @@ def Optimize(x, n_repeat=3):
 
     best_time = min(best_time, time)
 
-    return np.array([time.total_seconds(), shannon, vesa, nnopt]), np.ones(3, bool)
+    return np.array([time.total_seconds(), shannon, vesa, nnopt]), np.ones(4, bool)
     
 # def OptimizeParallelWrapper(xs, n_repeat=3):
 #     global best_time
