@@ -65,33 +65,16 @@ def run_optimize(hyperparameters, timeout, seed):
         tourn_count=-1, 
         noptimal_slack=1.12,
         disp_rate=0,
-        convergence_criteria = term.MultiConvergence(
-            [
-                term.Timeout(
-                    timeout, 
-                    start_attribute="start_time"
-                ), # timeout
-                term.MultiConvergence(
-                    [
-                        term.FixedValue(
-                            5.145, 
-                            maximize=True,
-                            attribute="current_best_obj"
-                        ), # should reach global optimum
-                        term.GradientStagnation(
-                            window = 50, # implies niter >= 50
-                            improvement = 0.01 / 50, # improves less than 0.01 in 50 its
-                            maximize = True, 
-                            attribute = "mean_fitness",
-                        ), # mean fitness stops improving
-                    ], 
-                    how = "and",
-                ), 
-            ],
-            how = "or",
-        ),
+        convergence_criteria = term.Timeout(
+            timeout, 
+            start_attribute="start_time"
+        ), 
     )
-    return algorithm.population.shannon, algorithm.population.current_optima_nop.sum()
+    return (
+        algorithm.population.shannon, 
+        algorithm.population.vesa,
+        algorithm.population.current_optima_nop.sum(),
+    )
 
 # def Optimize(x, best_time, n_repeat=3):
 def Optimize(x, n_repeat=3):
@@ -112,27 +95,29 @@ def Optimize(x, n_repeat=3):
     except OverflowError:
         timeout = td.max
     
-    shannon, nnopt = 0, 0
+    shannon, vesa, nnopt = 0, 0, 0
     time = 0
     for seed in range(1, n_repeat+1):
         start = perf_counter()
         
-        sha, n = run_optimize(
+        ves, sha, n = run_optimize(
             hyperparameters = hyperparameters, 
             timeout = timeout, 
             seed=seed, 
             )
         shannon += sha
         nnopt += n
+        vesa += ves
         
         time += perf_counter() - start
     shannon /= n_repeat
+    vesa /= n_repeat
     nnopt /= n_repeat
     time = td(seconds=time/n_repeat)
 
     best_time = min(best_time, time)
 
-    return np.array([time.total_seconds(), shannon, nnopt]), np.ones(3, bool)
+    return np.array([time.total_seconds(), shannon, vesa, nnopt]), np.ones(3, bool)
     
 # def OptimizeParallelWrapper(xs, n_repeat=3):
 #     global best_time
@@ -157,7 +142,7 @@ def main(calc = True, plot=True):
                 np.array([10000, 10000, 1.0, 10, 1.0, 2.0, 1.0, 2]), 
                 ),
             n_objs=3,
-            maximize=np.array([False, True, True]),
+            maximize=np.array([False, True, True, True]),
             vectorized=False,
             feasibility=True,
             integrality=np.array([True, True, False, True, False, False, False, True]),
@@ -165,7 +150,7 @@ def main(calc = True, plot=True):
 
         algorithm = MOProblem(
             problem=problem,
-            x0 = np.array([200, 25, 0.2, 2, 0.5, 0.3, 0.3, 1])
+            # x0 = np.array([200, 25, 0.2, 2, 0.5, 0.3, 0.3, 1])
         )
 
         algorithm.step(
@@ -181,7 +166,7 @@ def main(calc = True, plot=True):
             disp_rate=1,
             )
         algorithm.step(
-            max_iter=50,
+            max_iter=200,
             pop_size=200,
             pareto_size=500,
             elite_count=0.2,
@@ -272,6 +257,6 @@ def main(calc = True, plot=True):
         plotter.show()
 
 if __name__=="__main__":
-    best_time = td(seconds=1)
+    best_time = td(seconds=2)
 
     main(True, True)
