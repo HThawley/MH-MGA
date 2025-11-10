@@ -1,12 +1,10 @@
 import numpy as np
 from numba import njit
 
-from mga.commons.types import DEFAULTS
-DEFAULTS.update_precision(64)
-
 from mga.problem_definition import OptimizationProblem
 from mga.mhmga import MGAProblem
-from mga.utils import plotting, profiling
+from mga.utils import plotting
+
 
 @njit(fastmath=True)
 def objective_function(values_array):
@@ -20,81 +18,85 @@ def objective_function(values_array):
             z[i] += np.sin(19 * np.pi * values_array[i, j]) + values_array[i, j] / 1.7
     return z
 
-def main():
+
+def main(run=True, plot=True, seed=None):
     """
     Configures and runs the MGA algorithm.
     """
+
     FILE_PREFIX = "logs/testprob"
     # FILE_PREFIX = None
+    if run:
+        # 1. Define the optimization problem
+        problem = OptimizationProblem(
+            objective=objective_function,
+            bounds=(np.zeros(2), np.ones(2)),
+            maximize=True,
+            vectorized=True,
+            constraints=False,
+        )
 
-    # 1. Define the optimization problem
-    problem = OptimizationProblem(
-        objective=objective_function,
-        bounds=(np.zeros(2), np.ones(2)),
-        maximize=True,
-        vectorized=True,
-        constraints=False,
-    )
+        # 2. Configure the MGA algorithm
+        algorithm = MGAProblem(
+            problem=problem,
+            x0=None,
+            log_dir=FILE_PREFIX,
+            log_freq=-1,
+            random_seed=seed,
+        )
 
-    # 2. Configure the MGA algorithm
-    algorithm = MGAProblem(
-        problem=problem,
-        x0=None,
-        log_dir=FILE_PREFIX,
-        log_freq=500,
-        random_seed=1, 
-    )
+        algorithm.add_niches(num_niches=20)
+        algorithm.update_hyperparameters(
+            max_iter=200,
+            pop_size=20,
+            elite_count=0.2,
+            tourn_count=-1,
+            tourn_size=2,
+            mutation_prob=0.25,
+            mutation_sigma=(0.05, 0.5),
+            crossover_prob=0.0,
+            niche_elitism="selfish",
+            noptimal_slack=1.12,
+        )
+        algorithm.step(disp_rate=5)
 
-    algorithm.add_niches(num_niches=20)
-    
-    # 3. Run the optimization
-    algorithm.step(
-        max_iter=100,
-        pop_size=10,
-        elite_count=0.8,
-        tourn_count=-1, 
-        tourn_size=3,
-        mutation_prob=0.43,
-        mutation_sigma=0.06,
-        crossover_prob=0.72,
-        niche_elitism="selfish",
-        noptimal_slack=1.12,
-        disp_rate=-1,
-    )
+        # algorithm.update_hyperparameters(
+        #     max_iter=200,
+        #     pop_size=20,
+        #     elite_count=0,
+        #     tourn_count=-1,
+        #     tourn_size=2,
+        #     mutation_prob=0.3,
+        #     mutation_sigma=0.05,
+        #     crossover_prob=0.0,
+        #     niche_elitism="selfish",
+        #     noptimal_slack=1.12,
+        # )
+        # algorithm.step(disp_rate=5)
 
-    # # 3. Run the optimization
-    # algorithm.step(
-    #     max_iter=200,
-    #     pop_size=25,
-    #     elite_count=0.2,
-    #     tourn_count=-1,
-    #     tourn_size=2,
-    #     mutation_prob=0.5,
-    #     mutation_sigma=0.05,
-    #     crossover_prob=0.0,
-    #     niche_elitism="selfish",
-    #     noptimal_slack=1.12,
-    #     disp_rate=50,
-    # )
+        # 4. Terminate and get results
+        results = algorithm.get_results()
+        print("\n--- Final N-optima ---")
+        for i in range(results["optima"].shape[0]):
+            print(
+                f"Niche {i}: Point={results['optima'][i]}, "
+                f"Fitness={results['fitness'][i]:.4f}, "
+                f"Objective={results['objective'][i]:.4f}, "
+                f"Is N-optimal={results['noptimality'][i]}"
+            )
 
-    # 4. Terminate and get results
-    results = algorithm.get_results()
-    print("\n--- Final N-optima ---")
-    for i in range(results['optima'].shape[0]):
-        print(f"Niche {i}: Point={results['optima'][i]}, "
-              f"Fitness={results['fitness'][i]:.4f}, "
-              f"Objective={results['objective'][i]:.4f}, "
-              f"Is N-optimal={results['noptimality'][i]}")
-    
-    # 5. Print profiling information and plot results
-    # profiling.print_profiler_summary()
-    if FILE_PREFIX is not None:
-        print("\nGenerating plots...")
-        plotting.plot_noptima(FILE_PREFIX)
-        plotting.plot_stat_evolution(FILE_PREFIX)
-        plotting.plot_vesa(FILE_PREFIX)
-        plotting.plot_shannon(FILE_PREFIX)
-        plotting.show()
+    if plot:
+        # 5. Print profiling information and plot results
+        # profiling.print_profiler_summary()
+        if FILE_PREFIX is not None:
+            print("\nGenerating plots...")
+            plotting.plot_noptima(FILE_PREFIX)
+            plotting.plot_stat_evolution(FILE_PREFIX)
+            plotting.plot_vesa(FILE_PREFIX)
+            plotting.plot_shannon(FILE_PREFIX)
+            plotting.show()
+    return algorithm
+
 
 if __name__ == "__main__":
-    main()
+    algorithm = main(True, True)

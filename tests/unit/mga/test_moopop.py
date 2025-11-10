@@ -1,7 +1,8 @@
-import numpy as np 
+import numpy as np
 import pytest
 
 import mga.moopopulation as mp
+
 
 def test_simple_minimization():
     points = np.array([[0, 0], [1, 1], [2, 2]])
@@ -61,12 +62,8 @@ def test_no_feasible():
 
 def test_equal_points_should_deduplicate():
     # two identical feasible solutions. Only one should appear in pareto.
-    pts = np.array([[0.0, 0.0],
-                    [0.0, 0.0],
-                    [1.0, 1.0]])
-    objs = np.array([[0.0, 0.0],
-                     [0.0, 0.0],
-                     [1.0, 1.0]])
+    pts = np.array([[0.0, 0.0], [0.0, 0.0], [1.0, 1.0]])
+    objs = np.array([[0.0, 0.0], [0.0, 0.0], [1.0, 1.0]])
     maximize = np.array([False, False])
     feas = np.ones_like(objs, dtype=bool)
 
@@ -75,12 +72,11 @@ def test_equal_points_should_deduplicate():
     assert pareto_pts.shape[0] == 1
     assert (pareto_pts[0] == np.array([0.0, 0.0])).all()
 
+
 def test_late_candidate_dominates_earlier_removed():
     # later candidate (index 2) dominates earlier Pareto member (index 0),
     # ensure earlier is removed and only dominator remains.
-    pts = np.array([[2.0, 2.0],
-                    [3.0, 3.0],
-                    [1.0, 1.0]])
+    pts = np.array([[2.0, 2.0], [3.0, 3.0], [1.0, 1.0]])
     objs = pts.copy()
     maximize = np.array([False, False])
     feas = np.ones_like(objs, dtype=bool)

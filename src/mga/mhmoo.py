@@ -6,7 +6,7 @@ import warnings
 from mga.commons.types import DEFAULTS
 INT, FLOAT = DEFAULTS
 import mga.utils.termination as term
-from mga.utils import type_asserts
+from mga.utils import typing
 from mga.problem_definition import MultiObjectiveProblem
 from mga.moopopulation import Pareto
 
@@ -57,8 +57,8 @@ class MOProblem:
 
         if elite_count == -1 and tourn_count == -1:
             raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
-        elite_count = INT(elite_count) if type_asserts.is_integer(elite_count) else INT(elite_count*pop_size)
-        tourn_count = INT(tourn_count) if type_asserts.is_integer(tourn_count) else INT(tourn_count*pop_size)
+        elite_count = INT(elite_count) if typing.is_integer(elite_count) else INT(elite_count*pop_size)
+        tourn_count = INT(tourn_count) if typing.is_integer(tourn_count) else INT(tourn_count*pop_size)
         elite_count = pop_size - tourn_count if elite_count == -1 else elite_count
         tourn_count = pop_size - elite_count if tourn_count == -1 else tourn_count
         if elite_count + tourn_count > pop_size:
