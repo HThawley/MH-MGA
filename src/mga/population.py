@@ -663,59 +663,68 @@ def _find_best_in_niche(
 
 
 @njit
-def _argmax_with_mask(array, mask):
-    best = -np.inf
+def _argm_with_mask(array, mask, best, maximize):
     best_i = -1
-    for i in range(array.size):
-        if mask[i]:
-            val = array[i]
-            if val > best:
-                best_i = i
-                best = val
+    if maximize:
+        for i in range(array.shape[0]):
+            if mask[i]:
+                val = array[i]
+                if val > best:
+                    best_i = i
+                    best = val
+    else:
+        for i in range(array.shape[0]):
+            if mask[i]:
+                val = array[i]
+                if val < best:
+                    best_i = i
+                    best = val
     return best_i
+
+
+@njit
+def _argmax_with_mask(array, mask):
+    return _argm_with_mask(array, mask, -np.inf, True)
 
 
 @njit
 def _argmin_with_mask(array, mask):
-    best = np.inf
+    return _argm_with_mask(array, mask, np.inf, False)
+
+
+@njit
+def _argm_with_mask_2d(array, mask, best, maximize):
     best_i = -1
-    for i in range(array.size):
-        if mask[i]:
-            val = array[i]
-            if val < best:
-                best_i = i
-                best = val
-    return best_i
+    best_j = -1
+    if maximize:
+        for i in range(array.shape[0]):
+            for j in range(array.shape[1]):
+                if mask[i, j]:
+                    val = array[i, j]
+                    if val > best:
+                        best_i = i
+                        best_j = j
+                        best = val
+    else:
+        for i in range(array.shape[0]):
+            for j in range(array.shape[1]):
+                if mask[i, j]:
+                    val = array[i, j]
+                    if val > best:
+                        best_i = i
+                        best_j = j
+                        best = val
+    return best_i, best_j
 
 
 @njit
 def _argmax_with_mask_2d(array, mask, best=-np.inf):
-    best_i = -1
-    best_j = -1
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            if mask[i, j]:
-                val = array[i, j]
-                if val > best:
-                    best_i = i
-                    best_j = j
-                    best = val
-    return best_i, best_j
+    return _argm_with_mask_2d(array, mask, best, True)
 
 
 @njit
 def _argmin_with_mask_2d(array, mask, best=np.inf):
-    best_i = -1
-    best_j = -1
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            if mask[i, j]:
-                val = array[i, j]
-                if val < best:
-                    best_i = i
-                    best_j = j
-                    best = val
-    return best_i, best_j
+    return _argm_with_mask_2d(array, mask, best, False)
 
 
 @njit

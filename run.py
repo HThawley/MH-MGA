@@ -23,7 +23,7 @@ def main(run=True, plot=True, seed=None):
     """
     Configures and runs the MGA algorithm.
     """
-
+    global algorithm
     FILE_PREFIX = "logs/testprob"
     # FILE_PREFIX = None
     if run:

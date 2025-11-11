@@ -1,6 +1,8 @@
 import numpy as np
 from datetime import datetime as dt
 import warnings
+from numba import njit, prange
+from numba.core.registry import CPUDispatcher
 
 from mga.commons.types import DEFAULTS
 
@@ -79,14 +81,30 @@ class MGAProblem:
         self.mean_fitness = FLOAT(0)
         self.hyperparameters_set = False
 
+        # Evaluation Paths
+        self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
+        if self._can_use_fast_path:
+            if self.problem.vectorized:
+                if self.problem.constraints:
+                    self.evaluator = _eval_vec_constr
+                else:
+                    self.evaluator = _eval_vec_noconstr
+            else:
+                if self.problem.constraints:
+                    self.evaluator = _eval_novec_constr
+                else:
+                    self.evaluator = _eval_novec_noconstr
+            print("--- MHMGA: Njitted objective detected. Using fast-path iteration loop. ---")
+        else:
+            print("--- MHMGA: Using standard Python iteration loop (objective is not njitted or uses fkwargs). ---")
+
     def add_niches(self, num_niches: int):
         """
         Adds niches to the problem
         """
-        if not typing.is_integer(num_niches):
-            raise TypeError(f"'num_niches' expected an integer. Received: {type(num_niches)}")
-        if num_niches < 1:
-            raise ValueError(f"'num_niches' must be positive definite. Received {num_niches}")
+        typing.sanitize_type(num_niches, "integer", "num_niches")
+        typing.sanitize_range(num_niches, "num_niches", gt=1)
+
         if not self._is_populated:
             self.num_niches = num_niches
         else:
@@ -180,8 +198,9 @@ class MGAProblem:
 
         # Instantiation
         if not self._is_populated:
-            if not hasattr(self, "num_niches") or self.num_niches == 0:
-                raise RuntimeError("MGA needs niches > 1. Call `.add_niches()` first.")
+            if not hasattr(self, "num_niches") or self.num_niches <= 1:
+                raise RuntimeError(f"'num_niches' must be greater than one. Got: {self.num_niches}"
+                                   ". Call `.add_niches()` first.")
             self.populate()
 
         # Set parent size
@@ -205,27 +224,48 @@ class MGAProblem:
         )
 
         # Main algorithm loop
-        while not termination_handler(self):
-            if disp_rate > 0 and self.current_iter % disp_rate == 0:
-                self._display_progress()
+        try:
+            while not termination_handler(self):
+                if disp_rate > 0 and self.current_iter % disp_rate == 0:
+                    self._display_progress()
 
-            self.population.dither()
-            self.population.select_parents()
-            self.population.generate_offspring()
-            self.evaluate_and_update_population()
+                self.run_iteration()
 
-            if self.logger:
-                self.logger.log_iteration(self.current_iter, self.population)
+                if self.logger:
+                    self.logger.log_iteration(self.current_iter, self.population)
 
-            # provides hooks for termination control
-            self.current_best_obj = self.population.current_optima_obj[0]
-            self.mean_fitness = self.population.mean_fitness
+                # provides hooks for termination control
+                self.current_best_obj = self.population.current_optima_obj[0]
+                self.mean_fitness = self.population.mean_fitness
 
-            self.current_iter += 1
+                self.current_iter += 1
+        except KeyboardInterrupt:
+            print("Received Keyboard Interrupt. Terminating gracefully.")
+            pass
+
         if disp_rate != 0:
             self._display_progress()
 
+    def run_iteration(self):
+        """
+        Dispatcher method.
+        Runs one iteration using the fastest available path.
+        """
+        if self._can_use_fast_path:
+            _njit_iteration_loop(
+                self.population,
+                self.evaluator,
+                self.problem.objective,
+                self.problem.fargs,
+            )
+        else:
+            _python_iteration_loop(
+                self.population,
+                self.problem,  # Pass the whole problem object
+            )
+
     def evaluate_and_update_population(self):
+        # always called on population initialisation
         self.problem.evaluate_population(self.population)
         self.population.evaluate_fitness()  # TODO: provide hooks for termination
         self.population.evaluate_diversity()  # TODO: provide hooks for termination
@@ -295,3 +335,83 @@ class MGAProblem:
             termination_handler = term.MultiConvergence([term.Maxiter(self.max_iter), convergence_criteria])
 
         return termination_handler
+
+
+def _python_iteration_loop(population: Population, problem: OptimizationProblem):
+    """
+    The fallback "slow path" for non-jitted objectives or
+    objectives with fargs/fkwargs.
+    """
+    population.dither()
+    population.select_parents()
+    population.generate_offspring()
+    problem.evaluate_population(population)
+    population.evaluate_fitness()
+    population.evaluate_diversity()
+    population.update_optima()
+
+
+# --- JITTED iteration loops ---
+@njit
+def _njit_iteration_loop(population: Population, eval_func: CPUDispatcher, objective_func: CPUDispatcher, fargs: tuple):
+    population.dither()
+    population.select_parents()
+    population.generate_offspring()
+    eval_func(population, objective_func, fargs)
+    population.evaluate_fitness()
+    population.evaluate_diversity()
+    population.update_optima()
+
+
+@njit(parallel=True)
+def _eval_vec_constr(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+    """
+    Evaluates a vectorized objective function that returns obj_vals, violation_vals.
+    """
+    for i in prange(population.num_niches):
+        population.objective_values[i, :], population.violations[i, :] = objective_func(
+            population.points[i], *fargs
+        )
+    population.penalized_objectives[:] = (
+        population.objective_values + population.violations * population.violation_factor
+    )
+
+
+@njit(parallel=True)
+def _eval_vec_noconstr(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+    """
+    Evaluates a vectorized objective function that returns only obj_vals.
+    """
+    for i in prange(population.num_niches):
+        population.objective_values[i, :] = objective_func(population.points[i], *fargs)
+    population.violations[:] = 0.0  # No constraint penalties
+    population.penalized_objectives[:] = population.objective_values  # No penalty
+
+
+@njit(parallel=True)
+def _eval_novec_constr(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+    """
+    Evaluates a scalar objective function that returns obj_val, violation_val.
+    """
+    for i in prange(population.num_niches):
+        for j in range(population.points[i].shape[0]):
+            population.objective_values[i, j], population.violations[i, j] = objective_func(
+                population.points[i, j], *fargs
+            )
+            population.penalized_objectives[i, j] = (
+                population.objective_values[i, j] + population.violations[i, j] * population.violation_factor
+            )
+
+
+@njit(parallel=True)
+def _eval_novec_noconstr(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+    """
+    Evaluates a scalar objective function that returns only obj_val.
+    """
+    for i in prange(population.num_niches):
+        for j in range(population.points[i].shape[0]):
+            population.objective_values[i, j] = objective_func(
+                population.points[i, j], *fargs
+            )
+    population.violations[:] = 0.0  # No constraints
+    population.penalized_objectives[:] = population.objective_values  # No penalty
