@@ -204,7 +204,7 @@ class Logger:
         return np.array([[
             iteration,
             population.vesa,
-            population.shannon,
+            # population.shannon,
             np.mean(population.stds) if population.stds.size > 0 else 0.0,
             np.min(population.stds) if population.stds.size > 0 else 0.0,
             np.max(population.stds) if population.stds.size > 0 else 0.0,

@@ -388,13 +388,13 @@ class Population:
             self.vesa = 0.0
             
         # Shannon Index
-        if nopt_points.shape[0] >= 1:
-            self.shannon = diversity.mean_of_shannon_of_projections(
-                nopt_points, np.ones(nopt_points.shape[0], dtype=bool),
-                self.problem.lower_bounds, self.problem.upper_bounds
-            )
-        else:
-            self.shannon = 0.0
+        # if nopt_points.shape[0] >= 1:
+        #     self.shannon = diversity.mean_of_shannon_of_projections(
+        #         nopt_points, np.ones(nopt_points.shape[0], dtype=bool),
+        #         self.problem.lower_bounds, self.problem.upper_bounds
+        #     )
+        # else:
+        #     self.shannon = 0.0
 
         # Fitness statistics
         self.stds = diversity.std(self.fitnesses, self.is_noptimal)
