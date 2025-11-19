@@ -318,7 +318,7 @@ class MGAProblem:
         """
         best_obj = self.population.current_optima_obj
         elapsed = dt.now() - self.start_time
-        print(f"Iter: {self.current_iter}. Best Objectives: {np.round(best_obj, 2)}. Time: {elapsed}")
+        print(f"Iter: {self.current_iter}. Best Objective: {np.round(best_obj[0], 2)}. Time: {elapsed}")
 
     def configure_termination(self, convergence_criteria):
         typing.sanitize_type(
