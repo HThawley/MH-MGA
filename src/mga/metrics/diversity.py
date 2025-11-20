@@ -74,6 +74,8 @@ def var(quantity, is_noptimal):
 @njit
 def _shannon_index(values, lb, ub, nbin, npoint, counts):
     bin_width = (ub - lb) / nbin
+    if bin_width == 0:
+        return 0.0
 
     for i in range(npoint):
         idx = int((values[i] - lb) / bin_width)
@@ -101,7 +103,7 @@ def _stat_measure(quantity, is_noptimal, stat):
     result = np.empty(quantity.shape[0])
     for i in range(quantity.shape[0]):
         _feas = False
-        for j in range(is_noptimal.shape[1]):
+        for j in range(quantity.shape[1]):
             if is_noptimal[i, j] is True:
                 _feas = True
                 break

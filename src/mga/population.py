@@ -381,9 +381,14 @@ class Population:
             self.shannon = 0.0
 
         # Fitness statistics
-        self.stds = diversity.std(self.fitnesses, self.is_noptimal)
-        self.variances = diversity.var(self.fitnesses, self.is_noptimal)
-        self.mean_fitness = diversity.mean_of_fitness(self.fitnesses, self.is_noptimal)
+        if self.fitnesses.size > 0:
+            self.stds = diversity.std(self.fitnesses, self.is_noptimal)
+            self.variances = diversity.var(self.fitnesses, self.is_noptimal)
+            self.mean_fitness = diversity.mean_of_fitness(self.fitnesses, self.is_noptimal)
+        else:
+            self.stds = np.full(np.inf, self.num_niches)
+            self.variances = np.full(np.inf, self.num_niches)
+            self.mean_fitness = 0.0
 
     def dither(self):
         self.mutation_prob_inst = _dither(self.mutation_prob, self.rng)
