@@ -22,11 +22,12 @@ class OptimizationProblem:
         integrality: bool | np.ndarray[bool] = False,
         known_optimum: np.ndarray = None,
         fargs: tuple = (),
-        fkwargs: dict = {},
+        fkwargs: dict = None,
     ):
         """
         Initializes the optimization problem definition.
         """
+        fkwargs = {} if fkwargs is None else fkwargs
         # Sanitize inputs
         typing.sanitize_type(objective, Callable, "objective")
         typing.sanitize_type(bounds, "arraylike", "bounds")
@@ -136,7 +137,7 @@ class MultiObjectiveProblem:
         feasibility: bool = False,
         integrality: bool | np.ndarray[bool] = False,
         fargs: tuple = (),
-        fkwargs: dict = {},
+        fkwargs: dict = None,
     ):
         """
         Initializes the multi-objective optimization problem definition.
@@ -152,7 +153,7 @@ class MultiObjectiveProblem:
         self.vectorized = vectorized
         self.feasibility = feasibility
         self.fargs = fargs
-        self.fkwargs = fkwargs
+        self.fkwargs = fkwargs if fkwargs is not None else {}
 
         if isinstance(maximize, bool):
             self.maximize = np.array([maximize] * self.n_objs, dtype=np.bool_)
