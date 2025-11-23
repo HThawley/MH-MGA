@@ -190,7 +190,7 @@ class MGAProblem:
         """
         if not self.hyperparameters_set:
             raise RuntimeError("Set hyperparameters before launching a step (`.update_hyperparameters`)")
-        typing.sanitize_type(disp_rate, "integer", "dip_rate")
+        typing.sanitize_type(disp_rate, "integer", "disp_rate")
         typing.sanitize_range(disp_rate, "disp_rate", ge=-1)
         disp_rate = INT(disp_rate)
 
@@ -264,11 +264,12 @@ class MGAProblem:
                 self.problem,  # Pass the whole problem object
             )
 
-    def evaluate_and_update_population(self):
+    def evaluate_and_update_population(self, diversity=True):
         # always called on population initialisation
         self.problem.evaluate_population(self.population)
         self.population.evaluate_fitness()  # TODO: provide hooks for termination
-        self.population.evaluate_diversity()  # TODO: provide hooks for termination
+        if diversity:
+            self.population.evaluate_diversity()  # TODO: provide hooks for termination
         self.population.update_optima()
 
     def populate(self):
@@ -290,7 +291,7 @@ class MGAProblem:
             )
             load_problem_to_population(self.population, self.problem)
             self.population.populate(self.noptimal_slack, self.violation_factor, self.x0)
-            self.evaluate_and_update_population()
+            self.evaluate_and_update_population(False)
 
             self._is_populated = True
 
