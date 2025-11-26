@@ -386,8 +386,8 @@ class Population:
             self.variances = diversity.var(self.fitnesses, self.is_noptimal)
             self.mean_fitness = diversity.mean_of_fitness(self.fitnesses, self.is_noptimal)
         else:
-            self.stds = np.full(np.inf, self.num_niches)
-            self.variances = np.full(np.inf, self.num_niches)
+            self.stds = np.full(self.num_niches, np.inf)
+            self.variances = np.full(self.num_niches, np.inf)
             self.mean_fitness = 0.0
 
     def dither(self):
