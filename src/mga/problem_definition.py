@@ -85,10 +85,17 @@ class OptimizationProblem:
         self.booleanality = (((self.upper_bounds - self.lower_bounds) == 1) & self.integrality)
 
         if known_optimum is not None:
+            print("known optimum supplied")
             self.known_optimum_point = known_optimum.astype(FLOAT)
         else:
+            print("known optimum not supplied, setting to center of bounds")
             self.known_optimum_point = (self.upper_bounds + self.lower_bounds)/2
-        self.known_optimum_value = self.evaluate(np.atleast_2d(self.known_optimum_point))[0][0]
+        print(f"known_optimum_point: {self.known_optimum_point}")
+
+        raw_result = self.evaluate(np.atleast_2d(self.known_optimum_point))
+        print(f"raw_result: {raw_result}")
+        print(f"raw_result[0][0]: {raw_result[0][0]}")
+        self.known_optimum_value = raw_result[0][0]
 
     def evaluate(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -97,20 +104,31 @@ class OptimizationProblem:
         points = np.atleast_2d(points)
         obj_values = np.empty(points.shape[0], FLOAT)
         violations = np.empty(points.shape[0], FLOAT)
-
-        if self.constraints:
-            if self.vectorized:
-                obj_values[:], violations[:] = self.objective(points, *self.fargs, **self.fkwargs)
+        try:
+            if self.constraints:
+                if self.vectorized:
+                    result = self.objective(points, *self.fargs, **self.fkwargs)
+                    obj_values[:], violations[:] = result
+                else:
+                    for j in range(points.shape[0]):
+                        result = self.objective(points[j], *self.fargs, **self.fkwargs)
+                        obj_values[j], violations[j] = result
             else:
-                for j in range(points.shape[0]):
-                    obj_values[j], violations[j] = self.objective(points[j], *self.fargs, **self.fkwargs)
-        else:
-            if self.vectorized:
-                obj_values[:] = self.objective(points, *self.fargs, **self.fkwargs)
-            else:
-                for j in range(points.shape[0]):
-                    obj_values[j] = self.objective(points[j], *self.fargs, **self.fkwargs)
-            violations[:] = 0.0
+                if self.vectorized:
+                    result = self.objective(points, *self.fargs, **self.fkwargs)
+                    obj_values[:] = result
+                else:
+                    for j in range(points.shape[0]):
+                        result = self.objective(points[j], *self.fargs, **self.fkwargs)
+                        obj_values[j] = result
+                violations[:] = 0.0
+        except Exception as e:
+            print("Error during evaluation of points:")
+            print(f"{self.constraints=}, {self.vectorized=}, {self.objective_jitted=}")
+            print(f"Points shape: {points.shape}")
+            print(f"obj_values shape: {obj_values.shape}")
+            print(f"result shape: {result.shape}")
+            raise e
 
         return obj_values, violations
 
