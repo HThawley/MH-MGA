@@ -365,7 +365,7 @@ def construct_eval_func(vectorized: bool, constraints: bool, parallelize: bool) 
     Constructs the appropriate evaluation function based on problem properties.
     """
     if vectorized and constraints:
-        @njit(parallelize=parallelize)
+        @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
             Evaluates a vectorized objective function that returns obj_vals, violation_vals.
@@ -379,7 +379,7 @@ def construct_eval_func(vectorized: bool, constraints: bool, parallelize: bool) 
             )
 
     elif vectorized and not constraints:
-        @njit(parallelize=parallelize)
+        @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
             Evaluates a vectorized objective function that returns only obj_vals.
@@ -390,7 +390,7 @@ def construct_eval_func(vectorized: bool, constraints: bool, parallelize: bool) 
             population.penalized_objectives[:] = population.objective_values  # No penalty
 
     elif not vectorized and constraints:
-        @njit(parallelize=parallelize)
+        @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
             Evaluates a scalar objective function that returns obj_val, violation_val.
@@ -405,7 +405,7 @@ def construct_eval_func(vectorized: bool, constraints: bool, parallelize: bool) 
                     )
 
     else:  # not vectorized and not constraints
-        @njit(parallelize=parallelize)
+        @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
             Evaluates a scalar objective function that returns only obj_val.
