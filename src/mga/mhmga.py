@@ -3,6 +3,7 @@ from datetime import datetime as dt
 import warnings
 from numba import njit, prange
 from numba.core.registry import CPUDispatcher
+from typing import Callable
 
 from mga.commons.types import DEFAULTS
 
@@ -28,6 +29,7 @@ class MGAProblem:
         log_freq: int = -1,
         random_seed: int | None = None,
         parallelize: bool = True,
+        callback: Callable = None,
     ):
         """
         Initializes the MGA algorithm
@@ -81,6 +83,7 @@ class MGAProblem:
         self.current_best_obj = FLOAT(0)
         self.mean_fitness = FLOAT(0)
         self.hyperparameters_set = False
+        self.callback = callback
 
         # Evaluation Paths
         self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
@@ -176,7 +179,7 @@ class MGAProblem:
 
         self.hyperparameters_set = True
 
-    def step(
+    def step(  # noqa: C901
         self,
         disp_rate: int = 0,
         convergence_criteria: None | term.Convergence | list[term.Convergence] = None,
@@ -235,6 +238,10 @@ class MGAProblem:
                 self.mean_fitness = self.population.mean_fitness
 
                 self.current_iter += 1
+
+                if self.callback is not None:
+                    self.callback(self.population)
+
         except KeyboardInterrupt:
             print("Received Keyboard Interrupt. Terminating gracefully.")
             pass
