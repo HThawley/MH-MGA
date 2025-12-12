@@ -90,7 +90,6 @@ class OptimizationProblem:
         else:
             print("known optimum not supplied, setting to center of bounds")
             self.known_optimum_point = (self.upper_bounds + self.lower_bounds)/2
-        print(f"known_optimum_point: {self.known_optimum_point}")
 
         self.known_optimum_value = self.evaluate(np.atleast_2d(self.known_optimum_point))[0][0]
 
