@@ -124,9 +124,15 @@ class OptimizationProblem:
     def evaluate_population(self, population):
         for i in range(population.num_niches):
             population.objective_values[i], population.violations[i] = self.evaluate(population.points[i])
-        population.penalized_objectives[:] = (
-            population.objective_values + population.violations * population.violation_factor
-        )
+        if population.maximize:
+            # violation_factor assumed positive. violaitons assuemd positive
+            population.penalized_objectives[:] = (
+                population.objective_values - population.violations * population.violation_factor
+            )
+        else:
+            population.penalized_objectives[:] = (
+                population.objective_values + population.violations * population.violation_factor
+            )
 
 
 class MultiObjectiveProblem:

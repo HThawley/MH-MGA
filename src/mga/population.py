@@ -313,6 +313,7 @@ class Population:
         if not np.any(feasible_mask):
             return
 
+        # TODO: test minimisation logic
         gi, gj = _find_global_best_idx(
             self.current_optima_pob[0], self.penalized_objectives, feasible_mask, self.maximize
         )
@@ -715,7 +716,7 @@ def _argm_with_mask_2d(array, mask, best, maximize):
             for j in range(array.shape[1]):
                 if mask[i, j]:
                     val = array[i, j]
-                    if val > best:
+                    if val < best:
                         best_i = i
                         best_j = j
                         best = val
