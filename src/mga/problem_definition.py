@@ -12,7 +12,7 @@ class OptimizationProblem:
     Encapsulates the definition of the optimization problem.
     This includes the objective function, variable bounds, and optimization sense.
     """
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         objective: Callable,
         bounds: tuple[np.ndarray, np.ndarray],
@@ -85,54 +85,37 @@ class OptimizationProblem:
         self.booleanality = (((self.upper_bounds - self.lower_bounds) == 1) & self.integrality)
 
         if known_optimum is not None:
+            if known_optimum.ndim == 1:
+                self.known_optimum_point = known_optimum.astype(FLOAT)
+            elif known_optimum.ndim == 2 and known_optimum.shape[0] == 1:
+                self.known_optimum_point = known_optimum.flatten().astype(FLOAT)
+            else:
+                raise ValueError(f"known_optimum has bad shape. shape: {known_optimum.shape}")
             print("known optimum supplied")
-            self.known_optimum_point = known_optimum.astype(FLOAT)
         else:
             print("known optimum not supplied, setting to center of bounds")
             self.known_optimum_point = (self.upper_bounds + self.lower_bounds)/2
 
-        self.known_optimum_value = self.evaluate(np.atleast_2d(self.known_optimum_point))[0][0]
-
-    def evaluate(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Evaluates the objective function and constraints for a set of points.
-        """
-        points = np.atleast_2d(points)
-        obj_values = np.empty(points.shape[0], FLOAT)
-        violations = np.empty(points.shape[0], FLOAT)
-
-        if self.constraints:
-            if self.vectorized:
-                result = self.objective(points, *self.fargs, **self.fkwargs)
-                obj_values[:], violations[:] = result
-            else:
-                for j in range(points.shape[0]):
-                    result = self.objective(points[j], *self.fargs, **self.fkwargs)
-                    obj_values[j], violations[j] = result
-        else:
-            if self.vectorized:
-                result = self.objective(points, *self.fargs, **self.fkwargs)
-                obj_values[:] = result
-            else:
-                for j in range(points.shape[0]):
-                    result = self.objective(points[j], *self.fargs, **self.fkwargs)
-                    obj_values[j] = result
-            violations[:] = 0.0
-
-        return obj_values, violations
-
-    def evaluate_population(self, population):
-        for i in range(population.num_niches):
-            population.objective_values[i], population.violations[i] = self.evaluate(population.points[i])
-        if population.maximize:
-            # violation_factor assumed positive. violaitons assuemd positive
-            population.penalized_objectives[:] = (
-                population.objective_values - population.violations * population.violation_factor
+        if self.vectorized and self.constraints:
+            obj, viol = self.objective(
+                np.atleast_2d(self.known_optimum_point), *self.fargs, **self.fkwargs
             )
-        else:
-            population.penalized_objectives[:] = (
-                population.objective_values + population.violations * population.violation_factor
+            if viol != 0:
+                self.known_optimum_value = -np.inf if self.maximize else np.inf
+            else:
+                self.known_optimum_value = obj
+        elif self.vectorized and not self.constraints:
+            self.known_optimum_value = self.objective(
+                np.atleast_2d(self.known_optimum_point), *self.fargs, **self.fkwargs
             )
+        elif not self.vectorized and self.constraints:
+            obj, viol = self.objective(self.known_optimum_point, *self.fargs, **self.fkwargs)
+            if viol != 0:
+                self.known_optimum_value = -np.inf if self.maximize else np.inf
+            else:
+                self.known_optimum_value = obj
+        else:
+            self.known_optimum_value = self.objective(self.known_optimum_point, *self.fargs, **self.fkwargs)
 
 
 class MultiObjectiveProblem:

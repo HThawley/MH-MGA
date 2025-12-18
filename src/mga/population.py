@@ -313,7 +313,6 @@ class Population:
         if not np.any(feasible_mask):
             return
 
-        # TODO: test minimisation logic
         gi, gj = _find_global_best_idx(
             self.current_optima_pob[0], self.penalized_objectives, feasible_mask, self.maximize
         )
@@ -342,7 +341,7 @@ class Population:
         js = _find_best_in_niche(
             self.fitnesses, feasible_mask, self.penalized_objectives, self.maximize
         )
-        for i in range(1, self.points.shape[0]):
+        for i in range(1, self.num_niches):
             self.current_optima[i, :] = self.points[i, js[i], :]
             self.current_optima_obj[i] = self.objective_values[i, js[i]]
             self.current_optima_pob[i] = self.penalized_objectives[i, js[i]]
@@ -750,7 +749,7 @@ def load_problem_to_population(
 
     population.current_optima[0] = problem.known_optimum_point
     population.current_optima_obj[0] = problem.known_optimum_value
-    population.current_optima_pob[0] = -np.inf if population.maximize else np.inf
+    population.current_optima_pob[0] = problem.known_optimum_value
     population.noptimal_threshold = -np.inf if population.maximize else np.inf
 
     population.float_mut = (population.integrality.sum() == 0)

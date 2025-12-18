@@ -88,13 +88,17 @@ class MGAProblem:
         # Evaluation Paths
         self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
         if self._can_use_fast_path:
-            self.evaluator = construct_eval_func(
+            self.evaluator = construct_njit_eval_func(
                 self.problem.vectorized,
                 self.problem.constraints,
                 parallelize,
             )
             print("--- MHMGA: Njitted objective detected. Using fast-path iteration loop. ---")
         else:
+            self.evaluator = construct_python_eval_func(
+                self.problem.vectorized,
+                self.problem.constraints
+            )
             print("--- MHMGA: Using standard Python iteration loop (objective is not njitted or uses fkwargs). ---")
 
     def add_niches(self, num_niches: int):
@@ -264,12 +268,25 @@ class MGAProblem:
         else:
             _python_iteration_loop(
                 self.population,
-                self.problem,  # Pass the whole problem object
+                self.evaluator,
+                self.problem.objective,
+                self.problem.fargs,
+                self.problem.fkwargs
+            )
+
+    def evaluate_points(self):
+        if self._can_use_fast_path:
+            self.evaluator(
+                self.population, self.problem.objective, self.problem.fargs
+            )
+        else:
+            self.evaluator(
+                self.population, self.problem.objective, self.problem.fargs, self.problem.fkwargs
             )
 
     def evaluate_and_update_population(self, diversity=True):
         # always called on population initialisation
-        self.problem.evaluate_population(self.population)
+        self.evaluate_points()
         self.population.evaluate_fitness()  # TODO: provide hooks for termination
         if diversity:
             self.population.evaluate_diversity()  # TODO: provide hooks for termination
@@ -341,7 +358,9 @@ class MGAProblem:
         return termination_handler
 
 
-def _python_iteration_loop(population: Population, problem: OptimizationProblem):
+def _python_iteration_loop(
+    population: Population,  eval_func: CPUDispatcher, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict
+) -> None:
     """
     The fallback "slow path" for non-jitted objectives or
     objectives with fargs/fkwargs.
@@ -349,10 +368,67 @@ def _python_iteration_loop(population: Population, problem: OptimizationProblem)
     population.dither()
     population.select_parents()
     population.generate_offspring()
-    problem.evaluate_population(population)
+    eval_func(population, objective_func, fargs, fkwargs)
     population.evaluate_fitness()
     population.evaluate_diversity()
     population.update_optima()
+
+
+def construct_python_eval_func(  # noqa: C901
+        vectorized: bool,
+        constraints: bool,
+) -> Callable:
+    """
+    Constructs the appropriate evaluation function based on problem properties.
+    """
+    if vectorized and constraints:
+        def _evaluator(population: Population, objective_func: Callable, fargs: tuple, fkwargs: dict):
+            for i in range(population.num_niches):
+                population.objective_values[i, :], population.violations[i, :] = objective_func(
+                    population.points[i], *fargs, **fkwargs
+                )
+                population.penalized_objectives[:] = (
+                    population.objective_values + population.violations * population.violation_factor
+                )
+
+    elif vectorized and not constraints:
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a vectorized objective function that returns only obj_vals.
+            """
+            for i in prange(population.num_niches):
+                population.objective_values[i, :] = objective_func(population.points[i], *fargs, **fkwargs)
+            population.violations[:] = 0.0  # No constraint penalties
+            population.penalized_objectives[:] = population.objective_values  # No penalty
+
+    elif not vectorized and constraints:
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a scalar objective function that returns obj_val, violation_val.
+            """
+            for i in prange(population.num_niches):
+                for j in range(population.points[i].shape[0]):
+                    population.objective_values[i, j], population.violations[i, j] = objective_func(
+                        population.points[i, j], *fargs, **fkwargs
+                    )
+                    population.penalized_objectives[i, j] = (
+                        population.objective_values[i, j] + population.violations[i, j] * population.violation_factor
+                    )
+
+    else:  # not vectorized and not constraints
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a scalar objective function that returns only obj_val.
+            """
+            for i in prange(population.num_niches):
+                for j in range(population.points[i].shape[0]):
+                    population.objective_values[i, j] = objective_func(
+                        population.points[i, j], *fargs, **fkwargs
+                    )
+            population.violations[:] = 0.0  # No constraints
+            population.penalized_objectives[:] = population.objective_values  # No penalty
+
+    return _evaluator
 
 
 # --- JITTED iteration loops ---
@@ -367,7 +443,11 @@ def _njit_iteration_loop(population: Population, eval_func: CPUDispatcher, objec
     population.update_optima()
 
 
-def construct_eval_func(vectorized: bool, constraints: bool, parallelize: bool) -> CPUDispatcher:  # noqa: C901
+def construct_njit_eval_func(  # noqa: C901
+        vectorized: bool,
+        constraints: bool,
+        parallelize: bool,
+) -> CPUDispatcher:
     """
     Constructs the appropriate evaluation function based on problem properties.
     """
