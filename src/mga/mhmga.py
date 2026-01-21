@@ -156,7 +156,7 @@ class MGAProblem:
         self.crossover_prob = typing.format_and_sanitize_ditherer(crossover_prob, "crossover_prob", FLOAT, 0, 1)
 
         typing.sanitize_type(violation_factor, "float", "violation_factor")
-        typing.sanitize_range(violation_factor, "violation_factor", ge=0)
+        typing.sanitize_range(violation_factor, "violation_factor", ge=1)
         self.violation_factor = FLOAT(violation_factor)
 
         typing.sanitize_type(noptimal_slack, "float", "noptimal_slack")

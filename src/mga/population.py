@@ -40,6 +40,7 @@ spec = [
     ('objective_values', nb_float[:, :]),
     ('violations', nb_float[:, :]),
     ('penalized_objectives', nb_float[:, :]),
+    ('feasible_mask', nb_bool[:, :]),
     ('fitnesses', nb_float[:, :]),
     ('is_noptimal', nb_bool[:, :]),
     ('centroids', nb_float[:, :]),
@@ -112,6 +113,7 @@ class Population:
         self.objective_values = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.violations = np.zeros((self.num_niches, self.pop_size), dtype=FLOAT)
         self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
+        self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.is_noptimal = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.centroids = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
@@ -151,14 +153,10 @@ class Population:
 
     def _populate_randomly(self, start_idx, end_idx):
         """Helper to populate a slice of niches with random points."""
-        _populate_randomly(
-            self.points,
-            start_idx,
-            end_idx,
-            self.lower_bounds,
-            self.upper_bounds,
-            self.rng,
-        )
+        for i in range(start_idx, end_idx):
+            for j in range(self.pop_size):
+                for k in range(self.ndim):
+                    self.points[i, j, k] = self.rng.uniform(self.lower_bounds[k], self.upper_bounds[k])
 
     def add_niches(self, num_new_niches: int):
         """
@@ -221,19 +219,34 @@ class Population:
         """
         Selects parents for the next generation.
         """
-        _select_parents(
-            self.parents,
-            self.points,
-            self.penalized_objectives,
-            self.fitnesses,
-            self.is_noptimal,
+        # Niche 0 (optimization) selects on objective value
+        selection.selection(
+            self.parents[0],
+            self.points[0],
+            self.penalized_objectives[0],
             self.maximize,
             self.elite_count,
             self.tourn_count,
             self.tourn_size,
             self.rng,
-            self.stable_sort,
+            self.stable_sort
         )
+
+        # Other niches (diversity) select on fitness, with objective as fallback
+        for i in range(1, self.num_niches):
+            selection.selection_with_fallback(
+                self.parents[i],
+                self.points[i],
+                self.fitnesses[i],
+                self.is_noptimal[i],
+                self.penalized_objectives[i],
+                self.maximize,
+                self.elite_count,
+                self.tourn_count,
+                self.tourn_size,
+                self.rng,
+                self.stable_sort,
+            )
 
     def generate_offspring(self):
         """
@@ -247,7 +260,11 @@ class Population:
             # container for fitness function evaluated on set of elites rather than centroids
             _fitness = np.empty((self.num_niches, 1))
             # evaluate fitness w.r.t. each other
-            _evaluate_fitness(_fitness, np.atleast_3d(self.current_optima).transpose(1, 0, 2), self.current_optima)
+            fit_metrics.evaluate_fitness_dist_to_centroids(
+                _fitness,
+                np.atleast_3d(self.current_optima).transpose(1, 0, 2),
+                self.current_optima
+            )
 
             # update niche_elites
             if np.mean(_fitness) > self.unselfish_niche_fit:
@@ -309,13 +326,11 @@ class Population:
         Checks for and updates the global best solution found so far.
         Updates near-optima according to near-optimal slack
         """
-        feasible_mask = self.violations == 0
-        if not np.any(feasible_mask):
+        self.feasible_mask[:] = self.violations == 0
+        if not np.any(self.feasible_mask):
             return
 
-        gi, gj = _find_global_best_idx(
-            self.current_optima_pob[0], self.penalized_objectives, feasible_mask, self.maximize
-        )
+        gi, gj = self._find_global_best_idx()
         if gi != -1:
             self.current_optima[0, :] = self.points[gi, gj]
             self.current_optima_obj[0] = self.objective_values[gi, gj]
@@ -328,19 +343,11 @@ class Population:
             print("WARNING: Negative optimal objective encountered. "
                   "Optimum should be positive definite for mga slack logic."
                   "Consider using a large scalar offset.")
-        self.noptimal_threshold = _noptimal_threshold(
-            self.current_optima_pob[0], self.noptimal_slack, self.maximize
-        )
+        self._update_noptimal_threshold()
+        self._evaluate_noptimality()
 
-        # Determine near-optimality based on the current optimum
-        _evaluate_noptimality(
-            self.is_noptimal, self.penalized_objectives, self.noptimal_threshold, self.maximize
-        )
-
-        feasible_mask *= self.is_noptimal
-        js = _find_best_in_niche(
-            self.fitnesses, feasible_mask, self.penalized_objectives, self.maximize
-        )
+        self.feasible_mask *= self.is_noptimal
+        js = self._find_best_in_niche()
         for i in range(1, self.num_niches):
             self.current_optima[i, :] = self.points[i, js[i], :]
             self.current_optima_obj[i] = self.objective_values[i, js[i]]
@@ -352,8 +359,8 @@ class Population:
         """
         Calculates fitness for each individual based on distance to other niche centroids.
         """
-        _find_centroids(self.centroids, self.points)
-        _evaluate_fitness(self.fitnesses, self.points, self.centroids)
+        self._find_centroids()
+        fit_metrics.evaluate_fitness_dist_to_centroids(self.fitnesses, self.points, self.centroids)
 
     def evaluate_diversity(self):
         """
@@ -399,11 +406,13 @@ class Population:
         """
         Clips the population points to stay within the defined bounds.
         """
-        _apply_bounds(
-            self.points,
-            self.lower_bounds,
-            self.upper_bounds,
-        )
+        for i in range(self.num_niches):
+            for j in range(self.pop_size):
+                for k in range(self.ndim):
+                    self.points[i, j, k] = min(
+                        self.upper_bounds[k],
+                        max(self.lower_bounds[k], self.points[i, j, k])
+                    )
 
     def _apply_integrality(self):
         """
@@ -495,91 +504,79 @@ class Population:
                 self.parents = np.empty((self.num_niches, new_parent_size, self.ndim), FLOAT)
                 self.parent_size = INT(new_parent_size)
 
+    def _find_centroids(self):
+        """
+        Calculates the geometric center (centroid) of each niche.
+        """
+        self.centroids[:, :] = 0.0
+        for i in range(self.num_niches):
+            for j in range(self.pop_size):
+                for k in range(self.ndim):
+                    self.centroids[i, k] += self.points[i, j, k]
+        self.centroids /= self.points.shape[1]
+
+    def _evaluate_noptimality(self):
+        """
+        evaluate noptimality of evaluated points
+        noptimality is based on raw objective, not penalized objective
+        """
+        if self.maximize:
+            for i in range(self.num_niches):
+                for j in range(self.pop_size):
+                    self.is_noptimal[i, j] = self.penalized_objectives[i, j] > self.noptimal_threshold
+        else:
+            for i in range(self.num_niches):
+                for j in range(self.pop_size):
+                    self.is_noptimal[i, j] = self.penalized_objectives[i, j] < self.noptimal_threshold
+
+    def _update_noptimal_threshold(self):
+        if self.maximize:
+            self.noptimal_threshold = self.current_optima_pob[0] * (1 - (self.noptimal_slack - 1))
+        self.noptimal_threshold = self.current_optima_pob[0] * self.noptimal_slack
+
+    def _find_global_best_idx(self):
+        """
+        Returns flat index (niche, individual) of global best feasible point.
+        If none feasible, returns (-1, -1).
+        """
+        if self.maximize:
+            best_i, best_j = _argmax_with_mask_2d(
+                self.penalized_objectives, self.feasible_mask, self.current_optima_pob[0]
+            )
+        else:
+            best_i, best_j = _argmin_with_mask_2d(
+                self.penalized_objectives, self.feasible_mask, self.current_optima_pob[0]
+            )
+
+        return best_i, best_j
+
+    def _find_best_in_niche(self):
+        """
+        For each niche i>0, pick the representative index:
+        1) best fitness among feasible & noptimal
+        2) else best penalized objective
+        Returns array of shape (num_niches,) giving chosen j for each niche.
+        Niche 0 should be ignored by caller (global optimum already set).
+        """
+        out = np.full(self.num_niches, -1, dtype=INT)
+
+        for i in range(1, self.num_niches):
+            if self.feasible_mask[i].sum() >= 1:
+                # option 1: feasible & noptimal
+                best_j = _argmax_with_mask(self.fitnesses[i], self.feasible_mask[i])
+
+            else:
+                # option 2: best penalized objective
+                if self.maximize:
+                    best_j = self.penalized_objectives[i].argmax()
+                else:
+                    best_j = self.penalized_objectives[i].argmin()
+
+            out[i] = best_j
+        return out
+
 
 # %%
-
-
-@njit
-def _populate_randomly(points, start_idx, end_idx, lb, ub, rng):
-    for i in range(start_idx, end_idx):
-        for j in range(points.shape[1]):
-            for k in range(points.shape[2]):
-                points[i, j, k] = rng.uniform(lb[k], ub[k])
-
-
-@njit
-def _apply_bounds(points, lb, ub):
-    for i in range(points.shape[0]):
-        for j in range(points.shape[1]):
-            for k in range(points.shape[2]):
-                points[i, j, k] = min(ub[k], max(lb[k], points[i, j, k]))
-
-
-@njit
-def _select_parents(
-    parents, points, objectives, fitnesses, is_noptimal, maximize, elite_count, tourn_count, tourn_size, rng, stable
-):
-    """
-    Selects parents for the next generation.
-    """
-    # Niche 0 (optimization) selects on objective value
-    selection.selection(
-        parents[0], points[0], objectives[0], maximize, elite_count, tourn_count, tourn_size, rng, stable
-    )
-
-    # Other niches (diversity) select on fitness, with objective as fallback
-    for i in range(1, parents.shape[0]):
-        selection.selection_with_fallback(
-            parents[i],
-            points[i],
-            fitnesses[i],
-            is_noptimal[i],
-            objectives[i],
-            maximize,
-            elite_count,
-            tourn_count,
-            tourn_size,
-            rng,
-            stable,
-        )
-
-
-@njit
-def _evaluate_fitness(fitnesses, points, centroids):
-    """
-    evaluate fitnesses of populations points
-    """
-    fit_metrics.evaluate_fitness_dist_to_centroids(fitnesses, points, centroids)
-
-
-@njit
-def _evaluate_noptimality(is_noptimal, objective, threshold, maximize):
-    """
-    evaluate noptimality of evaluated points
-    """
-    if maximize:
-        for i in range(is_noptimal.shape[0]):
-            for j in range(is_noptimal.shape[1]):
-                is_noptimal[i, j] = objective[i, j] > threshold
-    else:
-        for i in range(is_noptimal.shape[0]):
-            for j in range(is_noptimal.shape[1]):
-                is_noptimal[i, j] = objective[i, j] < threshold
-
-
-@njit
-def _find_centroids(centroids, points):
-    """
-    Calculates the geometric center (centroid) of each niche.
-    """
-    centroids[:, :] = 0.0
-    for i in range(points.shape[0]):
-        for j in range(points.shape[1]):
-            for k in range(points.shape[2]):
-                centroids[i, k] += points[i, j, k]
-    centroids /= points.shape[1]
-
-
 @njit
 def _add_niche_to_array(old_array, num_niches):
     if num_niches < old_array.shape[0]:
@@ -608,63 +605,12 @@ def _clone(target, start_pop):
 
 
 @njit
-def _noptimal_threshold(optimal_obj, slack, maximize):
-    if maximize:
-        return optimal_obj * (1 - (slack - 1))
-    return optimal_obj * slack
-
-
-@njit
 def njit_deepcopy(new, old):
     flat_new = new.ravel()
     flat_old = old.ravel()
 
     for i in range(flat_old.shape[0]):
         flat_new[i] = flat_old[i]
-
-
-@njit
-def _find_global_best_idx(current_optimum, penalized_objectives, feasible_mask, maximize):
-    """
-    Returns flat index (niche, individual) of global best feasible point.
-    If none feasible, returns (-1, -1).
-    """
-    if maximize:
-        best_i, best_j = _argmax_with_mask_2d(penalized_objectives, feasible_mask, current_optimum)
-    else:
-        best_i, best_j = _argmin_with_mask_2d(penalized_objectives, feasible_mask, current_optimum)
-
-    return best_i, best_j
-
-
-@njit
-def _find_best_in_niche(
-    fitnesses, feasible_mask, penalized_objectives, maximize
-):
-    """
-    For each niche i>0, pick the representative index:
-    1) best fitness among feasible & noptimal
-    2) else best penalized objective
-    Returns array of shape (num_niches,) giving chosen j for each niche.
-    Niche 0 should be ignored by caller (global optimum already set).
-    """
-    num_niches = penalized_objectives.shape[0]
-    out = np.full(num_niches, -1, dtype=INT)
-
-    for i in range(1, num_niches):
-        if feasible_mask[i].sum() >= 1:
-            # option 1: feasible & noptimal by fitness
-            best_j = _argmax_with_mask(fitnesses[i], feasible_mask[i])
-
-        else:
-            # option 2: best penalized objective
-            if maximize:
-                best_j = penalized_objectives[i].argmax()
-            else:
-                best_j = penalized_objectives[i].argmin()
-
-        out[i] = best_j
-    return out
 
 
 @njit
