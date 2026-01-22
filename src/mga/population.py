@@ -313,7 +313,10 @@ class Population:
         if self.niche_elitism == 1:
             # This part could be enhanced, for now, we just preserve the best from each parent set
             for i in range(1, self.num_niches):
-                self.points[i, 0, :] = self.current_optima[i, :]
+                if self.current_optima_nop[i]:  # only preserve if noptimal
+                    self.points[i, 0, :] = self.current_optima[i, :]
+                else:  # otherwise duplicate the current optimum
+                    self.points[i, 0, :] = self.current_optima[0, :]
         elif self.niche_elitism == 2:
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.niche_elites[i - 1]
