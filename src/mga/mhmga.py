@@ -45,7 +45,7 @@ class MGAProblem:
         self.problem = problem
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None
-        self.logger = Logger(log_dir, log_freq, create_dir=True) if log_dir else None
+        self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=problem.ndim) if log_dir else None
 
         if x0 is None:
             x0 = np.empty(0, FLOAT)

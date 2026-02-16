@@ -8,7 +8,7 @@ from collections.abc import Collection
 
 from mga.commons.types import DEFAULTS
 INT, FLOAT = DEFAULTS
-from mga.metrics import diversity
+from mga.metrics import diversity  # noqa: E402
 
 
 class FilePrinter:
@@ -109,6 +109,7 @@ class Logger:
         save_freq: int,
         resume: bool = False,
         detailed: bool = True,
+        ndim: int = 0,
         create_dir: bool = True,
     ):
         """
@@ -141,13 +142,22 @@ class Logger:
             resume=resume,
         )
         if self.detailed:
-            self.evolution_printer = FilePrinter(
-                file_name=f"{file_prefix}-evolution.csv",
-                save_freq=save_freq,
-                header=["iter", "niche_id", "objective", "fitness"]
-                + [f"x_{i}" for i in range(2)],  # Assuming 2D for now
-                resume=resume,
-            )
+            if ndim > 0:
+                self.evolution_printer = FilePrinter(
+                    file_name=f"{file_prefix}-evolution.csv",
+                    save_freq=save_freq,
+                    header=["iter", "niche_id", "objective", "noptimal", "fitness"]
+                    + [f"x_{i}" for i in range(ndim)],
+                    resume=resume,
+                )
+            else:
+                self.evolution_printer = FilePrinter(
+                    file_name=f"{file_prefix}-evolution.csv",
+                    save_freq=save_freq,
+                    header=["iter", "niche_id", "objective", "noptimal", "fitness", "..."],
+                    resume=resume,
+                )
+
         self.noptima_printer = FilePrinter(
             file_name=f"{file_prefix}-noptima.csv",
             save_freq=-1,  # Only writes once at the end
