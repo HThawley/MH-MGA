@@ -63,7 +63,8 @@ spec = [
     ('mutation_prob', nb_float[:]),
     ('mutation_sigma', nb_float[:]),
     ('crossover_prob', nb_float[:]),
-    ('noptimal_slack', nb_float),
+    ('noptimal_rel', nb_float),
+    ('noptimal_abs', nb_float),
     ('violation_factor', nb_float),
     ('niche_elitism', nb_int),
     ('mutation_prob_inst', nb_float),
@@ -130,7 +131,8 @@ class Population:
 
     def populate(
             self,
-            noptimal_slack: float = np.inf,
+            noptimal_rel: float = 0.0,
+            noptimal_abs: float = 0.0,
             violation_factor: float = 0.0,
             x0=np.empty(0, FLOAT),
     ):
@@ -140,7 +142,8 @@ class Population:
         if not self.problem_loaded:
             raise RuntimeError("Problem not loaded. Load problem before populating.")
 
-        self.noptimal_slack = noptimal_slack
+        self.noptimal_rel = noptimal_rel
+        self.noptimal_abs = noptimal_abs
         self.violation_factor = violation_factor
 
         if x0.size == 0:
@@ -202,7 +205,8 @@ class Population:
         mutation_sigma: np.ndarray[float],
         crossover_prob: np.ndarray[float],
         niche_elitism: int,
-        noptimal_slack: float,
+        noptimal_rel: float,
+        noptimal_abs: float,
         violation_factor: float,
     ):
         self.elite_count = INT(elite_count)
@@ -212,7 +216,8 @@ class Population:
         self.mutation_sigma = mutation_sigma.astype(FLOAT)
         self.crossover_prob = crossover_prob.astype(FLOAT)
         self.niche_elitism = INT(niche_elitism)
-        self.noptimal_slack = FLOAT(noptimal_slack)
+        self.noptimal_rel = FLOAT(noptimal_rel)
+        self.noptimal_abs = FLOAT(noptimal_abs)
         self.violation_factor = FLOAT(violation_factor)
 
     def select_parents(self):
@@ -533,9 +538,12 @@ class Population:
                     self.is_noptimal[i, j] = self.penalized_objectives[i, j] < self.noptimal_threshold
 
     def _update_noptimal_threshold(self):
+        margin = abs(self.current_optima_pob[0]) * (self.noptimal_rel) + self.noptimal_abs
+
         if self.maximize:
-            self.noptimal_threshold = self.current_optima_pob[0] * (1 - (self.noptimal_slack - 1))
-        self.noptimal_threshold = self.current_optima_pob[0] * self.noptimal_slack
+            self.noptimal_threshold = self.current_optima_pob[0] - margin
+        else:
+            self.noptimal_threshold = self.current_optima_pob[0] + margin
 
     def _find_global_best_idx(self):
         """

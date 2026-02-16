@@ -79,7 +79,8 @@ class MGAProblem:
         self.mutation_sigma = FLOAT(0.0)
         self.crossover_prob = FLOAT(0.0)
         self.niche_elitism = None
-        self.noptimal_slack = FLOAT(1.0)
+        self.noptimal_rel = FLOAT(0.0)
+        self.noptimal_abs = FLOAT(0.0)
         self.current_best_obj = FLOAT(0)
         self.mean_fitness = FLOAT(0)
         self.hyperparameters_set = False
@@ -125,7 +126,8 @@ class MGAProblem:
             mutation_sigma: float | tuple[float, float] = 0.05,
             crossover_prob: float | tuple[float, float] = 0.4,
             violation_factor: float = 1.0,
-            noptimal_slack: float = np.inf,
+            noptimal_rel: float = 0.0,
+            noptimal_abs: float = 0.0,
             niche_elitism: str = "selfish",
             ):
         typing.sanitize_type(max_iter, "integer", "max_iter")
@@ -159,9 +161,13 @@ class MGAProblem:
         typing.sanitize_range(violation_factor, "violation_factor", ge=1)
         self.violation_factor = FLOAT(violation_factor)
 
-        typing.sanitize_type(noptimal_slack, "float", "noptimal_slack")
-        typing.sanitize_range(noptimal_slack, "noptimal_slack", ge=0)
-        self.noptimal_slack = FLOAT(noptimal_slack)
+        typing.sanitize_type(noptimal_rel, "float", "noptimal_rel")
+        typing.sanitize_range(noptimal_rel, "noptimal_rel", ge=0)
+        self.noptimal_rel = FLOAT(noptimal_rel)
+
+        typing.sanitize_type(noptimal_abs, "float", "noptimal_abs")
+        typing.sanitize_range(noptimal_abs, "noptimal_abs", ge=0)
+        self.noptimal_abs = FLOAT(noptimal_abs)
 
         if niche_elitism not in (None, "selfish", "unselfish"):
             raise ValueError(
@@ -222,7 +228,8 @@ class MGAProblem:
             self.mutation_sigma,
             self.crossover_prob,
             self.niche_elitism_int,
-            self.noptimal_slack,
+            self.noptimal_rel,
+            self.noptimal_abs,
             self.violation_factor,
         )
 
@@ -310,7 +317,7 @@ class MGAProblem:
                 stable_sort=self.stable_sort,
             )
             load_problem_to_population(self.population, self.problem)
-            self.population.populate(self.noptimal_slack, self.violation_factor, self.x0)
+            self.population.populate(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
             self.evaluate_and_update_population(False)
 
             self._is_populated = True

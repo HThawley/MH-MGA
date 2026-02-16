@@ -16,7 +16,7 @@ def objective_function(values_array):
     for i in range(values_array.shape[0]):
         for j in range(values_array.shape[1]):
             z[i] += np.sin(19 * np.pi * values_array[i, j]) + values_array[i, j] / 1.7
-    return 10 - z
+    return z
 
 
 def main(run=True, plot=True, seed=None):
@@ -31,7 +31,7 @@ def main(run=True, plot=True, seed=None):
         problem = OptimizationProblem(
             objective=objective_function,
             bounds=(np.zeros(2), np.ones(2)),
-            maximize=False,
+            maximize=True,
             vectorized=True,
             constraints=False,
         )
@@ -55,8 +55,8 @@ def main(run=True, plot=True, seed=None):
             mutation_prob=0.25,
             mutation_sigma=(0.05, 0.5),
             crossover_prob=0.0,
-            niche_elitism=None,  # "selfish",
-            noptimal_slack=1.12,
+            niche_elitism="selfish",
+            noptimal_rel=0.12,
         )
         algorithm.step(disp_rate=1)
 
@@ -70,7 +70,7 @@ def main(run=True, plot=True, seed=None):
         #     mutation_sigma=0.05,
         #     crossover_prob=0.0,
         #     niche_elitism="selfish",
-        #     noptimal_slack=1.12,
+        #     noptimal_rel=0.12,
         # )
         # algorithm.step(disp_rate=5)
 
