@@ -96,26 +96,23 @@ class OptimizationProblem:
             print("known optimum not supplied, setting to center of bounds")
             self.known_optimum_point = (self.upper_bounds + self.lower_bounds)/2
 
-        if self.vectorized and self.constraints:
-            obj, viol = self.objective(
-                np.atleast_2d(self.known_optimum_point), *self.fargs, **self.fkwargs
-            )
-            if viol != 0:
-                self.known_optimum_value = -np.inf if self.maximize else np.inf
-            else:
-                self.known_optimum_value = obj
-        elif self.vectorized and not self.constraints:
-            self.known_optimum_value = self.objective(
-                np.atleast_2d(self.known_optimum_point), *self.fargs, **self.fkwargs
-            )
-        elif not self.vectorized and self.constraints:
-            obj, viol = self.objective(self.known_optimum_point, *self.fargs, **self.fkwargs)
+        point = np.atleast_2d(self.known_optimum_point) if self.vectorized else self.known_optimum_point
+
+        if self.objective_jitted:  # does not support kwargs
+            if self.fkwargs:
+                raise ValueError("Jitted objective function does not accept kwargs.")
+            result = self.objective(point, *self.fargs)
+        else:
+            result = self.objective(point, *self.fargs, **self.fkwargs)
+
+        if self.constraints:
+            obj, viol = result
             if viol != 0:
                 self.known_optimum_value = -np.inf if self.maximize else np.inf
             else:
                 self.known_optimum_value = obj
         else:
-            self.known_optimum_value = self.objective(self.known_optimum_point, *self.fargs, **self.fkwargs)
+            self.known_optimum_value = result
 
 
 class MultiObjectiveProblem:
