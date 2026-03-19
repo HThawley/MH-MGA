@@ -30,25 +30,29 @@ spec = [
     ('booleanality', nb_bool[:]),
     ('maximize', nb_bool),
     ('lower_bounds', nb_float[:]),
+    ('scaled_lower_bounds', nb_float[:]),
     ('upper_bounds', nb_float[:]),
+    ('scaled_upper_bounds', nb_float[:]),
     ('problem_loaded', nb_bool),
     ('rng', npy_rng),
     ('float_mut', nb_bool),
 
     # Main population arrays
     ('points', nb_float[:, :, :]),
+    ('scaled_points', nb_float[:, :, :]),
     ('objective_values', nb_float[:, :]),
     ('violations', nb_float[:, :]),
     ('penalized_objectives', nb_float[:, :]),
     ('feasible_mask', nb_bool[:, :]),
     ('fitnesses', nb_float[:, :]),
     ('is_noptimal', nb_bool[:, :]),
-    ('centroids', nb_float[:, :]),
+    ('scaled_centroids', nb_float[:, :]),
     ('niche_elites', nb_float[:, :, :]),
     ('parents', nb_float[:, :, :]),
 
     # Optima tracking
     ('current_optima', nb_float[:, :]),
+    ('scaled_current_optima', nb_float[:, :]),
     ('current_optima_obj', nb_float[:]),
     ('current_optima_pob', nb_float[:]),
     ('current_optima_fit', nb_float[:]),
@@ -70,6 +74,8 @@ spec = [
     ('mutation_prob_inst', nb_float),
     ('mutation_sigma_inst', nb_float),
     ('crossover_prob_inst', nb_float),
+    ('mutation_scaler', nb_float[:]),
+    ('space_scaler', nb_float[:]),
 
     # Metrics
     ('vesa', nb_float),
@@ -106,28 +112,45 @@ class Population:
         self.booleanality = np.empty(0, np.bool_)
         self.maximize = False
         self.lower_bounds = np.empty(0, FLOAT)
+        self.scaled_lower_bounds = np.empty(0, FLOAT)
         self.upper_bounds = np.empty(0, FLOAT)
+        self.scaled_upper_bounds = np.empty(0, FLOAT)
         self.problem_loaded = False
 
         # Population data arrays
         self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=FLOAT)
+        self.scaled_points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=FLOAT)
         self.objective_values = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.violations = np.zeros((self.num_niches, self.pop_size), dtype=FLOAT)
         self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.is_noptimal = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.centroids = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
+        self.scaled_centroids = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
         self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=FLOAT)
         self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=FLOAT)
 
         # Overall best found
         self.current_optima = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
+        self.scaled_current_optima = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
         self.current_optima_obj = np.empty((self.num_niches), dtype=FLOAT)
         self.current_optima_pob = np.empty((self.num_niches), dtype=FLOAT)
         self.current_optima_fit = np.empty((self.num_niches), dtype=FLOAT)
         self.current_optima_nop = np.empty((self.num_niches), dtype=np.bool_)
         self.noptimal_threshold = 0.0
+
+        self.elite_count = 0
+        self.tourn_count = 0
+        self.tourn_size = 0
+        self.mutation_prob = np.empty((0,), dtype=FLOAT)
+        self.mutation_sigma = np.empty((0,), dtype=FLOAT)
+        self.crossover_prob = np.empty((0,), dtype=FLOAT)
+        self.niche_elitism = 0
+        self.noptimal_rel = 0.0
+        self.noptimal_abs = 0.0
+        self.violation_factor = 0.0
+        self.mutation_scaler = np.empty((0,), dtype=FLOAT)
+        self.space_scaler = np.empty((0,), dtype=FLOAT)
 
     def populate(
             self,
@@ -208,6 +231,8 @@ class Population:
         noptimal_rel: float,
         noptimal_abs: float,
         violation_factor: float,
+        mutation_scaler: np.ndarray[float],
+        space_scaler: np.ndarray[float],
     ):
         self.elite_count = INT(elite_count)
         self.tourn_count = INT(tourn_count)
@@ -219,6 +244,10 @@ class Population:
         self.noptimal_rel = FLOAT(noptimal_rel)
         self.noptimal_abs = FLOAT(noptimal_abs)
         self.violation_factor = FLOAT(violation_factor)
+        self.mutation_scaler = mutation_scaler.astype(FLOAT)
+        self.space_scaler = space_scaler.astype(FLOAT)
+
+        self._rescale_bounds()
 
     def select_parents(self):
         """
@@ -267,8 +296,8 @@ class Population:
             # evaluate fitness w.r.t. each other
             fit_metrics.evaluate_fitness_dist_to_centroids(
                 _fitness,
-                np.atleast_3d(self.current_optima).transpose(1, 0, 2),
-                self.current_optima
+                np.atleast_3d(self.scaled_current_optima).transpose(1, 0, 2),
+                self.scaled_current_optima
             )
 
             # update niche_elites
@@ -295,7 +324,7 @@ class Population:
             )
 
         # Mutation
-        sigma_vals = self.mutation_sigma_inst * (self.upper_bounds - self.lower_bounds)
+        sigma_vals = self.mutation_sigma_inst * self.mutation_scaler
         if self.float_mut:
             mutation.mutate_gaussian_population_float(
                 points=self.points,
@@ -327,7 +356,7 @@ class Population:
                 self.points[i, 0, :] = self.niche_elites[i - 1]
 
         self._apply_bounds()
-        # self._apply_integrality() # handled by mutation function
+        self._scale_points()
 
     def update_optima(self):
         """
@@ -341,16 +370,13 @@ class Population:
         gi, gj = self._find_global_best_idx()
         if gi != -1:
             self.current_optima[0, :] = self.points[gi, gj]
+            self.scaled_current_optima[0, :] = self.scaled_points[gi, gj]
             self.current_optima_obj[0] = self.objective_values[gi, gj]
             self.current_optima_pob[0] = self.penalized_objectives[gi, gj]
             self.current_optima_fit[0] = self.fitnesses[gi, gj]
             # logically must be true but self.is_noptimal has not been calculated yet
             self.current_optima_nop[0] = True
 
-        if self.current_optima_obj[0] < 0:
-            print("WARNING: Negative optimal objective encountered. "
-                  "Optimum should be positive definite for mga slack logic."
-                  "Consider using a large scalar offset.")
         self._update_noptimal_threshold()
         self._evaluate_noptimality()
 
@@ -358,6 +384,7 @@ class Population:
         js = self._find_best_in_niche()
         for i in range(1, self.num_niches):
             self.current_optima[i, :] = self.points[i, js[i], :]
+            self.scaled_current_optima[i, :] = self.scaled_points[i, js[i], :]
             self.current_optima_obj[i] = self.objective_values[i, js[i]]
             self.current_optima_pob[i] = self.penalized_objectives[i, js[i]]
             self.current_optima_fit[i] = self.fitnesses[i, js[i]]
@@ -367,30 +394,30 @@ class Population:
         """
         Calculates fitness for each individual based on distance to other niche centroids.
         """
-        self._find_centroids()
-        fit_metrics.evaluate_fitness_dist_to_centroids(self.fitnesses, self.points, self.centroids)
+        self._find_scaled_centroids()
+        fit_metrics.evaluate_fitness_dist_to_centroids(self.fitnesses, self.scaled_points, self.scaled_centroids)
 
     def evaluate_diversity(self):
         """
         Calculates and returns a vector of diversity metrics for the current population state.
         """
-        nopt_points = self.current_optima[self.current_optima_nop]
+        scaled_nopt_points = self.scaled_current_optima[self.current_optima_nop]
 
         # VESA
-        if nopt_points.shape[0] >= self.ndim + 1:
+        if scaled_nopt_points.shape[0] >= self.ndim + 1:
             self.vesa = diversity.volume_estimation_by_shadow_addition(
-                nopt_points, np.ones(nopt_points.shape[0], dtype=np.bool_)
+                scaled_nopt_points, np.ones(scaled_nopt_points.shape[0], dtype=np.bool_)
             )
         else:
             self.vesa = 0.0
 
         # Shannon Index
-        if nopt_points.shape[0] >= 1:
+        if scaled_nopt_points.shape[0] >= 1:
             self.shannon = diversity.mean_of_shannon_of_projections(
-                nopt_points,
-                np.ones(nopt_points.shape[0], dtype=np.bool_),
-                self.lower_bounds,
-                self.upper_bounds,
+                scaled_nopt_points,
+                np.ones(scaled_nopt_points.shape[0], dtype=np.bool_),
+                self.scaled_lower_bounds,
+                self.scaled_upper_bounds,
             )
         else:
             self.shannon = 0.0
@@ -434,16 +461,18 @@ class Population:
         if new_niche_size != self.num_niches:
             new_niche_size = INT(new_niche_size)
             self.points = _add_niche_to_array(self.points, new_niche_size)
+            self.scaled_points = _add_niche_to_array(self.scaled_points, new_niche_size)
             self.objective_values = _add_niche_to_array(self.objective_values, new_niche_size)
             self.violations = _add_niche_to_array(self.violations, new_niche_size)
             self.penalized_objectives = _add_niche_to_array(self.penalized_objectives, new_niche_size)
             self.fitnesses = _add_niche_to_array(self.fitnesses, new_niche_size)
             self.is_noptimal = _add_niche_to_array(self.is_noptimal, new_niche_size)
-            self.centroids = _add_niche_to_array(self.centroids, new_niche_size)
+            self.scaled_centroids = _add_niche_to_array(self.scaled_centroids, new_niche_size)
             self.niche_elites = _add_niche_to_array(self.niche_elites, new_niche_size - 1)
             self.parents = _add_niche_to_array(self.parents, new_niche_size)
 
             self.current_optima = _add_niche_to_array(self.current_optima, new_niche_size)
+            self.scaled_current_optima = _add_niche_to_array(self.scaled_current_optima, new_niche_size)
             self.current_optima_obj = _add_niche_to_array(self.current_optima_obj, new_niche_size)
             self.current_optima_pob = _add_niche_to_array(self.current_optima_pob, new_niche_size)
             self.current_optima_fit = _add_niche_to_array(self.current_optima_fit, new_niche_size)
@@ -493,6 +522,8 @@ class Population:
 
             # Replace points array and re-initialize metric arrays
             self.points = new_points
+            self.scaled_points = np.empty((self.num_niches, new_pop_size, self.ndim))
+            self._scale_points()
             self.objective_values = np.empty((self.num_niches, new_pop_size))
             self.violations = np.zeros((self.num_niches, new_pop_size))
             self.penalized_objectives = np.empty((self.num_niches, new_pop_size))
@@ -512,16 +543,28 @@ class Population:
                 self.parents = np.empty((self.num_niches, new_parent_size, self.ndim), FLOAT)
                 self.parent_size = INT(new_parent_size)
 
-    def _find_centroids(self):
+    def _find_scaled_centroids(self):
         """
         Calculates the geometric center (centroid) of each niche.
         """
-        self.centroids[:, :] = 0.0
+        self.scaled_centroids[:, :] = 0.0
         for i in range(self.num_niches):
             for j in range(self.pop_size):
                 for k in range(self.ndim):
-                    self.centroids[i, k] += self.points[i, j, k]
-        self.centroids /= self.points.shape[1]
+                    self.scaled_centroids[i, k] += self.scaled_points[i, j, k]
+        self.scaled_centroids /= self.points.shape[1]
+
+    def _scale_points(self):
+        """project points onto other space defined by space_scaler"""
+        for i in range(self.num_niches):
+            for j in range(self.pop_size):
+                for k in range(self.ndim):
+                    self.scaled_points[i, j, k] = self.points[i, j, k] / self.space_scaler[k]
+
+    def _rescale_bounds(self):
+        for k in range(self.ndim):
+            self.scaled_lower_bounds[k] = self.lower_bounds[k] / self.space_scaler[k]
+            self.scaled_upper_bounds[k] = self.upper_bounds[k] / self.space_scaler[k]
 
     def _evaluate_noptimality(self):
         """

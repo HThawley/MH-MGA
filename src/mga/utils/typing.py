@@ -6,7 +6,7 @@ from typing import Type
 NoneType = type(None)
 
 
-def sanitize_array_type(obj, dtype, name):
+def sanitize_array_type(obj, dtype, name, length=None):
     if not is_array_like(obj):
         raise TypeError(f"'{name}' expected array-like. Got: {type(obj)}")
     if not array_dtype_is(obj, dtype):
@@ -14,6 +14,10 @@ def sanitize_array_type(obj, dtype, name):
             raise TypeError(f"Array-like '{name}' expected dtype: {dtype}. Got: {obj.dtype}")
         else:
             raise TypeError(f"Array-like '{name}' expected dtype: {dtype}. Inferred: {type(obj[0])}")
+    if length is not None:
+        _len = len(obj)
+        if _len != length:
+            raise ValueError(f"Array-like '{name}' expected length: {length}. Got {_len}")
     return True
 
 

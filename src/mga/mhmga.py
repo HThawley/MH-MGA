@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.typing import NDArray
 from datetime import datetime as dt
 import warnings
 from numba import njit, prange
@@ -81,6 +82,8 @@ class MGAProblem:
         self.niche_elitism = None
         self.noptimal_rel = FLOAT(0.0)
         self.noptimal_abs = FLOAT(0.0)
+        self.mutation_scaler = None
+        self.space_scaler = None
         self.current_best_obj = FLOAT(0)
         self.mean_fitness = FLOAT(0)
         self.hyperparameters_set = False
@@ -129,6 +132,8 @@ class MGAProblem:
             noptimal_rel: float = 0.0,
             noptimal_abs: float = 0.0,
             niche_elitism: str = "selfish",
+            mutation_scaler: NDArray = None,
+            space_scaler: NDArray = None,
             ):
         typing.sanitize_type(max_iter, "integer", "max_iter")
         typing.sanitize_range(max_iter, "max_iter", ge=1)
@@ -187,6 +192,17 @@ class MGAProblem:
         self.elite_count = INT(elite_count)
         self.tourn_count = INT(tourn_count)
 
+        if mutation_scaler is None:
+            self.mutation_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
+        else:
+            typing.sanitize_array_type(mutation_scaler, 'float', 'mutation_scaler', self.problem.ndim)
+            self.mutation_scaler = FLOAT(mutation_scaler)
+        if space_scaler is None:
+            self.space_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
+        else:
+            typing.sanitize_array_type(space_scaler, 'float', 'space_scaler', self.problem.ndim)
+            self.space_scaler = FLOAT(space_scaler)
+
         self.hyperparameters_set = True
 
     def step(  # noqa: C901
@@ -231,6 +247,8 @@ class MGAProblem:
             self.noptimal_rel,
             self.noptimal_abs,
             self.violation_factor,
+            self.mutation_scaler,
+            self.space_scaler,
         )
 
         # Main algorithm loop
