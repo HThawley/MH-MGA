@@ -216,7 +216,7 @@ class MGAProblem:
                 "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
             )
 
-        if str(space_scaler).lower() == "bounds" or not space_scaler_given:
+        if (str(space_scaler).lower() == "bounds") or not space_scaler_given:
             self.space_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
         elif space_scaler is None:
             self.space_scaler = np.ones(self.problem.ndim, dtype=FLOAT)
@@ -229,11 +229,10 @@ class MGAProblem:
             warnings.warn(
                 "[MHMGA] include_obj_in_fitness is set to False. 'objective_scaler' will be ignored", UserWarning
             )
-
-        typing.sanitize_type(objective_scaler, 'float', 'objective_scaler')
-        if not self.include_obj_in_fitness or not objective_scaler_given:
+        if (not self.include_obj_in_fitness) or (not objective_scaler_given):
             self.objective_scaler = FLOAT(1.0)
         else:
+            typing.sanitize_type(objective_scaler, 'float', 'objective_scaler')
             self.objective_scaler = FLOAT(objective_scaler)
 
         self.hyperparameters_set = True

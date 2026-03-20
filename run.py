@@ -57,7 +57,7 @@ def main(run=True, plot=True, seed=None):
             crossover_prob=0.0,
             niche_elitism="selfish",
             noptimal_rel=0.12,
-            space_scaler=np.array([2.0, 1.0])
+            space_scaler=np.array([2.0, 1.0]),
         )
         algorithm.step(disp_rate=1)
 
