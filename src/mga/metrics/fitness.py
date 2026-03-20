@@ -22,7 +22,7 @@ def evaluate_fitness_dist_to_centroids(fitness, points, centroids):
 
 @njit
 def evaluate_fitness_dist_to_centroids_ext(
-    fitness, points, centroids, objective_values, objective_scaler
+    fitness, points, centroids, raw_objectives, objective_scaler
 ):
     """
     Calculates fitness including the scaled objective value as an additional dimension.
@@ -32,7 +32,7 @@ def evaluate_fitness_dist_to_centroids_ext(
     for i in range(points.shape[0]):
         for j in range(points.shape[1]):
             min_dist = np.inf
-            scaled_obj = objective_values[i, j] / objective_scaler
+            scaled_obj = raw_objectives[i, j] / objective_scaler
             for c in range(centroids.shape[0]):
                 if i == c:
                     continue

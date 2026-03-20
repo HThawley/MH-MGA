@@ -173,9 +173,9 @@ class Logger:
             iteration (int): The current iteration number.
             population (Population): The population object containing current state.
         """
-        self.nobjective_printer(population.current_optima_obj)
-        self.noptimality_printer(population.current_optima_nop.astype(int))
-        self.nfitness_printer(population.current_optima_fit)
+        self.nobjective_printer(population.optima_raw_objectives)
+        self.noptimality_printer(population.optima_noptimal_mask.astype(int))
+        self.nfitness_printer(population.optima_fitnesses)
 
         # Log diversity metrics
         diversity_row = self._calculate_diversity_metrics(iteration, population)
@@ -187,9 +187,9 @@ class Logger:
                 [
                     np.full(population.num_niches, iteration),
                     [f"nopt{i}" for i in range(population.num_niches)],
-                    population.current_optima_obj,
-                    population.current_optima_fit,
-                    population.current_optima,
+                    population.optima_raw_objectives,
+                    population.optima_fitnesses,
+                    population.optima_points,
                 ]
             )
             self.evolution_printer(evolution_data)
@@ -203,13 +203,13 @@ class Logger:
         """
         print("Finalizing logs...")
         # Write final n-optima data
-        niche_names = ["optimum"] + [f"nopt{i}" for i in range(1, len(population.current_optima))]
+        niche_names = ["optimum"] + [f"nopt{i}" for i in range(1, len(population.optima_points))]
         final_data = np.vstack(
             [
                 niche_names,
-                population.current_optima_obj,
-                population.current_optima_nop.astype(int),
-                population.current_optima.T,
+                population.optima_raw_objectives,
+                population.optima_noptimal_mask.astype(int),
+                population.optima_points.T,
             ]
         )
         self.noptima_printer(final_data)
@@ -237,7 +237,7 @@ class Logger:
                     np.mean(population.variances) if population.variances.size > 0 else 0.0,
                     np.min(population.variances) if population.variances.size > 0 else 0.0,
                     np.max(population.variances) if population.variances.size > 0 else 0.0,
-                    diversity.sum_of_fitness(population.fitnesses, population.is_noptimal),
+                    diversity.sum_of_fitness(population.fitnesses, population.noptimal_mask),
                     population.mean_fitness,
                 ]
             ]

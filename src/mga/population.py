@@ -24,7 +24,7 @@ spec = [
     ('pop_size', nb_int),
     ('ndim', nb_int),
     ('parent_size', nb_int),
-    ('unselfish_niche_fit', nb_float),
+    ('unselfish_niche_fitness_threshold', nb_float),
     ('stable_sort', nb_bool),
     ('include_obj_in_fitness', nb_bool),
 
@@ -38,28 +38,28 @@ spec = [
     ('scaled_upper_bounds', nb_float[:]),
     ('problem_loaded', nb_bool),
     ('rng', npy_rng),
-    ('float_mut', nb_bool),
+    ('is_continuous_space', nb_bool),
 
     # Main population arrays
     ('points', nb_float[:, :, :]),
     ('scaled_points', nb_float[:, :, :]),
-    ('objective_values', nb_float[:, :]),
+    ('raw_objectives', nb_float[:, :]),
     ('violations', nb_float[:, :]),
     ('penalized_objectives', nb_float[:, :]),
     ('feasible_mask', nb_bool[:, :]),
     ('fitnesses', nb_float[:, :]),
-    ('is_noptimal', nb_bool[:, :]),
+    ('noptimal_mask', nb_bool[:, :]),
     ('scaled_centroids', nb_float[:, :]),
     ('niche_elites', nb_float[:, :, :]),
     ('parents', nb_float[:, :, :]),
 
     # Optima tracking
-    ('current_optima', nb_float[:, :]),
-    ('scaled_current_optima', nb_float[:, :]),
-    ('current_optima_obj', nb_float[:]),
-    ('current_optima_pob', nb_float[:]),
-    ('current_optima_fit', nb_float[:]),
-    ('current_optima_nop', nb_bool[:]),
+    ('optima_points', nb_float[:, :]),
+    ('optima_scaled_points', nb_float[:, :]),
+    ('optima_raw_objectives', nb_float[:]),
+    ('optima_penalized_objectives', nb_float[:]),
+    ('optima_fitnesses', nb_float[:]),
+    ('optima_noptimal_mask', nb_bool[:]),
     ('noptimal_threshold', nb_float),
 
     # Hyperparameters
@@ -74,12 +74,12 @@ spec = [
     ('noptimal_abs', nb_float),
     ('violation_factor', nb_float),
     ('niche_elitism', nb_int),
-    ('mutation_prob_inst', nb_float),
-    ('mutation_sigma_inst', nb_float),
-    ('crossover_prob_inst', nb_float),
     ('mutation_scaler', nb_float[:]),
     ('space_scaler', nb_float[:]),
     ('objective_scaler', nb_float),
+    ('current_mutation_prob', nb_float),
+    ('mutation_sigma_inst', nb_float),
+    ('current_crossover_prob', nb_float),
 
     # Metrics
     ('vesa', nb_float),
@@ -109,7 +109,7 @@ class Population:
         self.pop_size = INT(pop_size)
         self.ndim = INT(ndim)
         self.parent_size = INT(0)
-        self.unselfish_niche_fit = FLOAT(0.0)
+        self.unselfish_niche_fitness_threshold = FLOAT(0.0)
         self.stable_sort = stable_sort
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
@@ -127,12 +127,12 @@ class Population:
         # Population data arrays
         self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=FLOAT)
         self.scaled_points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=FLOAT)
-        self.objective_values = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
+        self.raw_objectives = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.violations = np.zeros((self.num_niches, self.pop_size), dtype=FLOAT)
         self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
         self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
-        self.is_noptimal = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
+        self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=FLOAT)
         self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=FLOAT)
         if self.include_obj_in_fitness:
@@ -141,12 +141,12 @@ class Population:
             self.scaled_centroids = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
 
         # Overall best found
-        self.current_optima = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
-        self.scaled_current_optima = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
-        self.current_optima_obj = np.empty((self.num_niches), dtype=FLOAT)
-        self.current_optima_pob = np.empty((self.num_niches), dtype=FLOAT)
-        self.current_optima_fit = np.empty((self.num_niches), dtype=FLOAT)
-        self.current_optima_nop = np.empty((self.num_niches), dtype=np.bool_)
+        self.optima_points = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
+        self.optima_scaled_points = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
+        self.optima_raw_objectives = np.empty((self.num_niches), dtype=FLOAT)
+        self.optima_penalized_objectives = np.empty((self.num_niches), dtype=FLOAT)
+        self.optima_fitnesses = np.empty((self.num_niches), dtype=FLOAT)
+        self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
         self.noptimal_threshold = 0.0
 
         self.elite_count = 0
@@ -162,7 +162,7 @@ class Population:
         self.mutation_scaler = np.empty((0,), dtype=FLOAT)
         self.space_scaler = np.empty((0,), dtype=FLOAT)
 
-    def populate(
+    def initialize_population(
             self,
             noptimal_rel: float = 0.0,
             noptimal_abs: float = 0.0,
@@ -284,7 +284,7 @@ class Population:
                 self.parents[i],
                 self.points[i],
                 self.fitnesses[i],
-                self.is_noptimal[i],
+                self.noptimal_mask[i],
                 self.penalized_objectives[i],
                 self.maximize,
                 self.elite_count,
@@ -308,14 +308,14 @@ class Population:
             # evaluate fitness w.r.t. each other
             fit_metrics.evaluate_fitness_dist_to_centroids(
                 _fitness,
-                np.atleast_3d(self.scaled_current_optima).transpose(1, 0, 2),
-                self.scaled_current_optima
+                np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
+                self.optima_scaled_points
             )
 
             # update niche_elites
-            if np.mean(_fitness) > self.unselfish_niche_fit:
-                self.unselfish_niche_fit = np.mean(_fitness)
-                njit_deepcopy(self.niche_elites, self.current_optima[1:])
+            if np.mean(_fitness) > self.unselfish_niche_fitness_threshold:
+                self.unselfish_niche_fitness_threshold = np.mean(_fitness)
+                njit_deepcopy(self.niche_elites, self.optima_points[1:])
 
         _clone(self.points, self.parents)
 
@@ -323,46 +323,46 @@ class Population:
         if self.ndim > 2:
             crossover.crossover_population(
                 points=self.points,
-                indpb=self.crossover_prob_inst,
+                indpb=self.current_crossover_prob,
                 cx_func=crossover._cx_two_point,
                 rng=self.rng,
             )
         else:
             crossover.crossover_population(
                 points=self.points,
-                indpb=self.crossover_prob_inst,
+                indpb=self.current_crossover_prob,
                 cx_func=crossover._cx_one_point,
                 rng=self.rng,
             )
 
         # Mutation
         sigma_vals = self.mutation_sigma_inst * self.mutation_scaler
-        if self.float_mut:
+        if self.is_continuous_space:
             mutation.mutate_gaussian_population_float(
                 points=self.points,
                 sigma=sigma_vals,
-                indpb=self.mutation_prob_inst,
+                indpb=self.current_mutation_prob,
                 rng=self.rng,
             )
         else:
             mutation.mutate_gaussian_population_mixed(
                 points=self.points,
                 sigma=sigma_vals,
-                indpb=self.mutation_prob_inst,
+                indpb=self.current_mutation_prob,
                 rng=self.rng,
                 integrality=self.integrality,
                 booleanality=self.booleanality,
             )
 
         # Elitism: preserve best individuals
-        self.points[0, 0, :] = self.current_optima[0]
+        self.points[0, 0, :] = self.optima_points[0]
         if self.niche_elitism == 1:
             # This part could be enhanced, for now, we just preserve the best from each parent set
             for i in range(1, self.num_niches):
-                if self.current_optima_nop[i]:  # only preserve if noptimal
-                    self.points[i, 0, :] = self.current_optima[i, :]
+                if self.optima_noptimal_mask[i]:  # only preserve if noptimal
+                    self.points[i, 0, :] = self.optima_points[i, :]
                 else:  # otherwise duplicate the current optimum
-                    self.points[i, 0, :] = self.current_optima[0, :]
+                    self.points[i, 0, :] = self.optima_points[0, :]
         elif self.niche_elitism == 2:
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.niche_elites[i - 1]
@@ -370,7 +370,7 @@ class Population:
         self._apply_bounds()
         self._scale_points()
 
-    def update_optima(self):
+    def track_optima(self):
         """
         Checks for and updates the global best solution found so far.
         Updates near-optima according to near-optimal slack
@@ -381,26 +381,26 @@ class Population:
 
         gi, gj = self._find_global_best_idx()
         if gi != -1:
-            self.current_optima[0, :] = self.points[gi, gj]
-            self.scaled_current_optima[0, :] = self.scaled_points[gi, gj]
-            self.current_optima_obj[0] = self.objective_values[gi, gj]
-            self.current_optima_pob[0] = self.penalized_objectives[gi, gj]
-            self.current_optima_fit[0] = self.fitnesses[gi, gj]
-            # logically must be true but self.is_noptimal has not been calculated yet
-            self.current_optima_nop[0] = True
+            self.optima_points[0, :] = self.points[gi, gj]
+            self.optima_scaled_points[0, :] = self.scaled_points[gi, gj]
+            self.optima_raw_objectives[0] = self.raw_objectives[gi, gj]
+            self.optima_penalized_objectives[0] = self.penalized_objectives[gi, gj]
+            self.optima_fitnesses[0] = self.fitnesses[gi, gj]
+            # logically must be true but self.noptimal_mask has not been calculated yet
+            self.optima_noptimal_mask[0] = True
 
         self._update_noptimal_threshold()
-        self._evaluate_noptimality()
+        self._update_noptimal_mask()
 
-        self.feasible_mask *= self.is_noptimal
+        self.feasible_mask *= self.noptimal_mask
         js = self._find_best_in_niche()
         for i in range(1, self.num_niches):
-            self.current_optima[i, :] = self.points[i, js[i], :]
-            self.scaled_current_optima[i, :] = self.scaled_points[i, js[i], :]
-            self.current_optima_obj[i] = self.objective_values[i, js[i]]
-            self.current_optima_pob[i] = self.penalized_objectives[i, js[i]]
-            self.current_optima_fit[i] = self.fitnesses[i, js[i]]
-            self.current_optima_nop[i] = self.is_noptimal[i, js[i]]
+            self.optima_points[i, :] = self.points[i, js[i], :]
+            self.optima_scaled_points[i, :] = self.scaled_points[i, js[i], :]
+            self.optima_raw_objectives[i] = self.raw_objectives[i, js[i]]
+            self.optima_penalized_objectives[i] = self.penalized_objectives[i, js[i]]
+            self.optima_fitnesses[i] = self.fitnesses[i, js[i]]
+            self.optima_noptimal_mask[i] = self.noptimal_mask[i, js[i]]
 
     def evaluate_fitness(self):
         """
@@ -412,7 +412,7 @@ class Population:
                 self.fitnesses,
                 self.scaled_points,
                 self.scaled_centroids,
-                self.objective_values,
+                self.raw_objectives,
                 self.objective_scaler,
             )
         else:
@@ -426,7 +426,7 @@ class Population:
         """
         Calculates and returns a vector of diversity metrics for the current population state.
         """
-        scaled_nopt_points = self.scaled_current_optima[self.current_optima_nop]
+        scaled_nopt_points = self.optima_scaled_points[self.optima_noptimal_mask]
 
         # VESA
         if scaled_nopt_points.shape[0] >= self.ndim + 1:
@@ -452,18 +452,18 @@ class Population:
 
         # Fitness statistics
         if self.fitnesses.size > 0:
-            self.stds = diversity.std(self.fitnesses, self.is_noptimal)
-            self.variances = diversity.var(self.fitnesses, self.is_noptimal)
-            self.mean_fitness = diversity.mean_of_fitness(self.fitnesses, self.is_noptimal)
+            self.stds = diversity.std(self.fitnesses, self.noptimal_mask)
+            self.variances = diversity.var(self.fitnesses, self.noptimal_mask)
+            self.mean_fitness = diversity.mean_of_fitness(self.fitnesses, self.noptimal_mask)
         else:
             self.stds = np.full(self.num_niches, np.inf)
             self.variances = np.full(self.num_niches, np.inf)
             self.mean_fitness = 0.0
 
-    def dither(self):
-        self.mutation_prob_inst = _dither(self.mutation_prob, self.rng)
+    def dither_probabilities(self):
+        self.current_mutation_prob = _dither(self.mutation_prob, self.rng)
         self.mutation_sigma_inst = _dither(self.mutation_sigma, self.rng)
-        self.crossover_prob_inst = _dither(self.crossover_prob, self.rng)
+        self.current_crossover_prob = _dither(self.crossover_prob, self.rng)
 
     def _apply_bounds(self):
         """
@@ -490,23 +490,23 @@ class Population:
             new_niche_size = INT(new_niche_size)
             self.points = _add_niche_to_array(self.points, new_niche_size)
             self.scaled_points = _add_niche_to_array(self.scaled_points, new_niche_size)
-            self.objective_values = _add_niche_to_array(self.objective_values, new_niche_size)
+            self.raw_objectives = _add_niche_to_array(self.raw_objectives, new_niche_size)
             self.violations = _add_niche_to_array(self.violations, new_niche_size)
             self.penalized_objectives = _add_niche_to_array(self.penalized_objectives, new_niche_size)
             self.fitnesses = _add_niche_to_array(self.fitnesses, new_niche_size)
-            self.is_noptimal = _add_niche_to_array(self.is_noptimal, new_niche_size)
+            self.noptimal_mask = _add_niche_to_array(self.noptimal_mask, new_niche_size)
             self.scaled_centroids = _add_niche_to_array(self.scaled_centroids, new_niche_size)
             self.niche_elites = _add_niche_to_array(self.niche_elites, new_niche_size - 1)
             self.parents = _add_niche_to_array(self.parents, new_niche_size)
 
-            self.current_optima = _add_niche_to_array(self.current_optima, new_niche_size)
-            self.scaled_current_optima = _add_niche_to_array(self.scaled_current_optima, new_niche_size)
-            self.current_optima_obj = _add_niche_to_array(self.current_optima_obj, new_niche_size)
-            self.current_optima_pob = _add_niche_to_array(self.current_optima_pob, new_niche_size)
-            self.current_optima_fit = _add_niche_to_array(self.current_optima_fit, new_niche_size)
-            self.current_optima_nop = _add_niche_to_array(self.current_optima_nop, new_niche_size)
+            self.optima_points = _add_niche_to_array(self.optima_points, new_niche_size)
+            self.optima_scaled_points = _add_niche_to_array(self.optima_scaled_points, new_niche_size)
+            self.optima_raw_objectives = _add_niche_to_array(self.optima_raw_objectives, new_niche_size)
+            self.optima_penalized_objectives = _add_niche_to_array(self.optima_penalized_objectives, new_niche_size)
+            self.optima_fitnesses = _add_niche_to_array(self.optima_fitnesses, new_niche_size)
+            self.optima_noptimal_mask = _add_niche_to_array(self.optima_noptimal_mask, new_niche_size)
 
-            self.unselfish_niche_fit = FLOAT(0.0)
+            self.unselfish_niche_fitness_threshold = FLOAT(0.0)
             self.num_niches = new_niche_size
 
     def _resize_pop_size(self, new_pop_size: int):
@@ -538,7 +538,7 @@ class Population:
                         new_points[i],
                         self.points[i],
                         self.fitnesses[i],
-                        self.is_noptimal[i],
+                        self.noptimal_mask[i],
                         self.penalized_objectives[i],
                         self.maximize,
                         self.elite_count,
@@ -555,11 +555,11 @@ class Population:
                 self.scaled_points[:] = 0.0
             else:
                 self._scale_points()
-            self.objective_values = np.empty((self.num_niches, new_pop_size))
+            self.raw_objectives = np.empty((self.num_niches, new_pop_size))
             self.violations = np.zeros((self.num_niches, new_pop_size))
             self.penalized_objectives = np.empty((self.num_niches, new_pop_size))
             self.fitnesses = np.empty((self.num_niches, new_pop_size))
-            self.is_noptimal = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
+            self.noptimal_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
 
             self.pop_size = new_pop_size
 
@@ -587,7 +587,7 @@ class Population:
         if self.include_obj_in_fitness:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.scaled_centroids[i, self.ndim] += (self.objective_values[i, j] / self.objective_scaler)
+                    self.scaled_centroids[i, self.ndim] += (self.raw_objectives[i, j] / self.objective_scaler)
         self.scaled_centroids /= self.points.shape[1]
 
     def _scale_points(self):
@@ -604,7 +604,7 @@ class Population:
             self.scaled_lower_bounds[k] = self.lower_bounds[k] / self.space_scaler[k]
             self.scaled_upper_bounds[k] = self.upper_bounds[k] / self.space_scaler[k]
 
-    def _evaluate_noptimality(self):
+    def _update_noptimal_mask(self):
         """
         evaluate noptimality of evaluated points
         noptimality is based on raw objective, not penalized objective
@@ -612,19 +612,19 @@ class Population:
         if self.maximize:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.is_noptimal[i, j] = self.penalized_objectives[i, j] > self.noptimal_threshold
+                    self.noptimal_mask[i, j] = self.penalized_objectives[i, j] > self.noptimal_threshold
         else:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.is_noptimal[i, j] = self.penalized_objectives[i, j] < self.noptimal_threshold
+                    self.noptimal_mask[i, j] = self.penalized_objectives[i, j] < self.noptimal_threshold
 
     def _update_noptimal_threshold(self):
-        margin = abs(self.current_optima_pob[0]) * (self.noptimal_rel) + self.noptimal_abs
+        margin = abs(self.optima_penalized_objectives[0]) * (self.noptimal_rel) + self.noptimal_abs
 
         if self.maximize:
-            self.noptimal_threshold = self.current_optima_pob[0] - margin
+            self.noptimal_threshold = self.optima_penalized_objectives[0] - margin
         else:
-            self.noptimal_threshold = self.current_optima_pob[0] + margin
+            self.noptimal_threshold = self.optima_penalized_objectives[0] + margin
 
     def _find_global_best_idx(self):
         """
@@ -633,11 +633,11 @@ class Population:
         """
         if self.maximize:
             best_i, best_j = _argmax_with_mask_2d(
-                self.penalized_objectives, self.feasible_mask, self.current_optima_pob[0]
+                self.penalized_objectives, self.feasible_mask, self.optima_penalized_objectives[0]
             )
         else:
             best_i, best_j = _argmin_with_mask_2d(
-                self.penalized_objectives, self.feasible_mask, self.current_optima_pob[0]
+                self.penalized_objectives, self.feasible_mask, self.optima_penalized_objectives[0]
             )
 
         return best_i, best_j
@@ -786,11 +786,11 @@ def load_problem_to_population(
     population.lower_bounds = problem.lower_bounds
     population.upper_bounds = problem.upper_bounds
 
-    population.current_optima[0] = problem.known_optimum_point
-    population.current_optima_obj[0] = problem.known_optimum_value
-    population.current_optima_pob[0] = problem.known_optimum_value
+    population.optima_points[0] = problem.known_optimum_point
+    population.optima_raw_objectives[0] = problem.known_optimum_value
+    population.optima_penalized_objectives[0] = problem.known_optimum_value
     population.noptimal_threshold = -np.inf if population.maximize else np.inf
 
-    population.float_mut = (population.integrality.sum() == 0)
+    population.is_continuous_space = (population.integrality.sum() == 0)
 
     population.problem_loaded = True

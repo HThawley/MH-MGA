@@ -8,7 +8,7 @@ INT, FLOAT = DEFAULTS
 
 # API functions
 @njit
-def mean_of_shannon_of_projections(points, is_noptimal, lb, ub):
+def mean_of_shannon_of_projections(points, noptimal_mask, lb, ub):
     """
     mean of shannon index along each dimension of a set of points
     To be called on problem.noptima
@@ -17,7 +17,7 @@ def mean_of_shannon_of_projections(points, is_noptimal, lb, ub):
     nbin = max(2, int(npoint**0.5))  # sqrt of number of samples, consider updating later
     acc = 0
     counts = np.zeros(nbin, dtype=INT)
-    feasible_points = points[is_noptimal].T
+    feasible_points = points[noptimal_mask].T
     for k in range(ndim):
         counts[:] = 0
         acc += _shannon_index(feasible_points[k], lb[k], ub[k], nbin, npoint, counts)
@@ -27,13 +27,13 @@ def mean_of_shannon_of_projections(points, is_noptimal, lb, ub):
 
 
 @njit
-def sum_of_fitness(fitness, is_noptimal):
+def sum_of_fitness(fitness, noptimal_mask):
     """sum of maximum (noptimal) fitness of each population"""
     acc = 0
     for i in range(fitness.shape[0]):
         _max = 0
         for j in range(fitness.shape[1]):
-            if is_noptimal[i, j]:
+            if noptimal_mask[i, j]:
                 if fitness[i, j] > _max:
                     _max = fitness[i, j]
         acc += _max
@@ -41,14 +41,14 @@ def sum_of_fitness(fitness, is_noptimal):
 
 
 @njit
-def mean_of_fitness(fitness, is_noptimal):
-    return sum_of_fitness(fitness, is_noptimal) / fitness.shape[0]
+def mean_of_fitness(fitness, noptimal_mask):
+    return sum_of_fitness(fitness, noptimal_mask) / fitness.shape[0]
 
 
 @njit
-def volume_estimation_by_shadow_addition(points, is_noptimal):
+def volume_estimation_by_shadow_addition(points, noptimal_mask):
     vesa = 0.0
-    feasible_points = points[is_noptimal].T
+    feasible_points = points[noptimal_mask].T
     for k in prange(points.shape[1]):
         for _k in range(k + 1, points.shape[1]):
             projection = np.stack((feasible_points[k], feasible_points[_k]), axis=-1)
@@ -57,15 +57,15 @@ def volume_estimation_by_shadow_addition(points, is_noptimal):
 
 
 @njit
-def std(quantity, is_noptimal):
+def std(quantity, noptimal_mask):
     """standard deviation. `quantity` may be problem.objective or problem.fitness"""
-    return _stat_measure(quantity, is_noptimal, np.std)
+    return _stat_measure(quantity, noptimal_mask, np.std)
 
 
 @njit
-def var(quantity, is_noptimal):
+def var(quantity, noptimal_mask):
     """statistical variation. `quantity` may be problem.objective or problem.fitness"""
-    return _stat_measure(quantity, is_noptimal, np.var)
+    return _stat_measure(quantity, noptimal_mask, np.var)
 
 
 # private helper functions
@@ -99,16 +99,16 @@ def _shannon_index(values, lb, ub, nbin, npoint, counts):
 
 
 @njit
-def _stat_measure(quantity, is_noptimal, stat):
+def _stat_measure(quantity, noptimal_mask, stat):
     result = np.empty(quantity.shape[0])
     for i in range(quantity.shape[0]):
         _feas = False
         for j in range(quantity.shape[1]):
-            if is_noptimal[i, j] is True:
+            if noptimal_mask[i, j] is True:
                 _feas = True
                 break
         if _feas is True:
-            result[i] = stat(quantity[i][is_noptimal[i]])
+            result[i] = stat(quantity[i][noptimal_mask[i]])
         else:
             result[i] = np.inf
     return result
