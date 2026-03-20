@@ -114,14 +114,14 @@ class Population:
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
 
-        self.integrality = np.empty(0, np.bool_)
-        self.booleanality = np.empty(0, np.bool_)
+        self.integrality = np.empty(ndim, np.bool_)
+        self.booleanality = np.empty(ndim, np.bool_)
         self.maximize = False
         self.scaling_in_obj_func = False
-        self.lower_bounds = np.empty(0, FLOAT)
-        self.scaled_lower_bounds = np.empty(0, FLOAT)
-        self.upper_bounds = np.empty(0, FLOAT)
-        self.scaled_upper_bounds = np.empty(0, FLOAT)
+        self.lower_bounds = np.empty(ndim, FLOAT)
+        self.scaled_lower_bounds = np.empty(ndim, FLOAT)
+        self.upper_bounds = np.empty(ndim, FLOAT)
+        self.scaled_upper_bounds = np.empty(ndim, FLOAT)
         self.problem_loaded = False
 
         # Population data arrays
