@@ -324,14 +324,14 @@ class Population:
         if self.ndim > 2:
             crossover.crossover_population(
                 points=self.points,
-                indpb=self.current_crossover_prob,
+                crossover_prob=self.current_crossover_prob,
                 cx_func=crossover._cx_two_point,
                 rng=self.rng,
             )
         else:
             crossover.crossover_population(
                 points=self.points,
-                indpb=self.current_crossover_prob,
+                crossover_prob=self.current_crossover_prob,
                 cx_func=crossover._cx_one_point,
                 rng=self.rng,
             )
@@ -348,8 +348,8 @@ class Population:
         else:
             mutation.mutate_gaussian_population_mixed(
                 points=self.points,
-                sigma=sigma_vals,
-                indpb=self.current_mutation_prob,
+                mutation_sigma=sigma_vals,
+                mutation_prob=self.current_mutation_prob,
                 rng=self.rng,
                 integrality=self.integrality,
                 booleanality=self.booleanality,
