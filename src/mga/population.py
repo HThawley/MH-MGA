@@ -152,15 +152,15 @@ class Population:
         self.elite_count = 0
         self.tourn_count = 0
         self.tourn_size = 0
-        self.mutation_prob = np.empty(ndim, dtype=FLOAT)
-        self.mutation_sigma = np.empty(ndim, dtype=FLOAT)
-        self.crossover_prob = np.empty(ndim, dtype=FLOAT)
+        self.mutation_prob = np.empty(2, dtype=FLOAT)
+        self.mutation_sigma = np.empty(2, dtype=FLOAT)
+        self.crossover_prob = np.empty(2, dtype=FLOAT)
         self.niche_elitism = 0
         self.noptimal_rel = 0.0
         self.noptimal_abs = 0.0
         self.violation_factor = 0.0
         self.mutation_scaler = np.empty(ndim, dtype=FLOAT)
-        self.space_scaler = np.ones(ndim, dtype=FLOAT)
+        self.space_scaler = np.empty(ndim, dtype=FLOAT)
         self.objective_scaler = 1.0
 
     def initialize_population(
