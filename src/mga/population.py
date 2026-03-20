@@ -587,7 +587,9 @@ class Population:
         if self.include_obj_in_fitness:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.scaled_centroids[i, self.ndim] += (self.raw_objectives[i, j] / self.objective_scaler)
+                    self.scaled_centroids[i, self.ndim] += _safe_divide(
+                        self.raw_objectives[i, j], self.objective_scaler
+                    )
         self.scaled_centroids /= self.points.shape[1]
 
     def _scale_points(self):
@@ -597,12 +599,12 @@ class Population:
         for i in range(self.num_niches):
             for j in range(self.pop_size):
                 for k in range(self.ndim):
-                    self.scaled_points[i, j, k] = self.points[i, j, k] / self.space_scaler[k]
+                    self.scaled_points[i, j, k] = _safe_divide(self.points[i, j, k], self.space_scaler[k])
 
     def _rescale_bounds(self):
         for k in range(self.ndim):
-            self.scaled_lower_bounds[k] = self.lower_bounds[k] / self.space_scaler[k]
-            self.scaled_upper_bounds[k] = self.upper_bounds[k] / self.space_scaler[k]
+            self.scaled_lower_bounds[k] = _safe_divide(self.lower_bounds[k], self.space_scaler[k])
+            self.scaled_upper_bounds[k] = _safe_divide(self.upper_bounds[k], self.space_scaler[k])
 
     def _update_noptimal_mask(self):
         """
@@ -773,6 +775,35 @@ def _argmin_with_mask_2d(array, mask, best=np.inf):
 @njit
 def _dither(bounds, rng):
     return rng.uniform(bounds[0], bounds[1])
+
+
+@njit
+def _safe_divide(
+    num,
+    denom,
+    fail=0.0,
+):
+    """ Zero-safe division of two scalars """
+    if denom == 0.0:
+        return fail
+    return num / denom
+
+
+@njit
+def _safe_divide_array(
+    num,
+    denom,
+    fail=0.0,
+):
+    """ Zero-safe division of two arrays. """
+    retarr = num.copy().ravel()
+    denom_ravel = denom.ravel()
+    for i in range(retarr.size):
+        if denom_ravel[i] == 0.0:
+            retarr[i] = fail
+        else:
+            retarr[i] /= denom_ravel[i]
+    return retarr.reshape(num.shape)
 
 
 def load_problem_to_population(
