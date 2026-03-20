@@ -341,8 +341,8 @@ class Population:
         if self.is_continuous_space:
             mutation.mutate_gaussian_population_float(
                 points=self.points,
-                sigma=sigma_vals,
-                indpb=self.current_mutation_prob,
+                mutation_sigma=sigma_vals,
+                mutation_prob=self.current_mutation_prob,
                 rng=self.rng,
             )
         else:
