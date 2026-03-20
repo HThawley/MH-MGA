@@ -370,6 +370,23 @@ class MGAProblem:
                 include_obj_in_fitness=self.include_obj_in_fitness,
             )
             load_problem_to_population(self.population, self.problem)
+
+            self.population.update_hyperparameters(
+                self.elite_count,
+                self.tourn_count,
+                self.tourn_size,
+                self.mutation_prob,
+                self.mutation_sigma,
+                self.crossover_prob,
+                self.niche_elitism_int,
+                self.noptimal_rel,
+                self.noptimal_abs,
+                self.violation_factor,
+                self.mutation_scaler,
+                self.space_scaler,
+                self.objective_scaler
+            )
+
             self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
             self.evaluate_and_update_population(False)
 

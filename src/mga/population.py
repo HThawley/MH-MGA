@@ -152,15 +152,16 @@ class Population:
         self.elite_count = 0
         self.tourn_count = 0
         self.tourn_size = 0
-        self.mutation_prob = np.empty((0,), dtype=FLOAT)
-        self.mutation_sigma = np.empty((0,), dtype=FLOAT)
-        self.crossover_prob = np.empty((0,), dtype=FLOAT)
+        self.mutation_prob = np.empty(ndim, dtype=FLOAT)
+        self.mutation_sigma = np.empty(ndim, dtype=FLOAT)
+        self.crossover_prob = np.empty(ndim, dtype=FLOAT)
         self.niche_elitism = 0
         self.noptimal_rel = 0.0
         self.noptimal_abs = 0.0
         self.violation_factor = 0.0
-        self.mutation_scaler = np.empty((0,), dtype=FLOAT)
-        self.space_scaler = np.empty((0,), dtype=FLOAT)
+        self.mutation_scaler = np.empty(ndim, dtype=FLOAT)
+        self.space_scaler = np.ones(ndim, dtype=FLOAT)
+        self.objective_scaler = 1.0
 
     def initialize_population(
             self,
@@ -248,15 +249,15 @@ class Population:
         self.elite_count = INT(elite_count)
         self.tourn_count = INT(tourn_count)
         self.tourn_size = INT(tourn_size)
-        self.mutation_prob = mutation_prob.astype(FLOAT)
-        self.mutation_sigma = mutation_sigma.astype(FLOAT)
-        self.crossover_prob = crossover_prob.astype(FLOAT)
+        self.mutation_prob[:] = mutation_prob.astype(FLOAT)
+        self.mutation_sigma[:] = mutation_sigma.astype(FLOAT)
+        self.crossover_prob[:] = crossover_prob.astype(FLOAT)
         self.niche_elitism = INT(niche_elitism)
         self.noptimal_rel = FLOAT(noptimal_rel)
         self.noptimal_abs = FLOAT(noptimal_abs)
         self.violation_factor = FLOAT(violation_factor)
-        self.mutation_scaler = mutation_scaler.astype(FLOAT)
-        self.space_scaler = space_scaler.astype(FLOAT)
+        self.mutation_scaler[:] = mutation_scaler.astype(FLOAT)
+        self.space_scaler[:] = space_scaler.astype(FLOAT)
         self.objective_scaler = FLOAT(objective_scaler)
 
         self._rescale_bounds()
