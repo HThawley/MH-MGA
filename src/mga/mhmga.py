@@ -16,6 +16,9 @@ from mga.population import Population, load_problem_to_population  # noqa: E402
 from mga.utils.logger import Logger  # noqa: E402
 
 
+_SENTINEL = object()
+
+
 class MGAProblem:
     """
     Orchestrates the modelling to generate alternatives algorithm.
@@ -31,6 +34,7 @@ class MGAProblem:
         random_seed: int | None = None,
         parallelize: bool = True,
         callback: Callable = None,
+        include_obj_in_fitness: bool = False,
     ):
         """
         Initializes the MGA algorithm
@@ -41,6 +45,8 @@ class MGAProblem:
         typing.sanitize_type(log_freq, "integer", "log_freq")
         typing.sanitize_range(log_freq, "log_freq", ge=-1)
         typing.sanitize_type(random_seed, ("integer", "none"), "random_seed")
+        typing.sanitize_type(parallelize, "boolean", "parallelize")
+        typing.sanitize_type(include_obj_in_fitness, "boolean", "include_obj_in_fitness")
 
         # Instantiation
         self.problem = problem
@@ -52,8 +58,8 @@ class MGAProblem:
             x0 = np.empty(0, FLOAT)
         typing.sanitize_type(x0, np.ndarray, "x0")
         if x0.size > 0:
-            if not x0.dtype != FLOAT:
-                warnings.warn("x0 will be cast to float")
+            if x0.dtype != FLOAT:
+                warnings.warn(f"x0 will be cast to {FLOAT}")
             if not x0.ndim == 1:
                 raise NotImplementedError("currently only 1-dimensional 'x0' is accepted")
             if not len(x0) == self.problem.ndim:
@@ -88,6 +94,7 @@ class MGAProblem:
         self.mean_fitness = FLOAT(0)
         self.hyperparameters_set = False
         self.callback = callback
+        self.include_obj_in_fitness = include_obj_in_fitness
 
         # Evaluation Paths
         self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
@@ -95,13 +102,15 @@ class MGAProblem:
             self.evaluator = construct_njit_eval_func(
                 self.problem.vectorized,
                 self.problem.constraints,
+                self.problem.return_scaled,
                 parallelize,
             )
             print("--- MHMGA: Njitted objective detected. Using fast-path iteration loop. ---")
         else:
             self.evaluator = construct_python_eval_func(
                 self.problem.vectorized,
-                self.problem.constraints
+                self.problem.constraints,
+                self.problem.return_scaled,
             )
             print("--- MHMGA: Using standard Python iteration loop (objective is not njitted or uses fkwargs). ---")
 
@@ -118,7 +127,7 @@ class MGAProblem:
             self.population.add_niches(num_niches)
             self.num_niches += num_niches
 
-    def update_hyperparameters(
+    def update_hyperparameters(  # noqa: C901
             self,
             max_iter: int,
             pop_size: int = 100,
@@ -132,8 +141,9 @@ class MGAProblem:
             noptimal_rel: float = 0.0,
             noptimal_abs: float = 0.0,
             niche_elitism: str = "selfish",
-            mutation_scaler: NDArray = None,
-            space_scaler: NDArray = None,
+            mutation_scaler: NDArray = "bounds",
+            space_scaler: NDArray = _SENTINEL,  # default: 'bounds'
+            objective_scaler: float = _SENTINEL,  # default: 1.0
             ):
         typing.sanitize_type(max_iter, "integer", "max_iter")
         typing.sanitize_range(max_iter, "max_iter", ge=1)
@@ -192,16 +202,39 @@ class MGAProblem:
         self.elite_count = INT(elite_count)
         self.tourn_count = INT(tourn_count)
 
-        if mutation_scaler is None:
+        if str(mutation_scaler).lower() == "bounds":
             self.mutation_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
+        elif mutation_scaler is None:
+            self.mutation_scaler = np.ones(self.problem.ndim, dtype=FLOAT)
         else:
             typing.sanitize_array_type(mutation_scaler, 'float', 'mutation_scaler', self.problem.ndim)
-            self.mutation_scaler = FLOAT(mutation_scaler)
-        if space_scaler is None:
+            self.mutation_scaler = np.array(mutation_scaler, dtype=FLOAT)
+
+        space_scaler_given = space_scaler is not _SENTINEL
+        if space_scaler_given and self.problem.return_scaled:
+            warnings.warn(
+                "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
+            )
+
+        if str(space_scaler).lower() == "bounds" or not space_scaler_given:
             self.space_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
+        elif space_scaler is None:
+            self.space_scaler = np.ones(self.problem.ndim, dtype=FLOAT)
         else:
             typing.sanitize_array_type(space_scaler, 'float', 'space_scaler', self.problem.ndim)
-            self.space_scaler = FLOAT(space_scaler)
+            self.space_scaler = np.array(space_scaler, dtype=FLOAT)
+
+        objective_scaler_given = objective_scaler is not _SENTINEL
+        if objective_scaler_given and not self.include_obj_in_fitness:
+            warnings.warn(
+                "[MHMGA] include_obj_in_fitness is set to False. 'objective_scaler' will be ignored", UserWarning
+            )
+
+        typing.sanitize_type(objective_scaler, 'float', 'objective_scaler')
+        if not self.include_obj_in_fitness or not objective_scaler_given:
+            self.objective_scaler = FLOAT(1.0)
+        else:
+            self.objective_scaler = FLOAT(objective_scaler)
 
         self.hyperparameters_set = True
 
@@ -249,6 +282,7 @@ class MGAProblem:
             self.violation_factor,
             self.mutation_scaler,
             self.space_scaler,
+            self.objective_scaler
         )
 
         # Main algorithm loop
@@ -333,10 +367,14 @@ class MGAProblem:
                 ndim=self.problem.ndim,
                 rng=self.rng,
                 stable_sort=self.stable_sort,
+                include_obj_in_fitness=self.include_obj_in_fitness,
             )
             load_problem_to_population(self.population, self.problem)
             self.population.populate(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
             self.evaluate_and_update_population(False)
+
+            if not self.problem.constraints:
+                self.population.violations[:] = 0.0
 
             self._is_populated = True
 
@@ -402,55 +440,118 @@ def _python_iteration_loop(
 def construct_python_eval_func(  # noqa: C901
         vectorized: bool,
         constraints: bool,
+        return_scaled: bool,
 ) -> Callable:
     """
     Constructs the appropriate evaluation function based on problem properties.
     """
-    if vectorized and constraints:
+    if vectorized and constraints and return_scaled:
+        def _evaluator(population: Population, objective_func: Callable, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a vectorized objective function that returns obj_vals, violation_vals, and scaled_points.
+            """
+            for i in range(population.num_niches):
+                (
+                    population.objective_values[i, :],
+                    population.violations[i, :],
+                    population.scaled_points[i, :, :]
+                 ) = objective_func(population.points[i], *fargs, **fkwargs)
+
+            population.penalized_objectives[:] = (
+                population.objective_values + population.violations * population.violation_factor
+            )
+
+    elif vectorized and not constraints and return_scaled:
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a vectorized objective function that returns obj_vals and scaled_points.
+            """
+            for i in range(population.num_niches):
+                (
+                    population.objective_values[i, :],
+                    population.scaled_points[i, :, :],
+                ) = objective_func(population.points[i], *fargs, **fkwargs)
+
+            population.penalized_objectives[:] = population.objective_values  # No penalty
+
+    elif not vectorized and constraints and return_scaled:
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a scalar objective function that returns obj_val, violation_val, and scaled_points
+            """
+            for i in range(population.num_niches):
+                for j in range(population.pop_size):
+                    (
+                        population.objective_values[i, j],
+                        population.violations[i, j],
+                        population.scaled_points[i, j, :]
+                    ) = objective_func(population.points[i, j], *fargs, **fkwargs)
+
+            population.penalized_objectives[:] = (
+                population.objective_values + population.violations * population.violation_factor
+            )
+
+    elif not vectorized and not constraints and return_scaled:
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
+            """
+            Evaluates a scalar objective function that returns obj_val and scaled_points
+            """
+            for i in range(population.num_niches):
+                for j in range(population.points[i].shape[0]):
+                    (
+                        population.objective_values[i, j],
+                        population.scaled_points[i, j, :],
+                    ) = objective_func(population.points[i, j], *fargs, **fkwargs)
+
+            population.penalized_objectives[:] = population.objective_values  # No penalty
+
+    elif vectorized and constraints and not return_scaled:
         def _evaluator(population: Population, objective_func: Callable, fargs: tuple, fkwargs: dict):
             for i in range(population.num_niches):
-                population.objective_values[i, :], population.violations[i, :] = objective_func(
-                    population.points[i], *fargs, **fkwargs
-                )
-                population.penalized_objectives[:] = (
-                    population.objective_values + population.violations * population.violation_factor
-                )
+                (
+                    population.objective_values[i, :],
+                    population.violations[i, :]
+                ) = objective_func(population.points[i], *fargs, **fkwargs)
 
-    elif vectorized and not constraints:
+            population.penalized_objectives[:] = (
+                population.objective_values + population.violations * population.violation_factor
+            )
+
+    elif vectorized and not constraints and not return_scaled:
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
             """
             Evaluates a vectorized objective function that returns only obj_vals.
             """
-            for i in prange(population.num_niches):
+            for i in range(population.num_niches):
                 population.objective_values[i, :] = objective_func(population.points[i], *fargs, **fkwargs)
-            population.violations[:] = 0.0  # No constraint penalties
+
             population.penalized_objectives[:] = population.objective_values  # No penalty
 
-    elif not vectorized and constraints:
+    elif not vectorized and constraints and not return_scaled:
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
             """
             Evaluates a scalar objective function that returns obj_val, violation_val.
             """
-            for i in prange(population.num_niches):
-                for j in range(population.points[i].shape[0]):
-                    population.objective_values[i, j], population.violations[i, j] = objective_func(
-                        population.points[i, j], *fargs, **fkwargs
-                    )
-                    population.penalized_objectives[i, j] = (
-                        population.objective_values[i, j] + population.violations[i, j] * population.violation_factor
-                    )
+            for i in range(population.num_niches):
+                for j in range(population.pop_size):
+                    (
+                        population.objective_values[i, j],
+                        population.violations[i, j]
+                    ) = objective_func(population.points[i, j], *fargs, **fkwargs)
 
-    else:  # not vectorized and not constraints
+            population.penalized_objectives[:] = (
+                population.objective_values + population.violations * population.violation_factor
+            )
+
+    else:  # not vectorized and not constraints and not return_scaled
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict):
             """
             Evaluates a scalar objective function that returns only obj_val.
             """
-            for i in prange(population.num_niches):
+            for i in range(population.num_niches):
                 for j in range(population.points[i].shape[0]):
-                    population.objective_values[i, j] = objective_func(
-                        population.points[i, j], *fargs, **fkwargs
-                    )
-            population.violations[:] = 0.0  # No constraints
+                    population.objective_values[i, j] = objective_func(population.points[i, j], *fargs, **fkwargs)
+
             population.penalized_objectives[:] = population.objective_values  # No penalty
 
     return _evaluator
@@ -471,26 +572,99 @@ def _njit_iteration_loop(population: Population, eval_func: CPUDispatcher, objec
 def construct_njit_eval_func(  # noqa: C901
         vectorized: bool,
         constraints: bool,
+        return_scaled: bool,
         parallelize: bool,
 ) -> CPUDispatcher:
     """
     Constructs the appropriate evaluation function based on problem properties.
     """
-    if vectorized and constraints:
+    if vectorized and constraints and return_scaled:
         @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
             Evaluates a vectorized objective function that returns obj_vals, violation_vals.
             """
             for i in prange(population.num_niches):
-                population.objective_values[i, :], population.violations[i, :] = objective_func(
-                    population.points[i], *fargs
-                )
-            population.penalized_objectives[:] = (
-                population.objective_values + population.violations * population.violation_factor
-            )
+                (
+                    population.objective_values[i, :],
+                    population.violations[i, :],
+                    population.scaled_points[i, :, :],
+                ) = objective_func(population.points[i], *fargs)
 
-    elif vectorized and not constraints:
+                for j in range(population.pop_size):
+                    population.penalized_objectives[i, j] = (
+                        population.objective_values[i, j]
+                        + population.violations[i, j] * population.violation_factor
+                    )
+
+    elif vectorized and not constraints and return_scaled:
+        @njit(parallel=parallelize)
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+            """
+            Evaluates a vectorized objective function that returns only obj_vals.
+            """
+            for i in prange(population.num_niches):
+                (
+                    population.objective_values[i, :],
+                    population.scaled_points[i, :, :]
+                ) = objective_func(population.points[i], *fargs)
+
+                for j in range(population.pop_size):
+                    population.penalized_objectives[i, j] = population.objective_values[i, j]
+
+    elif not vectorized and constraints and return_scaled:
+        @njit(parallel=parallelize)
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+            """
+            Evaluates a scalar objective function that returns obj_val, violation_val.
+            """
+            for i in prange(population.num_niches):
+                for j in range(population.pop_size):
+                    (
+                        population.objective_values[i, j],
+                        population.violations[i, j],
+                        population.scaled_points[i, j, :],
+                    ) = objective_func(population.points[i, j], *fargs)
+
+                    population.penalized_objectives[i, j] = (
+                        population.objective_values[i, j]
+                        + population.violations[i, j] * population.violation_factor
+                    )
+
+    elif not vectorized and not constraints and return_scaled:
+        @njit(parallel=parallelize)
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+            """
+            Evaluates a scalar objective function that returns only obj_val.
+            """
+            for i in prange(population.num_niches):
+                for j in range(population.pop_size):
+                    (
+                        population.objective_values[i, j],
+                        population.scaled_points[i, j, :],
+                    ) = objective_func(population.points[i, j], *fargs)
+
+                    population.penalized_objectives[i, j] = population.objective_values[i, j]
+
+    elif vectorized and constraints and not return_scaled:
+        @njit(parallel=parallelize)
+        def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
+            """
+            Evaluates a vectorized objective function that returns obj_vals, violation_vals.
+            """
+            for i in prange(population.num_niches):
+                (
+                    population.objective_values[i, :],
+                    population.violations[i, :]
+                ) = objective_func(population.points[i], *fargs)
+
+                for j in range(population.pop_size):
+                    population.penalized_objectives[i, j] = (
+                        population.objective_values[i, j]
+                        + population.violations[i, j] * population.violation_factor
+                    )
+
+    elif vectorized and not constraints and not return_scaled:
         @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
@@ -498,25 +672,29 @@ def construct_njit_eval_func(  # noqa: C901
             """
             for i in prange(population.num_niches):
                 population.objective_values[i, :] = objective_func(population.points[i], *fargs)
-            population.violations[:] = 0.0  # No constraint penalties
-            population.penalized_objectives[:] = population.objective_values  # No penalty
 
-    elif not vectorized and constraints:
+                for j in range(population.pop_size):
+                    population.penalized_objectives[i, j] = population.objective_values[i, j]
+
+    elif not vectorized and constraints and not return_scaled:
         @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
             Evaluates a scalar objective function that returns obj_val, violation_val.
             """
             for i in prange(population.num_niches):
-                for j in range(population.points[i].shape[0]):
-                    population.objective_values[i, j], population.violations[i, j] = objective_func(
-                        population.points[i, j], *fargs
-                    )
+                for j in range(population.pop_size):
+                    (
+                        population.objective_values[i, j],
+                        population.violations[i, j]
+                    ) = objective_func(population.points[i, j], *fargs)
+
                     population.penalized_objectives[i, j] = (
-                        population.objective_values[i, j] + population.violations[i, j] * population.violation_factor
+                        population.objective_values[i, j]
+                        + population.violations[i, j] * population.violation_factor
                     )
 
-    else:  # not vectorized and not constraints
+    else:  # not vectorized and not constraints and not return_scaled
         @njit(parallel=parallelize)
         def _evaluator(population: Population, objective_func: CPUDispatcher, fargs: tuple):
             """
@@ -524,10 +702,8 @@ def construct_njit_eval_func(  # noqa: C901
             """
             for i in prange(population.num_niches):
                 for j in range(population.points[i].shape[0]):
-                    population.objective_values[i, j] = objective_func(
-                        population.points[i, j], *fargs
-                    )
-            population.violations[:] = 0.0  # No constraints
-            population.penalized_objectives[:] = population.objective_values  # No penalty
+                    population.objective_values[i, j] = objective_func(population.points[i, j], *fargs)
+
+                    population.penalized_objectives[i, j] = population.objective_values[i, j]
 
     return _evaluator

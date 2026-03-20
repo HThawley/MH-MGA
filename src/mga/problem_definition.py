@@ -19,6 +19,7 @@ class OptimizationProblem:
         maximize: bool = False,
         vectorized: bool = False,
         constraints: bool = False,
+        return_scaled: bool = False,
         integrality: bool | np.ndarray[bool] = False,
         known_optimum: np.ndarray = None,
         fargs: tuple = (),
@@ -49,6 +50,7 @@ class OptimizationProblem:
         typing.sanitize_type(maximize, "boolean", "maximize")
         typing.sanitize_type(vectorized, "boolean", "vectorized")
         typing.sanitize_type(constraints, "boolean", "constraints")
+        typing.sanitize_type(return_scaled, "boolean", "return_scaled")
 
         if typing.is_boolean(integrality):
             integrality = integrality * np.ones(len(bounds[0]), np.bool_)
@@ -78,6 +80,7 @@ class OptimizationProblem:
         self.maximize = maximize
         self.vectorized = vectorized
         self.constraints = constraints
+        self.return_scaled = return_scaled
         self.fargs = fargs
         self.fkwargs = fkwargs
 
@@ -105,14 +108,24 @@ class OptimizationProblem:
         else:
             result = self.objective(point, *self.fargs, **self.fkwargs)
 
-        if self.constraints:
-            obj, viol = result
-            if viol != 0:
-                self.known_optimum_value = -np.inf if self.maximize else np.inf
+        obj, viol, scaled_point = 0.0, 0.0, np.array([0.0])
+        if self.return_scaled:
+            if self.constraints:
+                obj, viol, scaled_point = result
             else:
-                self.known_optimum_value = obj
+                obj, scaled_point = result
+            if not scaled_point.shape == point.shape:
+                raise RuntimeError("Objective returns 'scaled_point' of wrong shape."
+                                   f"Expected {point.shape}. Got {scaled_point.shape}.")
+        elif self.constraints:
+            obj, viol = result
         else:
-            self.known_optimum_value = result
+            obj = result
+
+        if np.any(viol) != 0:
+            self.known_optimum_value = -np.inf if self.maximize else np.inf
+        else:
+            self.known_optimum_value = FLOAT(np.asarray(obj).item())
 
 
 class MultiObjectiveProblem:
