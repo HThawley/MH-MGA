@@ -185,6 +185,8 @@ class Population:
         else:
             _clone(self.points, np.atleast_3d(x0))
 
+        self.points[0, 0, :] = self.optima_points[0]  # inject known optimum
+
         self._apply_integrality()
         self._apply_bounds()
 
