@@ -260,6 +260,9 @@ class MGAProblem:
                                    ". Call `.add_niches()` first.")
             self.populate()
 
+        else:
+            self.update_population_hyperparameters()
+
         # Set parent size
         self.population.resize(
             -1,  # ignore niches
@@ -267,22 +270,6 @@ class MGAProblem:
             self.tourn_count + self.elite_count,  # parent_size
         )
 
-        # numba does not like keyword arguments
-        self.population.update_hyperparameters(
-            self.elite_count,
-            self.tourn_count,
-            self.tourn_size,
-            self.mutation_prob,
-            self.mutation_sigma,
-            self.crossover_prob,
-            self.niche_elitism_int,
-            self.noptimal_rel,
-            self.noptimal_abs,
-            self.violation_factor,
-            self.mutation_scaler,
-            self.space_scaler,
-            self.objective_scaler
-        )
 
         # Main algorithm loop
         try:
@@ -358,41 +345,44 @@ class MGAProblem:
             return
         if self.pop_size < 1:
             raise ValueError("'pop_size' must be positive definite.")
-        if not self._is_populated:
-            # Initialize population
-            self.population = Population(
-                num_niches=self.num_niches,
-                pop_size=self.pop_size,
-                ndim=self.problem.ndim,
-                rng=self.rng,
-                stable_sort=self.stable_sort,
-                include_obj_in_fitness=self.include_obj_in_fitness,
-            )
-            load_problem_to_population(self.population, self.problem)
+        
+        # Initialize population
+        self.population = Population(
+            num_niches=self.num_niches,
+            pop_size=self.pop_size,
+            ndim=self.problem.ndim,
+            rng=self.rng,
+            stable_sort=self.stable_sort,
+            include_obj_in_fitness=self.include_obj_in_fitness,
+        )
+        load_problem_to_population(self.population, self.problem)
 
-            self.population.update_hyperparameters(
-                self.elite_count,
-                self.tourn_count,
-                self.tourn_size,
-                self.mutation_prob,
-                self.mutation_sigma,
-                self.crossover_prob,
-                self.niche_elitism_int,
-                self.noptimal_rel,
-                self.noptimal_abs,
-                self.violation_factor,
-                self.mutation_scaler,
-                self.space_scaler,
-                self.objective_scaler
-            )
+        self.update_population_hyperparameters()
+        self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
+        self.evaluate_and_update_population(False)
 
-            self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
-            self.evaluate_and_update_population(False)
+        if not self.problem.constraints:
+            self.population.violations[:] = 0.0
 
-            if not self.problem.constraints:
-                self.population.violations[:] = 0.0
+        self._is_populated = True
 
-            self._is_populated = True
+    def update_population_hyperparameters(self):
+        # numba does not like keyword arguments
+        self.population.update_hyperparameters(
+            self.elite_count,
+            self.tourn_count,
+            self.tourn_size,
+            self.mutation_prob,
+            self.mutation_sigma,
+            self.crossover_prob,
+            self.niche_elitism_int,
+            self.noptimal_rel,
+            self.noptimal_abs,
+            self.violation_factor,
+            self.mutation_scaler,
+            self.space_scaler,
+            self.objective_scaler
+        )
 
     def get_results(self) -> dict:
         """
