@@ -111,7 +111,7 @@ class Logger:
         self.detailed = detailed
 
         self.niche_metrics_printer = FilePrinter(
-            file_name=f"{file_prefix}-niche_metric.csv",
+            file_name=f"{file_prefix}-niche_metrics.csv",
             save_freq=save_freq,
             header=["iter", "niche_id", "objective", "penalties", "noptimal", "fitness"],
             resume=resume,
