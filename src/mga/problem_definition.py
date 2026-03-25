@@ -2,9 +2,8 @@ import numpy as np
 from numba.core.registry import CPUDispatcher
 from collections.abc import Callable
 
-from mga.commons.types import DEFAULTS
-INT, FLOAT = DEFAULTS
-from mga.utils import typing  # noqa: E402
+from mga.commons.constants import FLOAT
+from mga.utils import typing
 
 
 class OptimizationProblem:

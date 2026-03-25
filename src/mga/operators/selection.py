@@ -1,9 +1,7 @@
 import numpy as np
-from numba import njit
 
-from mga.commons.types import DEFAULTS
-
-INT, FLOAT = DEFAULTS
+from mga.commons.numba_overload import njit
+from mga.commons.constants import INT
 
 
 # API functions

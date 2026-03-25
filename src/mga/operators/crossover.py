@@ -1,4 +1,4 @@
-from numba import njit
+from mga.commons.numba_overload import njit
 
 
 # API functions

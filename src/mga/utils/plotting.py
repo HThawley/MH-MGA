@@ -6,15 +6,12 @@ import seaborn as sns
 def plot_opt_path_2d(file_prefix):
     fig, ax = plt.subplots(figsize=(5, 5))
 
-    df = pd.read_csv(
-        file_prefix + "-evolution.csv",
-        header=None,
-    )
-    df.columns = ["iteration", "niche", "obj", "fit", "x", "y"]
-    for i, niche in enumerate(df["niche"].unique()):
+    df = pd.read_csv(f"{file_prefix}-evolution.csv")
+
+    for i, niche in enumerate(df["niche_id"].unique()):
         ax.plot(
-            df.loc[df.niche == niche, "x"],
-            df.loc[df.niche == niche, "y"],
+            df.loc[df.niche_id == niche, "x_0"],
+            df.loc[df.niche_id == niche, "x_1"],
             color=f"C{i}",
             label=niche,
         )
@@ -26,21 +23,17 @@ def plot_opt_path_2d(file_prefix):
 def plot_noptima(file_prefix):
     fig, ax = plt.subplots(figsize=(5, 5))
 
-    df = pd.read_csv(
-        file_prefix + "-noptima.csv",
-        header=None,
-    )
-    df = df.T
-    df.columns = ["niche", "obj", "nopt", "x", "y"]
-    df["obj"] = df["obj"].astype(float)
-    df["nopt"] = df["nopt"].astype(bool)
-    df["x"] = df["x"].astype(float)
-    df["y"] = df["y"].astype(float)
+    df = pd.read_csv(f"{file_prefix}-noptima.csv")
+
+    df["objective"] = df["objective"].astype(float)
+    df["noptimal"] = df["noptimal"].astype(bool)
+    df["x_0"] = df["x_0"].astype(float)
+    df["x_1"] = df["x_1"].astype(float)
     sns.scatterplot(
-        df,
-        x="x",
-        y="y",
-        hue="obj",
+        data=df,
+        x="x_0",
+        y="x_1",
+        hue="objective",
         palette="viridis",
         # sizes="obj",
         legend=False,
@@ -53,15 +46,13 @@ def plot_vesa(file_prefix):
     fig, ax = plt.subplots()
 
     df = pd.read_csv(
-        file_prefix + "-diversity.csv",
-        header=0,
-        usecols=["VESA"],
+        f"{file_prefix}-diversity.csv",
+        usecols=["iter", "VESA"],
     )
-    df = df.reset_index(names="iteration")
 
     sns.lineplot(
-        df,
-        x="iteration",
+        data=df,
+        x="iter",
         y="VESA",
         ax=ax,
         legend=False,
@@ -74,15 +65,13 @@ def plot_shannon(file_prefix):
     fig, ax = plt.subplots()
 
     df = pd.read_csv(
-        file_prefix + "-diversity.csv",
-        header=0,
-        usecols=["shannon"],
+        f"{file_prefix}-diversity.csv",
+        usecols=["iter", "shannon"],
     )
-    df = df.reset_index(names="iteration")
 
     sns.lineplot(
-        df,
-        x="iteration",
+        data=df,
+        x="iter",
         y="shannon",
         ax=ax,
         legend=False,
@@ -94,101 +83,64 @@ def plot_shannon(file_prefix):
 def plot_stat_evolution(file_prefix):
     fig, axs = plt.subplots(3, 3, sharex=True, layout="tight")
     axs = axs.flatten()
-    ax_idx = -1
 
-    ax_idx += 1
+    df = pd.read_csv(f"{file_prefix}-niche_metrics.csv")
 
-    df = pd.read_csv(
-        file_prefix + "-nobjective.csv",
-        header=None,
-    )
-    df = df.reset_index()
-    niches = ["optimal"] + [f"nopt{n}" for n in range(df.shape[1] - 2)]
-    df.columns = ["iteration"] + niches
-    df = df.melt(
-        id_vars="iteration",
-        value_vars=niches,
-        var_name="niche",
-        value_name="objective",
-        ignore_index=True,
-    )
-
+    ax_idx = 0
     sns.lineplot(
-        df,
-        x="iteration",
+        data=df,
+        x="iter",
         y="objective",
-        hue="niche",
-        hue_order=["reserved"] + niches,
+        hue="niche_id",
         ax=axs[ax_idx],
         legend=False,
     )
-
     axs[ax_idx].set_title("objective")
 
     ax_idx += 1
-
-    df = pd.read_csv(
-        file_prefix + "-nfitness.csv",
-        header=None,
-    )
-    df = df.reset_index()
-    niches = ["optimal"] + [f"nopt{n}" for n in range(df.shape[1] - 2)]
-    df.columns = ["iteration"] + niches
-    df = df.melt(
-        id_vars="iteration",
-        value_vars=niches,
-        var_name="niche",
-        value_name="fitness",
-        ignore_index=True,
-    )
-
     sns.lineplot(
-        df,
-        x="iteration",
+        data=df,
+        x="iter",
         y="fitness",
-        hue="niche",
-        hue_order=["reserved"] + niches,
+        hue="niche_id",
         ax=axs[ax_idx],
         legend=False,
     )
-
     axs[ax_idx].set_title("fitness")
 
+    mean_of_fitness = df.groupby("iter")["fitness"].mean().reset_index()
+
     ax_idx += 1
-
-    mean_of_fitness = df.groupby("iteration")["fitness"].mean().reset_index()
-
     sns.lineplot(
-        mean_of_fitness,
-        x="iteration",
+        data=mean_of_fitness,
+        x="iter",
         y="fitness",
         ax=axs[ax_idx],
         legend=False,
     )
 
-    axs[ax_idx].set_title("mean of fitness " + str(round(100 * mean_of_fitness.fitness.iloc[-1], 2)))
+    axs[ax_idx].set_title(f"mean of fitness {100 * mean_of_fitness.fitness.iloc[-1]:.2f}")
+
+    df_div = pd.read_csv(f"{file_prefix}-diversity.csv")
+
     for metric in ("std", "var"):
         for agg in ("min", "mean", "max"):
             ax_idx += 1
             name = f"{agg}_{metric}_fit"
-
-            df = pd.read_csv(file_prefix + "-diversity.csv", header=0, usecols=[name])
-            df = df.reset_index(names="iteration")
-
             sns.lineplot(
-                df,
-                x="iteration",
+                data=df_div,
+                x="iter",
                 y=name,
                 ax=axs[ax_idx],
                 legend=False,
             )
 
-            axs[ax_idx].set_title(name + " " + str(round(100 * df[name].iloc[-1], 2)))
+            axs[ax_idx].set_title(f"{name} {100 * df_div[name].iloc[-1]:.2f}")
     # axs[-1].set_xticks(range(0, 201, 25))
 
 
 # facilitates avoiding duplicate matplotlib import on scripts which import these functions
-# i.e. `import plotlogs as p; p.plot(...); p.show()``
+# i.e. `import plotlogs as p; p.plot(...); p.show()`
 show = plt.show
 
 if __name__ == "__main__":

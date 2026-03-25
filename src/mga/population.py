@@ -1,17 +1,13 @@
 import numpy as np
 import numba as nb
-from numba import njit
-from numba.experimental import jitclass
 from numba.types import npy_rng
-# from scipy.spatial import Delaunay
 
-from mga.commons.types import DEFAULTS
-
-INT, FLOAT = DEFAULTS
-from mga.problem_definition import OptimizationProblem  # noqa: E402
-from mga.operators import selection, crossover, mutation  # noqa: E402
-from mga.metrics import fitness as fit_metrics  # noqa: E402
-from mga.metrics import diversity  # noqa: E402
+from mga.commons.numba_overload import njit, jitclass
+from mga.commons.constants import INT, FLOAT
+from mga.problem_definition import OptimizationProblem
+from mga.operators import selection, crossover, mutation
+from mga.metrics import fitness as fit_metrics
+from mga.metrics import diversity
 
 
 nb_int = nb.from_dtype(np.dtype(INT))
@@ -57,6 +53,7 @@ spec = [
     ('optima_points', nb_float[:, :]),
     ('optima_scaled_points', nb_float[:, :]),
     ('optima_raw_objectives', nb_float[:]),
+    ('optima_violations', nb_float[:]),
     ('optima_penalized_objectives', nb_float[:]),
     ('optima_fitnesses', nb_float[:]),
     ('optima_noptimal_mask', nb_bool[:]),
@@ -144,6 +141,7 @@ class Population:
         self.optima_points = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
         self.optima_scaled_points = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
         self.optima_raw_objectives = np.empty((self.num_niches), dtype=FLOAT)
+        self.optima_violations = np.empty((self.num_niches), dtype=FLOAT)
         self.optima_penalized_objectives = np.empty((self.num_niches), dtype=FLOAT)
         self.optima_fitnesses = np.empty((self.num_niches), dtype=FLOAT)
         self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
@@ -387,6 +385,7 @@ class Population:
             self.optima_points[0, :] = self.points[gi, gj]
             self.optima_scaled_points[0, :] = self.scaled_points[gi, gj]
             self.optima_raw_objectives[0] = self.raw_objectives[gi, gj]
+            self.optima_violations[0] = self.violations[gi, gj]
             self.optima_penalized_objectives[0] = self.penalized_objectives[gi, gj]
             self.optima_fitnesses[0] = self.fitnesses[gi, gj]
             # logically must be true but self.noptimal_mask has not been calculated yet
@@ -401,6 +400,7 @@ class Population:
             self.optima_points[i, :] = self.points[i, js[i], :]
             self.optima_scaled_points[i, :] = self.scaled_points[i, js[i], :]
             self.optima_raw_objectives[i] = self.raw_objectives[i, js[i]]
+            self.optima_violations[i] = self.violations[i, js[i]]
             self.optima_penalized_objectives[i] = self.penalized_objectives[i, js[i]]
             self.optima_fitnesses[i] = self.fitnesses[i, js[i]]
             self.optima_noptimal_mask[i] = self.noptimal_mask[i, js[i]]
@@ -496,6 +496,7 @@ class Population:
             self.raw_objectives = _add_niche_to_array(self.raw_objectives, new_niche_size)
             self.violations = _add_niche_to_array(self.violations, new_niche_size)
             self.penalized_objectives = _add_niche_to_array(self.penalized_objectives, new_niche_size)
+            self.feasible_mask = _add_niche_to_array(self.feasible_mask, new_niche_size)
             self.fitnesses = _add_niche_to_array(self.fitnesses, new_niche_size)
             self.noptimal_mask = _add_niche_to_array(self.noptimal_mask, new_niche_size)
             self.scaled_centroids = _add_niche_to_array(self.scaled_centroids, new_niche_size)
@@ -505,6 +506,7 @@ class Population:
             self.optima_points = _add_niche_to_array(self.optima_points, new_niche_size)
             self.optima_scaled_points = _add_niche_to_array(self.optima_scaled_points, new_niche_size)
             self.optima_raw_objectives = _add_niche_to_array(self.optima_raw_objectives, new_niche_size)
+            self.optima_violations = _add_niche_to_array(self.optima_violations, new_niche_size)
             self.optima_penalized_objectives = _add_niche_to_array(self.optima_penalized_objectives, new_niche_size)
             self.optima_fitnesses = _add_niche_to_array(self.optima_fitnesses, new_niche_size)
             self.optima_noptimal_mask = _add_niche_to_array(self.optima_noptimal_mask, new_niche_size)
@@ -561,6 +563,7 @@ class Population:
             self.raw_objectives = np.empty((self.num_niches, new_pop_size))
             self.violations = np.zeros((self.num_niches, new_pop_size))
             self.penalized_objectives = np.empty((self.num_niches, new_pop_size))
+            self.feasible_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
             self.fitnesses = np.empty((self.num_niches, new_pop_size))
             self.noptimal_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
 

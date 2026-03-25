@@ -2,18 +2,16 @@ import numpy as np
 from numpy.typing import NDArray
 from datetime import datetime as dt
 import warnings
-from numba import njit, prange
 from numba.core.registry import CPUDispatcher
 from typing import Callable
 
-from mga.commons.types import DEFAULTS
-
-INT, FLOAT = DEFAULTS
-import mga.utils.termination as term  # noqa: E402
-from mga.utils import typing  # noqa: E402
-from mga.problem_definition import OptimizationProblem  # noqa: E402
-from mga.population import Population, load_problem_to_population  # noqa: E402
-from mga.utils.logger import Logger  # noqa: E402
+from mga.commons.constants import INT, FLOAT
+from mga.commons.numba_overload import njit, prange
+import mga.utils.termination as term
+from mga.utils import typing
+from mga.problem_definition import OptimizationProblem
+from mga.population import Population, load_problem_to_population
+from mga.utils.logger import Logger
 
 
 _SENTINEL = object()
@@ -270,7 +268,6 @@ class MGAProblem:
             self.tourn_count + self.elite_count,  # parent_size
         )
 
-
         # Main algorithm loop
         try:
             while not termination_handler(self):
@@ -333,9 +330,9 @@ class MGAProblem:
         # always called on population initialisation
         self.evaluate_points()
         self.population.evaluate_fitness()  # TODO: provide hooks for termination
+        self.population.track_optima()
         if diversity:
             self.population.evaluate_diversity()  # TODO: provide hooks for termination
-        self.population.track_optima()
 
     def populate(self):
         """
@@ -345,7 +342,7 @@ class MGAProblem:
             return
         if self.pop_size < 1:
             raise ValueError("'pop_size' must be positive definite.")
-        
+
         # Initialize population
         self.population = Population(
             num_niches=self.num_niches,
@@ -439,8 +436,8 @@ def _python_iteration_loop(
     population.generate_offspring()
     eval_func(population, objective_func, fargs, fkwargs)
     population.evaluate_fitness()
-    population.evaluate_diversity()
     population.track_optima()
+    population.evaluate_diversity()
 
 
 def construct_python_eval_func(  # noqa: C901
@@ -571,8 +568,8 @@ def _njit_iteration_loop(population: Population, eval_func: CPUDispatcher, objec
     population.generate_offspring()
     eval_func(population, objective_func, fargs)
     population.evaluate_fitness()
-    population.evaluate_diversity()
     population.track_optima()
+    population.evaluate_diversity()
 
 
 def construct_njit_eval_func(  # noqa: C901

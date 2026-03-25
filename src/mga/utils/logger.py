@@ -6,9 +6,7 @@ from os import remove, mkdir
 from os.path import exists
 from collections.abc import Collection
 
-from mga.commons.types import DEFAULTS
-INT, FLOAT = DEFAULTS
-from mga.metrics import diversity  # noqa: E402
+from mga.metrics import diversity
 
 
 class FilePrinter:
@@ -33,25 +31,20 @@ class FilePrinter:
         self.temp_file_path = "-temp.".join(self.file_name.split("."))
         self.save_freq = save_freq
         self.call_count = 0
-        self.buffer = None
+        self.buffer = []
 
-        if not resume:
-            self._create_file(header, create_dir)
-        elif not exists(self.file_name):
+        if not resume or not not exists(self.file_name):
             self._create_file(header, create_dir)
 
-    def __call__(self, data_array: np.ndarray):
+    def __call__(self, data_rows: list[list]):
         """
         Adds data to the buffer and writes it out if the save frequency is met.
         """
         self.call_count += 1
-        if self.buffer is None:
-            self.buffer = np.atleast_2d(data_array)
-        else:
-            self.buffer = np.concatenate((self.buffer, np.atleast_2d(data_array)), axis=0)
-        if self.save_freq > 0:
-            if self.call_count % self.save_freq == 0:
-                self._flush()
+        self.buffer.extend(data_rows)
+
+        if (self.save_freq > 0) and (self.call_count % self.save_freq == 0):
+            self._flush()
 
     def _print(self):
         """
@@ -78,11 +71,11 @@ class FilePrinter:
         """
         Writes any buffered data to the file.
         """
-        if self.buffer is not None:
+        if self.buffer:
             print("\rWriting logs to disk... Do not interrupt.", end="")
             self._copy_and_replace()
             print("\r" + " " * 50, end="\r")
-            self.buffer = None
+            self.buffer = []
 
     def _create_file(self, header: Collection[str], create_dir: bool):
         """
@@ -116,13 +109,15 @@ class Logger:
         Initializes all necessary FilePrinters for logging.
         """
         self.detailed = detailed
-        self.nobjective_printer = FilePrinter(
-            file_name=f"{file_prefix}-nobjective.csv", save_freq=save_freq, resume=resume, create_dir=create_dir
+
+        self.niche_metrics_printer = FilePrinter(
+            file_name=f"{file_prefix}-niche_metric.csv",
+            save_freq=save_freq,
+            header=["iter", "niche_id", "objective", "penalties", "noptimal", "fitness"],
+            resume=resume,
+            create_dir=create_dir,
         )
-        self.noptimality_printer = FilePrinter(
-            file_name=f"{file_prefix}-noptimality.csv", save_freq=save_freq, resume=resume
-        )
-        self.nfitness_printer = FilePrinter(file_name=f"{file_prefix}-nfitness.csv", save_freq=save_freq, resume=resume)
+
         self.diversity_printer = FilePrinter(
             file_name=f"{file_prefix}-diversity.csv",
             save_freq=save_freq,
@@ -141,27 +136,24 @@ class Logger:
             ],
             resume=resume,
         )
+
         if self.detailed:
-            if ndim > 0:
-                self.evolution_printer = FilePrinter(
-                    file_name=f"{file_prefix}-evolution.csv",
-                    save_freq=save_freq,
-                    header=["iter", "niche_id", "objective", "noptimal", "fitness"]
-                    + [f"x_{i}" for i in range(ndim)],
-                    resume=resume,
-                )
-            else:
-                self.evolution_printer = FilePrinter(
-                    file_name=f"{file_prefix}-evolution.csv",
-                    save_freq=save_freq,
-                    header=["iter", "niche_id", "objective", "noptimal", "fitness", "..."],
-                    resume=resume,
-                )
+            header = ["iter", "niche_id", "objective", "penalties", "noptimal", "fitness"]
+            header += [f"x_{i}" for i in range(ndim)] if ndim > 0 else ["..."]
+
+            self.evolution_printer = FilePrinter(
+                file_name=f"{file_prefix}-evolution.csv",
+                save_freq=save_freq,
+                header=header,
+                resume=resume,
+            )
 
         self.noptima_printer = FilePrinter(
             file_name=f"{file_prefix}-noptima.csv",
             save_freq=-1,  # Only writes once at the end
-            header=None,
+            header=[
+                "niche_id", "objective", "penalties", "noptimal", "fitness"
+            ] + [f"x_{i}" for i in range(ndim)],
             resume=False,  # Always overwrite final results
         )
 
@@ -173,25 +165,36 @@ class Logger:
             iteration (int): The current iteration number.
             population (Population): The population object containing current state.
         """
-        self.nobjective_printer(population.optima_raw_objectives)
-        self.noptimality_printer(population.optima_noptimal_mask.astype(int))
-        self.nfitness_printer(population.optima_fitnesses)
+        metrics_data = [
+            [
+                iteration,
+                f"nopt{i}" if i > 0 else "optimum",
+                population.optima_raw_objectives[i],
+                population.optima_violations[i] * population.violation_factor,
+                int(population.optima_noptimal_mask[i]),
+                population.optima_fitnesses[i],
+            ]
+            for i in range(population.num_niches)
+        ]
+        self.niche_metrics_printer(metrics_data)
 
         # Log diversity metrics
         diversity_row = self._calculate_diversity_metrics(iteration, population)
-        self.diversity_printer(diversity_row)
+        self.diversity_printer([diversity_row])
 
         # Log detailed evolution of best points
         if self.detailed:
-            evolution_data = np.column_stack(
+            evolution_data = [
                 [
-                    np.full(population.num_niches, iteration),
-                    [f"nopt{i}" for i in range(population.num_niches)],
-                    population.optima_raw_objectives,
-                    population.optima_fitnesses,
-                    population.optima_points,
-                ]
-            )
+                    iteration,
+                    f"nopt{i}" if i > 0 else "optimum",
+                    population.optima_raw_objectives[i],
+                    population.optima_violations[i] * population.violation_factor,
+                    int(population.optima_noptimal_mask[i]),
+                    population.optima_fitnesses[i],
+                ] + population.optima_points[i].tolist()
+                for i in range(population.num_niches)
+            ]
             self.evolution_printer(evolution_data)
 
     def finalize(self, population):
@@ -201,44 +204,40 @@ class Logger:
         Args:
             best_solutions (dict): The final dictionary of best solutions.
         """
-        print("Finalizing logs...")
+        print("Finalizing logs...", end="")
         # Write final n-optima data
-        niche_names = ["optimum"] + [f"nopt{i}" for i in range(1, len(population.optima_points))]
+        niche_names = [f"nopt{i}" if i > 0 else "optimum" for i in range(len(population.optima_points))]
         final_data = np.vstack(
             [
                 niche_names,
                 population.optima_raw_objectives,
+                population.optima_violations * population.violation_factor,
                 population.optima_noptimal_mask.astype(int),
+                population.optima_fitnesses,
                 population.optima_points.T,
             ]
-        )
+        ).T.tolist()
         self.noptima_printer(final_data)
 
         # Flush all remaining data in buffers
-        self.nobjective_printer._flush()
-        self.noptimality_printer._flush()
-        self.nfitness_printer._flush()
+        self.niche_metrics_printer._flush()
         self.diversity_printer._flush()
         if self.detailed:
             self.evolution_printer._flush()
         self.noptima_printer._flush()
         print("Logging complete.")
 
-    def _calculate_diversity_metrics(self, iteration: int, population) -> np.ndarray:
-        return np.array(
-            [
-                [
-                    iteration,
-                    population.vesa,
-                    population.shannon,
-                    np.mean(population.stds) if population.stds.size > 0 else 0.0,
-                    np.min(population.stds) if population.stds.size > 0 else 0.0,
-                    np.max(population.stds) if population.stds.size > 0 else 0.0,
-                    np.mean(population.variances) if population.variances.size > 0 else 0.0,
-                    np.min(population.variances) if population.variances.size > 0 else 0.0,
-                    np.max(population.variances) if population.variances.size > 0 else 0.0,
-                    diversity.sum_of_fitness(population.fitnesses, population.noptimal_mask),
-                    population.mean_fitness,
-                ]
-            ]
-        )
+    def _calculate_diversity_metrics(self, iteration: int, population) -> list:
+        return [
+            iteration,
+            population.vesa,
+            population.shannon,
+            np.mean(population.stds) if population.stds.size > 0 else 0.0,
+            np.min(population.stds) if population.stds.size > 0 else 0.0,
+            np.max(population.stds) if population.stds.size > 0 else 0.0,
+            np.mean(population.variances) if population.variances.size > 0 else 0.0,
+            np.min(population.variances) if population.variances.size > 0 else 0.0,
+            np.max(population.variances) if population.variances.size > 0 else 0.0,
+            diversity.sum_of_fitness(population.fitnesses, population.noptimal_mask),
+            population.mean_fitness,
+        ]

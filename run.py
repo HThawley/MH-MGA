@@ -1,6 +1,6 @@
 import numpy as np
-from numba import njit
 
+from mga.commons.numba_overload import njit
 from mga.problem_definition import OptimizationProblem
 from mga.mhmga import MGAProblem
 from mga.utils import plotting
@@ -47,7 +47,23 @@ def main(run=True, plot=True, seed=None):
 
         algorithm.add_niches(num_niches=20)
         algorithm.update_hyperparameters(
-            max_iter=200,
+            max_iter=100,
+            pop_size=20,
+            elite_count=0.2,
+            tourn_count=-1,
+            tourn_size=2,
+            mutation_prob=0.25,
+            mutation_sigma=(0.05, 0.5),
+            crossover_prob=0.0,
+            niche_elitism="selfish",
+            noptimal_rel=0.12,
+            space_scaler=np.array([2.0, 1.0]),
+        )
+        algorithm.step(disp_rate=1)
+
+        algorithm.add_niches(num_niches=10)
+        algorithm.update_hyperparameters(
+            max_iter=100,
             pop_size=20,
             elite_count=0.2,
             tourn_count=-1,

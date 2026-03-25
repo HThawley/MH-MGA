@@ -1,11 +1,9 @@
 import numpy as np
-from numba import njit
 
-from mga.commons.types import DEFAULTS
-
-INT, FLOAT = DEFAULTS
-from mga.problem_definition import MultiObjectiveProblem  # noqa: E402
-from mga.operators import selection, crossover, mutation  # noqa: E402
+from mga.commons.numba_overload import njit
+from mga.commons.constants import INT, FLOAT
+from mga.problem_definition import MultiObjectiveProblem
+from mga.operators import selection, crossover, mutation
 
 
 class Pareto:

@@ -1,14 +1,12 @@
 import numpy as np
-from numba import njit
 from datetime import datetime as dt
 
-from mga.commons.types import DEFAULTS
-
-INT, FLOAT = DEFAULTS
-import mga.utils.termination as term  # noqa: E402
-from mga.utils import typing  # noqa: E402
-from mga.problem_definition import MultiObjectiveProblem  # noqa: E402
-from mga.moopopulation import Pareto  # noqa: E402
+from mga.commons.numba_overload import njit
+from mga.commons.constants import INT, FLOAT
+import mga.utils.termination as term
+from mga.utils import typing
+from mga.problem_definition import MultiObjectiveProblem
+from mga.moopopulation import Pareto
 
 
 class MOProblem:
