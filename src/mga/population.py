@@ -383,9 +383,9 @@ class Population:
             gi, gj = self._find_global_best_idx()
         else:
             if self.maximize:
-                gi, gj = np.unravel_index(np.argmax(self.penalized_objectives), self.penalized_objectives.shape)
+                gi, gj = _argmax_2d(self.penalized_objectives)
             else:
-                gi, gj = np.unravel_index(np.argmin(self.penalized_objectives), self.penalized_objectives.shape)
+                gi, gj = _argmin_2d(self.penalized_objectives)
 
         if gi != -1:
             self.optima_points[0, :] = self.points[gi, gj]
@@ -821,6 +821,36 @@ def _safe_divide_array(
         else:
             retarr[i] /= denom_ravel[i]
     return retarr.reshape(num.shape)
+
+
+@njit
+def _argmax_2d(array):
+    best_i = -1
+    best_j = -1
+    best = -np.inf
+    for i in range(array.shape[0]):
+        for j in range(array.shape[1]):
+            val = array[i, j]
+            if val > best:
+                best_i = i
+                best_j = j
+                best = val
+    return best_i, best_j
+
+
+@njit
+def _argmin_2d(array):
+    best_i = -1
+    best_j = -1
+    best = np.inf
+    for i in range(array.shape[0]):
+        for j in range(array.shape[1]):
+            val = array[i, j]
+            if val < best:
+                best_i = i
+                best_j = j
+                best = val
+    return best_i, best_j
 
 
 def load_problem_to_population(
