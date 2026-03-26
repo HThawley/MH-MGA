@@ -25,5 +25,5 @@ else:
 
         return wrapper
 
-    def prange(x):
-        return range(x)
+    def prange(*args):
+        return range(*args)
