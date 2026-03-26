@@ -1,9 +1,12 @@
 import numpy as np
+import os
 
-from mga.commons.numba_overload import njit
-from mga.problem_definition import OptimizationProblem
-from mga.mhmga import MGAProblem
-from mga.utils import plotting
+os.environ["MGA_JIT_ENABLED"] = "0"
+
+from mga.commons.numba_overload import njit  # noqa: E402
+from mga.problem_definition import OptimizationProblem  # noqa: E402
+from mga.mhmga import MGAProblem  # noqa: E402
+from mga.utils import plotting  # noqa: E402
 
 
 @njit(fastmath=True)

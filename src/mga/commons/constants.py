@@ -2,13 +2,22 @@ import os
 import numpy as np
 
 """
-# Instructions for users turning jit on/off
+# Instructions for users setting enviornment settings
+
+# this must be done BEFORE importing and mga module. It only
+# needs to be done once.
+
 import os
 
-# Turn JIT ON (or set to "0" for pure Python)
+# Turn JIT on/off (or set to "0" for pure Python)
+# Default is off
 os.environ["MGA_JIT_ENABLED"] = "1"
 
-# Now import the library
+# Toggle 32/64 bit math
+# Default is 64
+os.environ["MGA_USE_32BIT"] = "1"
+
+# Now import the library - this can be done downstream
 from mga.mhmga import MGAProblem
 """
 
@@ -16,5 +25,13 @@ from mga.mhmga import MGAProblem
 _env_jit = str(os.environ.get("MGA_JIT_ENABLED", "0")).lower()
 JIT_ENABLED = _env_jit in ("1", "true", "t", "yes", "y", "1.0", "on")
 
-INT = np.int64
-FLOAT = np.float64
+# Default to 64 bit for library usage; override via os.environ before import
+_env_32bit = os.environ.get("MGA_USE_32BIT", "0").lower()
+USE_32BIT = _env_32bit in ("1", "true", "t", "yes", "y", "1.0", "on")
+
+if USE_32BIT:
+    INT = np.int32
+    FLOAT = np.float32
+else:
+    INT = np.int64
+    FLOAT = np.float64
