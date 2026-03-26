@@ -403,13 +403,13 @@ class MGAProblem:
         """
         Prints the current progress of the algorithm to the console.
         """
-        best_obj = self.population.optima_raw_objectives
+        best_pobj = self.population.optima_penalized_objectives[0]
         elapsed = dt.now() - self.start_time
 
         if self.population.optima_violations[0] > 0:
-            print(f"Iter: {self.current_iter}. Best Objective: {best_obj[0]:.2f} [infeasible]. Time: {elapsed}")
+            print(f"Iter: {self.current_iter}. Best Objective: {best_pobj:.2f} [infeasible]. Time: {elapsed}")
         else:
-            print(f"Iter: {self.current_iter}. Best Objective: {best_obj[0]:.2f}. Time: {elapsed}")
+            print(f"Iter: {self.current_iter}. Best Objective: {best_pobj:.2f}. Time: {elapsed}")
 
     def configure_termination(self, convergence_criteria):
         typing.sanitize_type(
