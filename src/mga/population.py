@@ -376,11 +376,17 @@ class Population:
         Checks for and updates the global best solution found so far.
         Updates near-optima according to near-optimal slack
         """
-        self.feasible_mask[:] = self.violations == 0
-        if not np.any(self.feasible_mask):
-            return
 
-        gi, gj = self._find_global_best_idx()
+        self._update_feasible_mask()
+
+        if np.any(self.feasible_mask):
+            gi, gj = self._find_global_best_idx()
+        else:
+            if self.maximize:
+                gi, gj = np.unravel_index(np.argmax(self.penalized_objectives), self.penalized_objectives.shape)
+            else:
+                gi, gj = np.unravel_index(np.argmin(self.penalized_objectives), self.penalized_objectives.shape)
+
         if gi != -1:
             self.optima_points[0, :] = self.points[gi, gj]
             self.optima_scaled_points[0, :] = self.scaled_points[gi, gj]
@@ -633,6 +639,11 @@ class Population:
             self.noptimal_threshold = self.optima_penalized_objectives[0] - margin
         else:
             self.noptimal_threshold = self.optima_penalized_objectives[0] + margin
+
+    def _update_feasible_mask(self):
+        for i in range(self.num_niches):
+            for j in range(self.pop_size):
+                self.feasible_mask[i, j] = self.violations[i, j] == 0
 
     def _find_global_best_idx(self):
         """
