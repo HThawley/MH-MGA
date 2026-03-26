@@ -117,7 +117,7 @@ class MGAProblem:
         Adds niches to the problem
         """
         typing.sanitize_type(num_niches, "integer", "num_niches")
-        typing.sanitize_range(num_niches, "num_niches", gt=1)
+        typing.sanitize_range(num_niches, "num_niches", ge=1)
 
         if not self._is_populated:
             self.num_niches = num_niches
@@ -253,8 +253,8 @@ class MGAProblem:
 
         # Instantiation
         if not self._is_populated:
-            if not hasattr(self, "num_niches") or self.num_niches <= 1:
-                raise RuntimeError(f"'num_niches' must be greater than one. Got: {self.num_niches}"
+            if not hasattr(self, "num_niches") or self.num_niches < 1:
+                raise RuntimeError(f"'num_niches' must be greater than zero. Got: {self.num_niches}"
                                    ". Call `.add_niches()` first.")
             self.populate()
 
