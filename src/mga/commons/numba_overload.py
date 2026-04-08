@@ -30,33 +30,20 @@ else:
     def prange(*args):
         return range(*args)
 
-    class _Int64:
-        @classmethod
-        def __class_getitem__(cls, key):
-            return NDArray[np.int64]
+    def _make_mock_type(np_type):
+        class MockType:
+            def __new__(cls, value=0):
+                return np_type(value)
 
-    class _Int32:
-        @classmethod
-        def __class_getitem__(cls, key):
-            return NDArray[np.int32]
+            @classmethod
+            def __class_get_item__(cls, key):
+                return NDArray[np_type]
 
-    class _Float64:
-        @classmethod
-        def __class_getitem__(cls, key):
-            return NDArray[np.float64]
+        MockType.__name__ = f"_{np_type.__name__.capitalize()}"
+        return MockType
 
-    class _Float32:
-        @classmethod
-        def __class_getitem__(cls, key):
-            return NDArray[np.float32]
-
-    class _Boolean:
-        @classmethod
-        def __class_getitem__(cls, key):
-            return NDArray[np.bool_]
-
-    int64 = _Int64
-    int32 = _Int32
-    float64 = _Float64
-    float32 = _Float32
-    boolean = _Boolean
+    int64 = _make_mock_type(np.int64)
+    int32 = _make_mock_type(np.int32)
+    float64 = _make_mock_type(np.float64)
+    float32 = _make_mock_type(np.float32)
+    boolean = _make_mock_type(np.bool_)

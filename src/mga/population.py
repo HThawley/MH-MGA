@@ -1,6 +1,7 @@
 import numpy as np
 from numba.types import npy_rng
 
+from mga.commons.constants import JIT_ENABLED
 from mga.commons.numba_overload import njit, jitclass
 from mga.commons.types import nbint, npintp, nbfloat, npfloat, boolean
 from mga.problem_definition import OptimizationProblem
@@ -8,77 +9,79 @@ from mga.operators import selection, crossover, mutation
 from mga.metrics import fitness as fit_metrics
 from mga.metrics import diversity
 
+if JIT_ENABLED:
+    spec = [
+        ('num_niches', nbint),
+        ('pop_size', nbint),
+        ('ndim', nbint),
+        ('parent_size', nbint),
+        ('unselfish_niche_fitness_threshold', nbfloat),
+        ('stable_sort', boolean),
+        ('include_obj_in_fitness', boolean),
 
-spec = [
-    ('num_niches', nbint),
-    ('pop_size', nbint),
-    ('ndim', nbint),
-    ('parent_size', nbint),
-    ('unselfish_niche_fitness_threshold', nbfloat),
-    ('stable_sort', boolean),
-    ('include_obj_in_fitness', boolean),
+        ('integrality', boolean[:]),
+        ('booleanality', boolean[:]),
+        ('maximize', boolean),
+        ('scaling_in_obj_func', boolean),
+        ('lower_bounds', nbfloat[:]),
+        ('scaled_lower_bounds', nbfloat[:]),
+        ('upper_bounds', nbfloat[:]),
+        ('scaled_upper_bounds', nbfloat[:]),
+        ('problem_loaded', boolean),
+        ('rng', npy_rng),
+        ('is_continuous_space', boolean),
 
-    ('integrality', boolean[:]),
-    ('booleanality', boolean[:]),
-    ('maximize', boolean),
-    ('scaling_in_obj_func', boolean),
-    ('lower_bounds', nbfloat[:]),
-    ('scaled_lower_bounds', nbfloat[:]),
-    ('upper_bounds', nbfloat[:]),
-    ('scaled_upper_bounds', nbfloat[:]),
-    ('problem_loaded', boolean),
-    ('rng', npy_rng),
-    ('is_continuous_space', boolean),
+        # Main population arrays
+        ('points', nbfloat[:, :, :]),
+        ('scaled_points', nbfloat[:, :, :]),
+        ('raw_objectives', nbfloat[:, :]),
+        ('violations', nbfloat[:, :]),
+        ('penalized_objectives', nbfloat[:, :]),
+        ('feasible_mask', boolean[:, :]),
+        ('fitnesses', nbfloat[:, :]),
+        ('noptimal_mask', boolean[:, :]),
+        ('scaled_centroids', nbfloat[:, :]),
+        ('niche_elites', nbfloat[:, :, :]),
+        ('parents', nbfloat[:, :, :]),
 
-    # Main population arrays
-    ('points', nbfloat[:, :, :]),
-    ('scaled_points', nbfloat[:, :, :]),
-    ('raw_objectives', nbfloat[:, :]),
-    ('violations', nbfloat[:, :]),
-    ('penalized_objectives', nbfloat[:, :]),
-    ('feasible_mask', boolean[:, :]),
-    ('fitnesses', nbfloat[:, :]),
-    ('noptimal_mask', boolean[:, :]),
-    ('scaled_centroids', nbfloat[:, :]),
-    ('niche_elites', nbfloat[:, :, :]),
-    ('parents', nbfloat[:, :, :]),
+        # Optima tracking
+        ('optima_points', nbfloat[:, :]),
+        ('optima_scaled_points', nbfloat[:, :]),
+        ('optima_raw_objectives', nbfloat[:]),
+        ('optima_violations', nbfloat[:]),
+        ('optima_penalized_objectives', nbfloat[:]),
+        ('optima_fitnesses', nbfloat[:]),
+        ('optima_noptimal_mask', boolean[:]),
+        ('noptimal_threshold', nbfloat),
 
-    # Optima tracking
-    ('optima_points', nbfloat[:, :]),
-    ('optima_scaled_points', nbfloat[:, :]),
-    ('optima_raw_objectives', nbfloat[:]),
-    ('optima_violations', nbfloat[:]),
-    ('optima_penalized_objectives', nbfloat[:]),
-    ('optima_fitnesses', nbfloat[:]),
-    ('optima_noptimal_mask', boolean[:]),
-    ('noptimal_threshold', nbfloat),
+        # Hyperparameters
+        # (Defined individually in spec as they are assigned in update_hyperparameters)
+        ('elite_count', nbint),
+        ('tourn_count', nbint),
+        ('tourn_size', nbint),
+        ('mutation_prob', nbfloat[:]),
+        ('mutation_sigma', nbfloat[:]),
+        ('crossover_prob', nbfloat[:]),
+        ('noptimal_rel', nbfloat),
+        ('noptimal_abs', nbfloat),
+        ('violation_factor', nbfloat),
+        ('niche_elitism', nbint),
+        ('mutation_scaler', nbfloat[:]),
+        ('space_scaler', nbfloat[:]),
+        ('objective_scaler', nbfloat),
+        ('current_mutation_prob', nbfloat),
+        ('mutation_sigma_inst', nbfloat),
+        ('current_crossover_prob', nbfloat),
 
-    # Hyperparameters
-    # (Defined individually in spec as they are assigned in update_hyperparameters)
-    ('elite_count', nbint),
-    ('tourn_count', nbint),
-    ('tourn_size', nbint),
-    ('mutation_prob', nbfloat[:]),
-    ('mutation_sigma', nbfloat[:]),
-    ('crossover_prob', nbfloat[:]),
-    ('noptimal_rel', nbfloat),
-    ('noptimal_abs', nbfloat),
-    ('violation_factor', nbfloat),
-    ('niche_elitism', nbint),
-    ('mutation_scaler', nbfloat[:]),
-    ('space_scaler', nbfloat[:]),
-    ('objective_scaler', nbfloat),
-    ('current_mutation_prob', nbfloat),
-    ('mutation_sigma_inst', nbfloat),
-    ('current_crossover_prob', nbfloat),
-
-    # Metrics
-    ('vesa', nbfloat),
-    ('shannon', nbfloat),
-    ('stds', nbfloat[:]),
-    ('variances', nbfloat[:]),
-    ('mean_fitness', nbfloat),
-]
+        # Metrics
+        ('vesa', nbfloat),
+        ('shannon', nbfloat),
+        ('stds', nbfloat[:]),
+        ('variances', nbfloat[:]),
+        ('mean_fitness', nbfloat),
+    ]
+else:
+    spec = []
 
 
 @jitclass(spec)
@@ -157,10 +160,10 @@ class Population:
 
     def initialize_population(
             self,
-            noptimal_rel: float = 0.0,
-            noptimal_abs: float = 0.0,
-            violation_factor: float = 0.0,
-            x0=np.empty(0, dtype=npfloat),
+            noptimal_rel: float,
+            noptimal_abs: float,
+            violation_factor: float,
+            x0,  # : NDArray[float]
     ):
         """
         populates the population points with a uniform distribution
@@ -172,10 +175,31 @@ class Population:
         self.noptimal_abs = noptimal_abs
         self.violation_factor = violation_factor
 
-        if x0.size == 0:
+        if x0.ndim == 0 or x0.size == 0:
             self._populate_randomly(0, self.num_niches)
         else:
-            _clone(self.points, np.atleast_3d(x0))
+            if x0.ndim == 1:
+                if not x0.shape[0] == self.ndim:
+                    raise ValueError(f"1D 'x0' should have shape ({self.ndim},). Got {x0.shape}.")
+                x0 = x0.reshape(1, 1, self.ndim)
+            elif x0.ndim == 2:
+                if not (x0.shape[0] == self.pop_size and x0.shape[1] == self.ndim):
+                    raise ValueError(
+                        f"2D 'x0' should have shape (pop_size={self.pop_size}, ndim={self.ndim}). Got {x0.shape}."
+                        " If you are supplying (num_niches, ndim), try reshaping to (num_niches, 1, ndim)"
+                    )
+                x0 = x0.reshape(1, self.pop_size, self.ndim)
+            elif x0.ndim == 3:
+                if not (x0.shape[0] == self.num_niches
+                        and x0.shape[1] == self.pop_size
+                        and x0.shape[2] == self.ndim):
+                    raise ValueError(
+                        f"3D 'x0' should have shape (num_niches={self.num_niches}, pop_size={self.pop_size},"
+                        f"ndim={self.ndim}). Got {x0.shape}"
+                    )
+            else:
+                raise ValueError(f"'x0' should be 1D, 2D, or 3D array. Got {x0.ndim}D array.")
+            _clone(self.points, x0)
 
         self.points[0, 0, :] = self.optima_points[0]  # inject known optimum
 
@@ -698,15 +722,19 @@ def _add_niche_to_array(old_array, num_niches):
 
 
 @njit
-def _clone(target, start_pop):
-    nniches = start_pop.shape[0]
-    nindividuals = start_pop.shape[1]
+def _clone(target, parents):
+    """
+    fills a target array of shape (num_niches, pop_size, ndim) with clones
+    of parents of shape (num_niches, parent_size, ndim) by repeating parents as needed.
+    """
+    nniches = parents.shape[0]
+    nindividuals = parents.shape[1]
     for i in range(target.shape[0]):
         i_n = i % nniches
         for j in range(target.shape[1]):
             j_n = j % nindividuals
             for k in range(target.shape[2]):
-                target[i, j, k] = start_pop[i_n, j_n, k]
+                target[i, j, k] = parents[i_n, j_n, k]
 
 
 @njit

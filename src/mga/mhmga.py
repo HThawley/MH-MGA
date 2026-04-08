@@ -5,7 +5,7 @@ import warnings
 from numba.core.registry import CPUDispatcher
 from typing import Callable
 
-from mga.commons.constants import npint, npfloat
+from mga.commons.types import npint, npfloat
 from mga.commons.numba_overload import njit, prange
 import mga.utils.termination as term
 from mga.utils import typing
@@ -26,7 +26,7 @@ class MGAProblem:
     def __init__(
         self,
         problem: OptimizationProblem,
-        x0: np.ndarray[float] = np.empty(0, npfloat),
+        x0: np.ndarray[float] = None,
         log_dir: str | None = None,
         log_freq: int = -1,
         random_seed: int | None = None,
@@ -50,19 +50,9 @@ class MGAProblem:
         self.problem = problem
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None
-        self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=problem.ndim) if log_dir else None
+        self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
 
-        if x0 is None:
-            x0 = np.empty(0, npfloat)
-        typing.sanitize_type(x0, np.ndarray, "x0")
-        if x0.size > 0:
-            if x0.dtype != npfloat:
-                warnings.warn(f"x0 will be cast to {npfloat}")
-            if not x0.ndim == 1:
-                raise NotImplementedError("currently only 1-dimensional 'x0' is accepted")
-            if not len(x0) == self.problem.ndim:
-                raise ValueError("'x0' should be of same length as 'problem.ndim'")
-        self.x0 = x0
+        self.x0 = self._sanitize_seed_points(x0, "x0")
 
         self.population = None
         self.current_iter = 0
@@ -127,7 +117,7 @@ class MGAProblem:
 
     def update_hyperparameters(  # noqa: C901
             self,
-            max_iter: int,
+            max_iter: int = 0,
             pop_size: int = 100,
             elite_count: int | float = 0.2,
             tourn_count: int | float = 0.8,
@@ -235,6 +225,52 @@ class MGAProblem:
 
         self.hyperparameters_set = True
 
+    def _populate(
+        self,
+        points: np.ndarray = None,
+        force: bool = False,
+        evaluate: bool = True,
+    ) -> None:
+        """
+        generate starting population
+        """
+        if self._is_populated and not force:
+            return
+        if self.pop_size < 1:
+            raise ValueError("'pop_size' must be positive definite.")
+
+        if not self.hyperparameters_set:
+            raise RuntimeError("Set hyperparameters before populating (`.update_hyperparameters`)")
+
+        # Initialize population
+        self.population = Population(
+            num_niches=self.num_niches,
+            pop_size=self.pop_size,
+            ndim=self.problem.ndim,
+            rng=self.rng,
+            stable_sort=self.stable_sort,
+            include_obj_in_fitness=self.include_obj_in_fitness,
+        )
+        load_problem_to_population(self.population, self.problem)
+
+        self._update_population_hyperparameters()
+        if points is None:
+            self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
+        else:
+            self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, points)
+
+        if not self.problem.constraints:
+            self.population.violations[:] = 0.0
+
+        if evaluate:
+            self._evaluate_points()
+            self.population.evaluate_fitness()
+            self.population.track_optima()
+
+        self._is_populated = True
+
+        self._update_parent_size()
+
     def step(  # noqa: C901
         self,
         disp_rate: int = 0,
@@ -255,17 +291,9 @@ class MGAProblem:
             if not hasattr(self, "num_niches") or self.num_niches < 1:
                 raise RuntimeError(f"'num_niches' must be greater than zero. Got: {self.num_niches}"
                                    ". Call `.add_niches()` first.")
-            self.populate()
-
+            self._populate()
         else:
-            self.update_population_hyperparameters()
-
-        # Set parent size
-        self.population.resize(
-            -1,  # ignore niches
-            self.pop_size,  # pop_size
-            self.tourn_count + self.elite_count,  # parent_size
-        )
+            self._update_population_hyperparameters()
 
         # Main algorithm loop
         try:
@@ -273,12 +301,13 @@ class MGAProblem:
                 if disp_rate > 0 and self.current_iter % disp_rate == 0:
                     self._display_progress()
 
-                self.run_iteration()
+                self._run_iteration()
 
                 if self.logger:
                     self.logger.log_iteration(self.current_iter, self.population)
 
                 # provides hooks for termination control
+                # TODO: more hooks
                 self.current_best_obj = self.population.optima_raw_objectives[0]
                 self.mean_fitness = self.population.mean_fitness
 
@@ -294,7 +323,131 @@ class MGAProblem:
         if disp_rate != 0:
             self._display_progress()
 
-    def run_iteration(self):
+    def inspect_recombination(
+        self,
+        starting_points: np.ndarray,
+        point_objectives: np.ndarray = None,
+        point_constraints: np.ndarray = None,
+        evaluate_offspring: bool = True,
+    ) -> dict:
+        """
+        Executes a single, isolated round of evaluation and recombination.
+        """
+        if not self.hyperparameters_set:
+            raise RuntimeError("Set hyperparameters before tuning (`.update_hyperparameters`)")
+        if not self.num_niches == 1:
+            raise NotImplementedError("inspect_recombination is only implemented for single-niche populations")
+
+        starting_points = self._sanitize_seed_points(starting_points, "starting_points", check_all_dims=True)
+
+        obj_given = point_objectives is not None
+        cons_given = point_constraints is not None
+
+        if self.problem.constraints:
+            evaluate = not (obj_given and cons_given)
+            if obj_given != cons_given:
+                warnings.warn(
+                    f"starting point objectives {'' if obj_given else 'not'} supplied"
+                    f" but constraint violations {'' if cons_given else 'not'} supplied."
+                    "Points will be re-evaluated",
+                    UserWarning
+                )
+        else:
+            cons_given = False  # ignore constraint inputs if problem has no constraints
+            evaluate = point_objectives is None
+
+        self._populate(starting_points, force=True, evaluate=evaluate)
+        if not evaluate:
+            self.population.raw_objectives[0, :] = point_objectives
+            self.population.violations[0, :] = point_constraints if cons_given else 0.0
+            self.population.penalized_objectives[:] = (
+                self.population.raw_objectives + self.population.violations * self.violation_factor
+            )
+            self.population.evaluate_fitness()
+            self.population.track_optima()
+
+        point_objectives = self.population.raw_objectives[0, :]
+        point_constraints = self.population.violations[0, :]
+
+        self.population.dither_probabilities()
+        self.population.select_parents()
+        self.population.generate_offspring()
+
+        if evaluate_offspring:
+            self._evaluate_points()
+
+        return {
+            "parents_points": starting_points,
+            "parents_objectives": point_objectives,
+            "parents_violations": point_constraints,
+
+            "offspring_points": self.population.points[0].copy(),
+            "offspring_objectives": self.population.raw_objectives[0].copy() if evaluate_offspring else None,
+            "offspring_violations": self.population.violations[0].copy()
+        }
+
+    def get_results(self) -> dict:
+        """
+        Returns the final results of the optimization.
+        """
+        if self.logger:
+            self.logger.finalize(self.population)
+
+        if self.population is None:
+            raise RuntimeError("Algorithm has not been run yet.")
+
+        return {
+            "optima": self.population.optima_points,
+            "fitness": self.population.optima_fitnesses,
+            "objective": self.population.optima_raw_objectives,
+            "penalties": self.population.optima_penalized_objectives - self.population.optima_raw_objectives,
+            "noptimality": self.population.optima_noptimal_mask,
+        }
+
+    def _update_parent_size(self):
+        if not self._is_populated:
+            return
+        if not self.hyperparameters_set:
+            return
+        self.population.resize(
+            -1,  # ignore niches
+            self.pop_size,  # pop_size
+            self.tourn_count + self.elite_count,  # parent_size
+        )
+
+    def _sanitize_seed_points(self, points, name="points", check_all_dims=False):
+        if points is None or points.size == 0:
+            return np.empty([], npfloat)
+
+        typing.sanitize_type(points, np.ndarray, name)
+
+        if check_all_dims:
+            expected_shape = {
+                1: (self.problem.ndim,),
+                2: (self.pop_size, self.problem.ndim),
+                3: (self.num_niches, self.pop_size, self.problem.ndim)
+            }
+
+            shape_str = {
+                1: f"(ndim={self.problem.ndim},)",
+                2: f"(pop_size={self.pop_size}, ndim={self.problem.ndim})",
+                3: f"(num_niches={self.num_niches}, pop_size={self.pop_size}, ndim={self.problem.ndim})"
+            }
+
+            if points.shape != expected_shape[points.ndim]:
+                raise ValueError(
+                    f"Bad shape for '{name}'. Expected {shape_str[points.ndim]}, got {points.shape}."
+                )
+        else:
+            if points.shape[-1] != self.problem.ndim:
+                raise ValueError(
+                    f"Last dimension of '{name}' should be ndim={self.problem.ndim}. Got shape {points.shape}."
+                )
+
+        points = points.astype(npfloat)
+        return points
+
+    def _run_iteration(self):
         """
         Dispatcher method.
         Runs one iteration using the fastest available path.
@@ -315,7 +468,7 @@ class MGAProblem:
                 self.problem.fkwargs
             )
 
-    def evaluate_points(self):
+    def _evaluate_points(self):
         if self._can_use_fast_path:
             self.evaluator(
                 self.population, self.problem.objective, self.problem.fargs
@@ -325,44 +478,7 @@ class MGAProblem:
                 self.population, self.problem.objective, self.problem.fargs, self.problem.fkwargs
             )
 
-    def evaluate_and_update_population(self, diversity=True):
-        # always called on population initialisation
-        self.evaluate_points()
-        self.population.evaluate_fitness()  # TODO: provide hooks for termination
-        self.population.track_optima()
-        if diversity:
-            self.population.evaluate_diversity()  # TODO: provide hooks for termination
-
-    def populate(self):
-        """
-        generate starting population
-        """
-        if self._is_populated:
-            return
-        if self.pop_size < 1:
-            raise ValueError("'pop_size' must be positive definite.")
-
-        # Initialize population
-        self.population = Population(
-            num_niches=self.num_niches,
-            pop_size=self.pop_size,
-            ndim=self.problem.ndim,
-            rng=self.rng,
-            stable_sort=self.stable_sort,
-            include_obj_in_fitness=self.include_obj_in_fitness,
-        )
-        load_problem_to_population(self.population, self.problem)
-
-        self.update_population_hyperparameters()
-        self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
-        self.evaluate_and_update_population(False)
-
-        if not self.problem.constraints:
-            self.population.violations[:] = 0.0
-
-        self._is_populated = True
-
-    def update_population_hyperparameters(self):
+    def _update_population_hyperparameters(self):
         # numba does not like keyword arguments
         self.population.update_hyperparameters(
             self.elite_count,
@@ -379,24 +495,6 @@ class MGAProblem:
             self.space_scaler,
             self.objective_scaler
         )
-
-    def get_results(self) -> dict:
-        """
-        Returns the final results of the optimization.
-        """
-        if self.logger:
-            self.logger.finalize(self.population)
-
-        if self.population is None:
-            raise RuntimeError("Algorithm has not been run yet.")
-
-        return {
-            "optima": self.population.optima_points,
-            "fitness": self.population.optima_fitnesses,
-            "objective": self.population.optima_raw_objectives,
-            "penalties": self.population.optima_penalized_objectives - self.population.optima_raw_objectives,
-            "noptimality": self.population.optima_noptimal_mask,
-        }
 
     def _display_progress(self):
         """
@@ -428,7 +526,11 @@ class MGAProblem:
 
 
 def _python_iteration_loop(
-    population: Population,  eval_func: CPUDispatcher, objective_func: CPUDispatcher, fargs: tuple, fkwargs: dict
+    population: Population,
+    eval_func: Callable,
+    objective_func: Callable,
+    fargs: tuple,
+    fkwargs: dict,
 ) -> None:
     """
     The fallback "slow path" for non-jitted objectives or
@@ -438,9 +540,25 @@ def _python_iteration_loop(
     population.select_parents()
     population.generate_offspring()
     eval_func(population, objective_func, fargs, fkwargs)
-    population.evaluate_fitness()
+    population.evaluate_fitness()  # TODO: hooks for termination
     population.track_optima()
-    population.evaluate_diversity()
+    population.evaluate_diversity()  # TODO: hooks for termination
+
+
+@njit
+def _njit_iteration_loop(
+    population: Population,
+    eval_func: CPUDispatcher,
+    objective_func: CPUDispatcher,
+    fargs: tuple,
+) -> None:
+    population.dither_probabilities()
+    population.select_parents()
+    population.generate_offspring()
+    eval_func(population, objective_func, fargs)
+    population.evaluate_fitness()  # TODO: hooks for termination
+    population.track_optima()
+    population.evaluate_diversity()  # TODO: hooks for termination
 
 
 def construct_python_eval_func(  # noqa: C901
@@ -561,18 +679,6 @@ def construct_python_eval_func(  # noqa: C901
             population.penalized_objectives[:] = population.raw_objectives  # No penalty
 
     return _evaluator
-
-
-# --- JITTED iteration loops ---
-@njit
-def _njit_iteration_loop(population: Population, eval_func: CPUDispatcher, objective_func: CPUDispatcher, fargs: tuple):
-    population.dither_probabilities()
-    population.select_parents()
-    population.generate_offspring()
-    eval_func(population, objective_func, fargs)
-    population.evaluate_fitness()
-    population.track_optima()
-    population.evaluate_diversity()
 
 
 def construct_njit_eval_func(  # noqa: C901
