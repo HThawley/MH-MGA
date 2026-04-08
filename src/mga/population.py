@@ -1,89 +1,83 @@
 import numpy as np
-import numba as nb
 from numba.types import npy_rng
 
 from mga.commons.numba_overload import njit, jitclass
-from mga.commons.constants import INT, FLOAT
+from mga.commons.types import nbint, npintp, nbfloat, npfloat, boolean
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
 from mga.metrics import fitness as fit_metrics
 from mga.metrics import diversity
 
 
-nb_int = nb.from_dtype(np.dtype(INT))
-nb_float = nb.from_dtype(np.dtype(FLOAT))
-nb_bool = nb.boolean
-
-
 spec = [
-    ('num_niches', nb_int),
-    ('pop_size', nb_int),
-    ('ndim', nb_int),
-    ('parent_size', nb_int),
-    ('unselfish_niche_fitness_threshold', nb_float),
-    ('stable_sort', nb_bool),
-    ('include_obj_in_fitness', nb_bool),
+    ('num_niches', nbint),
+    ('pop_size', nbint),
+    ('ndim', nbint),
+    ('parent_size', nbint),
+    ('unselfish_niche_fitness_threshold', nbfloat),
+    ('stable_sort', boolean),
+    ('include_obj_in_fitness', boolean),
 
-    ('integrality', nb_bool[:]),
-    ('booleanality', nb_bool[:]),
-    ('maximize', nb_bool),
-    ('scaling_in_obj_func', nb_bool),
-    ('lower_bounds', nb_float[:]),
-    ('scaled_lower_bounds', nb_float[:]),
-    ('upper_bounds', nb_float[:]),
-    ('scaled_upper_bounds', nb_float[:]),
-    ('problem_loaded', nb_bool),
+    ('integrality', boolean[:]),
+    ('booleanality', boolean[:]),
+    ('maximize', boolean),
+    ('scaling_in_obj_func', boolean),
+    ('lower_bounds', nbfloat[:]),
+    ('scaled_lower_bounds', nbfloat[:]),
+    ('upper_bounds', nbfloat[:]),
+    ('scaled_upper_bounds', nbfloat[:]),
+    ('problem_loaded', boolean),
     ('rng', npy_rng),
-    ('is_continuous_space', nb_bool),
+    ('is_continuous_space', boolean),
 
     # Main population arrays
-    ('points', nb_float[:, :, :]),
-    ('scaled_points', nb_float[:, :, :]),
-    ('raw_objectives', nb_float[:, :]),
-    ('violations', nb_float[:, :]),
-    ('penalized_objectives', nb_float[:, :]),
-    ('feasible_mask', nb_bool[:, :]),
-    ('fitnesses', nb_float[:, :]),
-    ('noptimal_mask', nb_bool[:, :]),
-    ('scaled_centroids', nb_float[:, :]),
-    ('niche_elites', nb_float[:, :, :]),
-    ('parents', nb_float[:, :, :]),
+    ('points', nbfloat[:, :, :]),
+    ('scaled_points', nbfloat[:, :, :]),
+    ('raw_objectives', nbfloat[:, :]),
+    ('violations', nbfloat[:, :]),
+    ('penalized_objectives', nbfloat[:, :]),
+    ('feasible_mask', boolean[:, :]),
+    ('fitnesses', nbfloat[:, :]),
+    ('noptimal_mask', boolean[:, :]),
+    ('scaled_centroids', nbfloat[:, :]),
+    ('niche_elites', nbfloat[:, :, :]),
+    ('parents', nbfloat[:, :, :]),
 
     # Optima tracking
-    ('optima_points', nb_float[:, :]),
-    ('optima_scaled_points', nb_float[:, :]),
-    ('optima_raw_objectives', nb_float[:]),
-    ('optima_violations', nb_float[:]),
-    ('optima_penalized_objectives', nb_float[:]),
-    ('optima_fitnesses', nb_float[:]),
-    ('optima_noptimal_mask', nb_bool[:]),
-    ('noptimal_threshold', nb_float),
+    ('optima_points', nbfloat[:, :]),
+    ('optima_scaled_points', nbfloat[:, :]),
+    ('optima_raw_objectives', nbfloat[:]),
+    ('optima_violations', nbfloat[:]),
+    ('optima_penalized_objectives', nbfloat[:]),
+    ('optima_fitnesses', nbfloat[:]),
+    ('optima_noptimal_mask', boolean[:]),
+    ('noptimal_threshold', nbfloat),
 
     # Hyperparameters
     # (Defined individually in spec as they are assigned in update_hyperparameters)
-    ('elite_count', nb_int),
-    ('tourn_count', nb_int),
-    ('tourn_size', nb_int),
-    ('mutation_prob', nb_float[:]),
-    ('mutation_sigma', nb_float[:]),
-    ('crossover_prob', nb_float[:]),
-    ('noptimal_rel', nb_float),
-    ('noptimal_abs', nb_float),
-    ('violation_factor', nb_float),
-    ('niche_elitism', nb_int),
-    ('mutation_scaler', nb_float[:]),
-    ('space_scaler', nb_float[:]),
-    ('objective_scaler', nb_float),
-    ('current_mutation_prob', nb_float),
-    ('mutation_sigma_inst', nb_float),
-    ('current_crossover_prob', nb_float),
+    ('elite_count', nbint),
+    ('tourn_count', nbint),
+    ('tourn_size', nbint),
+    ('mutation_prob', nbfloat[:]),
+    ('mutation_sigma', nbfloat[:]),
+    ('crossover_prob', nbfloat[:]),
+    ('noptimal_rel', nbfloat),
+    ('noptimal_abs', nbfloat),
+    ('violation_factor', nbfloat),
+    ('niche_elitism', nbint),
+    ('mutation_scaler', nbfloat[:]),
+    ('space_scaler', nbfloat[:]),
+    ('objective_scaler', nbfloat),
+    ('current_mutation_prob', nbfloat),
+    ('mutation_sigma_inst', nbfloat),
+    ('current_crossover_prob', nbfloat),
 
     # Metrics
-    ('vesa', nb_float),
-    ('shannon', nb_float),
-    ('stds', nb_float[:]),
-    ('variances', nb_float[:]),
-    ('mean_fitness', nb_float),
+    ('vesa', nbfloat),
+    ('shannon', nbfloat),
+    ('stds', nbfloat[:]),
+    ('variances', nbfloat[:]),
+    ('mean_fitness', nbfloat),
 ]
 
 
@@ -102,11 +96,11 @@ class Population:
         rng: npy_rng,
         include_obj_in_fitness: bool
     ):
-        self.num_niches = INT(num_niches)
-        self.pop_size = INT(pop_size)
-        self.ndim = INT(ndim)
-        self.parent_size = INT(0)
-        self.unselfish_niche_fitness_threshold = FLOAT(0.0)
+        self.num_niches = nbint(num_niches)
+        self.pop_size = nbint(pop_size)
+        self.ndim = nbint(ndim)
+        self.parent_size = nbint(0)
+        self.unselfish_niche_fitness_threshold = nbfloat(0.0)
         self.stable_sort = stable_sort
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
@@ -115,50 +109,50 @@ class Population:
         self.booleanality = np.empty(ndim, np.bool_)
         self.maximize = False
         self.scaling_in_obj_func = False
-        self.lower_bounds = np.empty(ndim, FLOAT)
-        self.scaled_lower_bounds = np.empty(ndim, FLOAT)
-        self.upper_bounds = np.empty(ndim, FLOAT)
-        self.scaled_upper_bounds = np.empty(ndim, FLOAT)
+        self.lower_bounds = np.empty(ndim, dtype=npfloat)
+        self.scaled_lower_bounds = np.empty(ndim, dtype=npfloat)
+        self.upper_bounds = np.empty(ndim, dtype=npfloat)
+        self.scaled_upper_bounds = np.empty(ndim, dtype=npfloat)
         self.problem_loaded = False
 
         # Population data arrays
-        self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=FLOAT)
-        self.scaled_points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=FLOAT)
-        self.raw_objectives = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
-        self.violations = np.zeros((self.num_niches, self.pop_size), dtype=FLOAT)
-        self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
+        self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
+        self.scaled_points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
+        self.raw_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
+        self.violations = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
+        self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
         self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=FLOAT)
+        self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
         self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=FLOAT)
-        self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=FLOAT)
+        self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=npfloat)
+        self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
         if self.include_obj_in_fitness:
-            self.scaled_centroids = np.empty((self.num_niches, self.ndim+1), dtype=FLOAT)
+            self.scaled_centroids = np.empty((self.num_niches, self.ndim+1), dtype=npfloat)
         else:
-            self.scaled_centroids = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
+            self.scaled_centroids = np.empty((self.num_niches, self.ndim), dtype=npfloat)
 
         # Overall best found
-        self.optima_points = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
-        self.optima_scaled_points = np.empty((self.num_niches, self.ndim), dtype=FLOAT)
-        self.optima_raw_objectives = np.empty((self.num_niches), dtype=FLOAT)
-        self.optima_violations = np.empty((self.num_niches), dtype=FLOAT)
-        self.optima_penalized_objectives = np.empty((self.num_niches), dtype=FLOAT)
-        self.optima_fitnesses = np.empty((self.num_niches), dtype=FLOAT)
+        self.optima_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
+        self.optima_scaled_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
+        self.optima_raw_objectives = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_violations = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_penalized_objectives = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_fitnesses = np.empty((self.num_niches), dtype=npfloat)
         self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
         self.noptimal_threshold = 0.0
 
         self.elite_count = 0
         self.tourn_count = 0
         self.tourn_size = 0
-        self.mutation_prob = np.empty(2, dtype=FLOAT)
-        self.mutation_sigma = np.empty(2, dtype=FLOAT)
-        self.crossover_prob = np.empty(2, dtype=FLOAT)
+        self.mutation_prob = np.empty(2, dtype=npfloat)
+        self.mutation_sigma = np.empty(2, dtype=npfloat)
+        self.crossover_prob = np.empty(2, dtype=npfloat)
         self.niche_elitism = 0
         self.noptimal_rel = 0.0
         self.noptimal_abs = 0.0
         self.violation_factor = 0.0
-        self.mutation_scaler = np.empty(ndim, dtype=FLOAT)
-        self.space_scaler = np.empty(ndim, dtype=FLOAT)
+        self.mutation_scaler = np.empty(ndim, dtype=npfloat)
+        self.space_scaler = np.empty(ndim, dtype=npfloat)
         self.objective_scaler = 1.0
 
     def initialize_population(
@@ -166,7 +160,7 @@ class Population:
             noptimal_rel: float = 0.0,
             noptimal_abs: float = 0.0,
             violation_factor: float = 0.0,
-            x0=np.empty(0, FLOAT),
+            x0=np.empty(0, dtype=npfloat),
     ):
         """
         populates the population points with a uniform distribution
@@ -179,7 +173,7 @@ class Population:
         self.violation_factor = violation_factor
 
         if x0.size == 0:
-            self._populate_randomly(INT(0), self.num_niches)
+            self._populate_randomly(0, self.num_niches)
         else:
             _clone(self.points, np.atleast_3d(x0))
 
@@ -246,19 +240,19 @@ class Population:
         space_scaler: np.ndarray[float],
         objective_scaler: float,
     ):
-        self.elite_count = INT(elite_count)
-        self.tourn_count = INT(tourn_count)
-        self.tourn_size = INT(tourn_size)
-        self.mutation_prob[:] = mutation_prob.astype(FLOAT)
-        self.mutation_sigma[:] = mutation_sigma.astype(FLOAT)
-        self.crossover_prob[:] = crossover_prob.astype(FLOAT)
-        self.niche_elitism = INT(niche_elitism)
-        self.noptimal_rel = FLOAT(noptimal_rel)
-        self.noptimal_abs = FLOAT(noptimal_abs)
-        self.violation_factor = FLOAT(violation_factor)
-        self.mutation_scaler[:] = mutation_scaler.astype(FLOAT)
-        self.space_scaler[:] = space_scaler.astype(FLOAT)
-        self.objective_scaler = FLOAT(objective_scaler)
+        self.elite_count = nbint(elite_count)
+        self.tourn_count = nbint(tourn_count)
+        self.tourn_size = nbint(tourn_size)
+        self.mutation_prob[:] = mutation_prob.astype(nbfloat)
+        self.mutation_sigma[:] = mutation_sigma.astype(nbfloat)
+        self.crossover_prob[:] = crossover_prob.astype(nbfloat)
+        self.niche_elitism = nbint(niche_elitism)
+        self.noptimal_rel = nbfloat(noptimal_rel)
+        self.noptimal_abs = nbfloat(noptimal_abs)
+        self.violation_factor = nbfloat(violation_factor)
+        self.mutation_scaler[:] = mutation_scaler.astype(nbfloat)
+        self.space_scaler[:] = space_scaler.astype(nbfloat)
+        self.objective_scaler = nbfloat(objective_scaler)
 
         self._rescale_bounds()
 
@@ -496,7 +490,7 @@ class Population:
 
     def _resize_niche_size(self, new_niche_size: int):
         if new_niche_size != self.num_niches:
-            new_niche_size = INT(new_niche_size)
+            new_niche_size = nbint(new_niche_size)
             self.points = _add_niche_to_array(self.points, new_niche_size)
             self.scaled_points = _add_niche_to_array(self.scaled_points, new_niche_size)
             self.raw_objectives = _add_niche_to_array(self.raw_objectives, new_niche_size)
@@ -517,7 +511,7 @@ class Population:
             self.optima_fitnesses = _add_niche_to_array(self.optima_fitnesses, new_niche_size)
             self.optima_noptimal_mask = _add_niche_to_array(self.optima_noptimal_mask, new_niche_size)
 
-            self.unselfish_niche_fitness_threshold = FLOAT(0.0)
+            self.unselfish_niche_fitness_threshold = nbfloat(0.0)
             self.num_niches = new_niche_size
 
     def _resize_pop_size(self, new_pop_size: int):
@@ -578,13 +572,13 @@ class Population:
     def _resize_parent_size(self, new_parent_size):
         if new_parent_size != self.parent_size:
             if self.parent_size > 0:
-                new_parents = np.empty((self.num_niches, new_parent_size, self.ndim), FLOAT)
+                new_parents = np.empty((self.num_niches, new_parent_size, self.ndim), dtype=npfloat)
                 _clone(new_parents, self.parents)
                 self.parents = new_parents
-                self.parent_size = INT(new_parent_size)
+                self.parent_size = nbint(new_parent_size)
             else:
-                self.parents = np.empty((self.num_niches, new_parent_size, self.ndim), FLOAT)
-                self.parent_size = INT(new_parent_size)
+                self.parents = np.empty((self.num_niches, new_parent_size, self.ndim), dtype=npfloat)
+                self.parent_size = nbint(new_parent_size)
 
     def _find_scaled_centroids(self):
         """
@@ -669,7 +663,7 @@ class Population:
         Returns array of shape (num_niches,) giving chosen j for each niche.
         Niche 0 should be ignored by caller (global optimum already set).
         """
-        out = np.full(self.num_niches, -1, dtype=INT)
+        out = np.full(self.num_niches, -1, dtype=npintp)
 
         for i in range(1, self.num_niches):
             if self.feasible_mask[i].sum() >= 1:

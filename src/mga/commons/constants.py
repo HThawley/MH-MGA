@@ -1,5 +1,4 @@
 import os
-import numpy as np
 
 """
 # Instructions for users setting enviornment settings
@@ -28,10 +27,3 @@ JIT_ENABLED = _env_jit in ("1", "true", "t", "yes", "y", "1.0", "on")
 # Default to 64 bit for library usage; override via os.environ before import
 _env_32bit = os.environ.get("MGA_USE_32BIT", "0").lower()
 USE_32BIT = _env_32bit in ("1", "true", "t", "yes", "y", "1.0", "on")
-
-if USE_32BIT:
-    INT = np.int32
-    FLOAT = np.float32
-else:
-    INT = np.int64
-    FLOAT = np.float64

@@ -1,12 +1,17 @@
 import numpy as np
+import warnings
 from datetime import datetime as dt
 
 from mga.commons.numba_overload import njit
-from mga.commons.constants import INT, FLOAT
+from mga.commons.types import npint as INT
+from mga.commons.types import npfloat as FLOAT
 import mga.utils.termination as term
 from mga.utils import typing
 from mga.problem_definition import MultiObjectiveProblem
 from mga.moopopulation import Pareto
+
+
+warnings.warn("MOProblem is deprecated and will be removed in a future version.", DeprecationWarning)
 
 
 class MOProblem:

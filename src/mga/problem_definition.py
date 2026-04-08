@@ -1,8 +1,9 @@
 import numpy as np
+import warnings
 from numba.core.registry import CPUDispatcher
 from collections.abc import Callable
 
-from mga.commons.constants import FLOAT
+from mga.commons.types import npfloat
 from mga.utils import typing
 
 
@@ -71,8 +72,8 @@ class OptimizationProblem:
             self.objective_jitted = False
 
         self.lower_bounds, self.upper_bounds = bounds
-        self.lower_bounds = self.lower_bounds.astype(FLOAT)
-        self.upper_bounds = self.upper_bounds.astype(FLOAT)
+        self.lower_bounds = self.lower_bounds.astype(npfloat)
+        self.upper_bounds = self.upper_bounds.astype(npfloat)
         assert (self.lower_bounds <= self.upper_bounds).all()
         self.ndim = len(self.lower_bounds)
 
@@ -88,9 +89,9 @@ class OptimizationProblem:
 
         if known_optimum is not None:
             if known_optimum.ndim == 1:
-                self.known_optimum_point = known_optimum.astype(FLOAT)
+                self.known_optimum_point = known_optimum.astype(npfloat)
             elif known_optimum.ndim == 2 and known_optimum.shape[0] == 1:
-                self.known_optimum_point = known_optimum.flatten().astype(FLOAT)
+                self.known_optimum_point = known_optimum.flatten().astype(npfloat)
             else:
                 raise ValueError(f"known_optimum has bad shape. shape: {known_optimum.shape}")
             print("known optimum supplied")
@@ -121,6 +122,10 @@ class MultiObjectiveProblem:
         """
         Initializes the multi-objective optimization problem definition.
         """
+
+        warnings.warn("MultiObjectiveProblem is deprecated and will be removed in a future version.",
+                      DeprecationWarning)
+
         if not callable(objective):
             raise TypeError("'objective' must be callable")
 
@@ -157,7 +162,7 @@ class MultiObjectiveProblem:
         """
         points = np.atleast_2d(points)
         num_points = points.shape[0]
-        obj_values = np.empty((num_points, self.n_objs), dtype=FLOAT)
+        obj_values = np.empty((num_points, self.n_objs), dtype=npfloat)
         is_feasible = np.ones((num_points, self.n_objs), dtype=np.bool_)
 
         if self.feasibility:

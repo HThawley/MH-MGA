@@ -1,7 +1,7 @@
 import numpy as np
 
 from mga.commons.numba_overload import njit, prange
-from mga.commons.constants import INT
+from mga.commons.types import npint
 
 
 # API functions
@@ -14,7 +14,7 @@ def mean_of_shannon_of_projections(points, noptimal_mask, lb, ub):
     npoint, ndim = points.shape
     nbin = max(2, int(npoint**0.5))  # sqrt of number of samples, consider updating later
     acc = 0
-    counts = np.zeros(nbin, dtype=INT)
+    counts = np.zeros(nbin, dtype=npint)
     feasible_points = points[noptimal_mask].T
     for k in range(ndim):
         counts[:] = 0

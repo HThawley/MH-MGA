@@ -5,7 +5,7 @@ import warnings
 from numba.core.registry import CPUDispatcher
 from typing import Callable
 
-from mga.commons.constants import INT, FLOAT
+from mga.commons.constants import npint, npfloat
 from mga.commons.numba_overload import njit, prange
 import mga.utils.termination as term
 from mga.utils import typing
@@ -26,7 +26,7 @@ class MGAProblem:
     def __init__(
         self,
         problem: OptimizationProblem,
-        x0: np.ndarray[float] = np.empty(0, FLOAT),
+        x0: np.ndarray[float] = np.empty(0, npfloat),
         log_dir: str | None = None,
         log_freq: int = -1,
         random_seed: int | None = None,
@@ -53,11 +53,11 @@ class MGAProblem:
         self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=problem.ndim) if log_dir else None
 
         if x0 is None:
-            x0 = np.empty(0, FLOAT)
+            x0 = np.empty(0, npfloat)
         typing.sanitize_type(x0, np.ndarray, "x0")
         if x0.size > 0:
-            if x0.dtype != FLOAT:
-                warnings.warn(f"x0 will be cast to {FLOAT}")
+            if x0.dtype != npfloat:
+                warnings.warn(f"x0 will be cast to {npfloat}")
             if not x0.ndim == 1:
                 raise NotImplementedError("currently only 1-dimensional 'x0' is accepted")
             if not len(x0) == self.problem.ndim:
@@ -65,31 +65,31 @@ class MGAProblem:
         self.x0 = x0
 
         self.population = None
-        self.current_iter = INT(0)
+        self.current_iter = 0
         self.start_time = dt.now()
 
         self.niche_elitism_dict = {
-            None: 0,
-            "selfish": 1,
-            "unselfish": 2,
+            None: npint(0),
+            "selfish": npint(1),
+            "unselfish": npint(2),
         }
 
         # State and hyperparameter storage
         self._is_populated = False
-        self.pop_size = INT(0)
-        self.elite_count = INT(0)
-        self.tourn_count = INT(0)
-        self.tourn_size = INT(0)
-        self.mutation_prob = FLOAT(0.0)
-        self.mutation_sigma = FLOAT(0.0)
-        self.crossover_prob = FLOAT(0.0)
+        self.pop_size = npint(0)
+        self.elite_count = npint(0)
+        self.tourn_count = npint(0)
+        self.tourn_size = npint(0)
+        self.mutation_prob = npfloat(0.0)
+        self.mutation_sigma = npfloat(0.0)
+        self.crossover_prob = npfloat(0.0)
         self.niche_elitism = None
-        self.noptimal_rel = FLOAT(0.0)
-        self.noptimal_abs = FLOAT(0.0)
+        self.noptimal_rel = npfloat(0.0)
+        self.noptimal_abs = npfloat(0.0)
         self.mutation_scaler = None
         self.space_scaler = None
-        self.current_best_obj = FLOAT(0)
-        self.mean_fitness = FLOAT(0)
+        self.current_best_obj = npfloat(0)
+        self.mean_fitness = npfloat(0)
         self.hyperparameters_set = False
         self.callback = callback
         self.include_obj_in_fitness = include_obj_in_fitness
@@ -145,11 +145,11 @@ class MGAProblem:
             ):
         typing.sanitize_type(max_iter, "integer", "max_iter")
         typing.sanitize_range(max_iter, "max_iter", ge=1)
-        self.max_iter = INT(max_iter)
+        self.max_iter = npint(max_iter)
 
         typing.sanitize_type(pop_size, "integer", "pop_size")
         typing.sanitize_range(pop_size, "pop_size", ge=2)
-        self.pop_size = INT(pop_size)
+        self.pop_size = npint(pop_size)
 
         typing.sanitize_type(elite_count, ("float", "integer"), "elite_count")
         if typing.is_float(elite_count):
@@ -164,23 +164,23 @@ class MGAProblem:
 
         typing.sanitize_type(tourn_size, "integer", "tourn_size")
         typing.sanitize_range(tourn_size, "tourn_size", gt=1, lt=pop_size)
-        self.tourn_size = INT(tourn_size)
+        self.tourn_size = npint(tourn_size)
 
-        self.mutation_prob = typing.format_and_sanitize_ditherer(mutation_prob, "mutation_prob", FLOAT, 0, 1)
-        self.mutation_sigma = typing.format_and_sanitize_ditherer(mutation_sigma, "mutation_sigma", FLOAT)
-        self.crossover_prob = typing.format_and_sanitize_ditherer(crossover_prob, "crossover_prob", FLOAT, 0, 1)
+        self.mutation_prob = typing.format_and_sanitize_ditherer(mutation_prob, "mutation_prob", npfloat, 0, 1)
+        self.mutation_sigma = typing.format_and_sanitize_ditherer(mutation_sigma, "mutation_sigma", npfloat)
+        self.crossover_prob = typing.format_and_sanitize_ditherer(crossover_prob, "crossover_prob", npfloat, 0, 1)
 
         typing.sanitize_type(violation_factor, "float", "violation_factor")
         typing.sanitize_range(violation_factor, "violation_factor", ge=1)
-        self.violation_factor = FLOAT(violation_factor)
+        self.violation_factor = npfloat(violation_factor)
 
         typing.sanitize_type(noptimal_rel, "float", "noptimal_rel")
         typing.sanitize_range(noptimal_rel, "noptimal_rel", ge=0)
-        self.noptimal_rel = FLOAT(noptimal_rel)
+        self.noptimal_rel = npfloat(noptimal_rel)
 
         typing.sanitize_type(noptimal_abs, "float", "noptimal_abs")
         typing.sanitize_range(noptimal_abs, "noptimal_abs", ge=0)
-        self.noptimal_abs = FLOAT(noptimal_abs)
+        self.noptimal_abs = npfloat(noptimal_abs)
 
         if niche_elitism not in (None, "selfish", "unselfish"):
             raise ValueError(
@@ -191,22 +191,22 @@ class MGAProblem:
 
         if elite_count == -1 and tourn_count == -1:
             raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
-        elite_count = INT(elite_count) if typing.is_integer(elite_count) else INT(elite_count * pop_size)
-        tourn_count = INT(tourn_count) if typing.is_integer(tourn_count) else INT(tourn_count * pop_size)
+        elite_count = npint(elite_count) if typing.is_integer(elite_count) else npint(elite_count * pop_size)
+        tourn_count = npint(tourn_count) if typing.is_integer(tourn_count) else npint(tourn_count * pop_size)
         elite_count = pop_size - tourn_count if elite_count == -1 else elite_count
         tourn_count = pop_size - elite_count if tourn_count == -1 else tourn_count
         if elite_count + tourn_count > pop_size:
             raise ValueError("'elite_count' + 'tourn_count' should be <= 'pop_size'")
-        self.elite_count = INT(elite_count)
-        self.tourn_count = INT(tourn_count)
+        self.elite_count = npint(elite_count)
+        self.tourn_count = npint(tourn_count)
 
         if str(mutation_scaler).lower() == "bounds":
             self.mutation_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
         elif mutation_scaler is None:
-            self.mutation_scaler = np.ones(self.problem.ndim, dtype=FLOAT)
+            self.mutation_scaler = np.ones(self.problem.ndim, dtype=npfloat)
         else:
             typing.sanitize_array_type(mutation_scaler, 'float', 'mutation_scaler', self.problem.ndim)
-            self.mutation_scaler = np.array(mutation_scaler, dtype=FLOAT)
+            self.mutation_scaler = np.array(mutation_scaler, dtype=npfloat)
 
         space_scaler_given = space_scaler is not _SENTINEL
         if space_scaler_given and self.problem.return_scaled:
@@ -217,10 +217,10 @@ class MGAProblem:
         if (str(space_scaler).lower() == "bounds") or not space_scaler_given:
             self.space_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
         elif space_scaler is None:
-            self.space_scaler = np.ones(self.problem.ndim, dtype=FLOAT)
+            self.space_scaler = np.ones(self.problem.ndim, dtype=npfloat)
         else:
             typing.sanitize_array_type(space_scaler, 'float', 'space_scaler', self.problem.ndim)
-            self.space_scaler = np.array(space_scaler, dtype=FLOAT)
+            self.space_scaler = np.array(space_scaler, dtype=npfloat)
 
         objective_scaler_given = objective_scaler is not _SENTINEL
         if objective_scaler_given and not self.include_obj_in_fitness:
@@ -228,10 +228,10 @@ class MGAProblem:
                 "[MHMGA] include_obj_in_fitness is set to False. 'objective_scaler' will be ignored", UserWarning
             )
         if (not self.include_obj_in_fitness) or (not objective_scaler_given):
-            self.objective_scaler = FLOAT(1.0)
+            self.objective_scaler = npfloat(1.0)
         else:
             typing.sanitize_type(objective_scaler, 'float', 'objective_scaler')
-            self.objective_scaler = FLOAT(objective_scaler)
+            self.objective_scaler = npfloat(objective_scaler)
 
         self.hyperparameters_set = True
 
@@ -247,7 +247,6 @@ class MGAProblem:
             raise RuntimeError("Set hyperparameters before launching a step (`.update_hyperparameters`)")
         typing.sanitize_type(disp_rate, "integer", "disp_rate")
         typing.sanitize_range(disp_rate, "disp_rate", ge=-1)
-        disp_rate = INT(disp_rate)
 
         termination_handler = self.configure_termination(convergence_criteria)
 

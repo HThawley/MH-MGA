@@ -1,7 +1,7 @@
 import numpy as np
 
 from mga.commons.numba_overload import njit
-from mga.commons.constants import INT
+from mga.commons.types import npintp
 
 
 # API functions
@@ -146,7 +146,7 @@ def _select_tournament(selected, niche, selection_criterion, n, tourn_size, rng,
     """
     if n == 0:
         return
-    indices = np.empty(tourn_size, INT)
+    indices = np.empty(tourn_size, npintp)
 
     for m in range(n):
         _draw_tournament_indices(indices, niche.shape[0], rng)
@@ -176,7 +176,7 @@ def _select_tournament_with_fallback(
     #     if noptimal_mask[i]:
     #         _nopt += 1
 
-    indices = np.empty(tourn_size, INT)
+    indices = np.empty(tourn_size, npintp)
     noptimality_threshold = tourn_size / 2
     # noptimality_threshold = len(selected) / 2
 
@@ -227,10 +227,10 @@ def _select_best(selected, niche, selection_criterion, n, maximize, stable):
     if n == 0:
         return
 
-    indices = np.empty(n, INT)
+    indices = np.empty(n, npintp)
 
     if stable:
-        _indices = np.argsort(selection_criterion).astype(INT)
+        _indices = np.argsort(selection_criterion)
         _stabilize_sort(_indices, selection_criterion)
         if maximize:
             indices[:] = _indices[-n:]
@@ -239,9 +239,9 @@ def _select_best(selected, niche, selection_criterion, n, maximize, stable):
     else:
         # This is much faster but does not preserve order
         if maximize:
-            indices = np.argpartition(selection_criterion, -n)[-n:].astype(INT)
+            indices = np.argpartition(selection_criterion, -n)[-n:]
         else:
-            indices = np.argpartition(selection_criterion, n)[:n].astype(INT)
+            indices = np.argpartition(selection_criterion, n)[:n]
 
     for j in range(n):
         selected[j, :] = niche[indices[j], :]
@@ -261,7 +261,7 @@ def _select_best_with_fallback(selected, niche, fitness, noptimal_mask, penalize
     if _nopt <= n:  # not enough near-optimal points
         return _select_best(selected, niche, penalized_objectives, n, maximize, stable)
 
-    indices = np.empty(n, INT)
+    indices = np.empty(n, npintp)
 
     noptimal_indices = np.where(noptimal_mask)[0]
     noptimal_fitness = fitness[noptimal_indices]

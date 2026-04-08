@@ -1,9 +1,14 @@
 import numpy as np
+import warnings
 
 from mga.commons.numba_overload import njit
-from mga.commons.constants import INT, FLOAT
+from mga.commons.types import npint as INT
+from mga.commons.types import npfloat as FLOAT
 from mga.problem_definition import MultiObjectiveProblem
 from mga.operators import selection, crossover, mutation
+
+
+warnings.warn("MOOPopulation is deprecated and will be removed in a future version.", DeprecationWarning)
 
 
 class Pareto:
