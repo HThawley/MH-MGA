@@ -358,16 +358,16 @@ class MGAProblem:
 
         self._populate(starting_points, force=True, evaluate=evaluate)
         if not evaluate:
-            self.population.raw_objectives[0, :] = point_objectives
-            self.population.violations[0, :] = point_constraints if cons_given else 0.0
+            self.population.raw_objectives[0, :] = point_objectives.astype(npfloat)
+            self.population.violations[0, :] = point_constraints.astype(npfloat) if cons_given else npfloat(0.0)
             self.population.penalized_objectives[:] = (
                 self.population.raw_objectives + self.population.violations * self.violation_factor
             )
             self.population.evaluate_fitness()
             self.population.track_optima()
 
-        point_objectives = self.population.raw_objectives[0, :]
-        point_constraints = self.population.violations[0, :]
+        point_objectives = self.population.raw_objectives[0, :].copy()
+        point_constraints = self.population.violations[0, :].copy()
 
         self.population.dither_probabilities()
         self.population.select_parents()
@@ -381,9 +381,9 @@ class MGAProblem:
             "parents_objectives": point_objectives,
             "parents_violations": point_constraints,
 
-            "offspring_points": self.population.points[0].copy(),
-            "offspring_objectives": self.population.raw_objectives[0].copy() if evaluate_offspring else None,
-            "offspring_violations": self.population.violations[0].copy()
+            "offspring_points": self.population.points[0, :, :].copy(),
+            "offspring_objectives": self.population.raw_objectives[0, :].copy() if evaluate_offspring else None,
+            "offspring_violations": self.population.violations[0, :].copy() if evaluate_offspring else None,
         }
 
     def get_results(self) -> dict:
