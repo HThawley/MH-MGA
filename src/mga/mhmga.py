@@ -421,6 +421,12 @@ class MGAProblem:
 
         typing.sanitize_type(points, np.ndarray, name)
 
+        # Flatten if num_niches or pop_size is 1
+        if points.shape[0] == 1:
+            points = points[0]
+        if points.shape[0] == 1:
+            points = points[0]
+
         if check_all_dims:
             expected_shape = {
                 1: (self.problem.ndim,),
