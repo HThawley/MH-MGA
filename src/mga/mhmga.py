@@ -366,6 +366,7 @@ class MGAProblem:
             self.population.evaluate_fitness()
             self.population.track_optima()
 
+        starting_points = self.population.points[0, :, :].copy()  # standardise output to 2D
         point_objectives = self.population.raw_objectives[0, :].copy()
         point_constraints = self.population.violations[0, :].copy()
 
