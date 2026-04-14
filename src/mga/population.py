@@ -158,12 +158,29 @@ class Population:
         self.space_scaler = np.empty(ndim, dtype=npfloat)
         self.objective_scaler = 1.0
 
+    def _load_optimum(
+            self,
+            point,  # np.NDArray[float]
+            objective: float,
+            violation: float,
+            violation_factor: float,
+    ):
+        if point.ndim == 0 or point.size == 0:
+            return
+        if not point.ndim == 1:
+            raise ValueError("optimum point should be 1D")
+        if not point.shape[0] == self.ndim:
+            raise ValueError(f"optimum point should have length {self.ndim}. Got: {point.shape[0]}")
+
+        self.optima_points[0, :] = point
+        self.optima_raw_objectives[0] = objective
+        self.optima_violations[0] = violation
+        self.optima_penalized_objectives[0] = objective + violation_factor * violation
+        self.optima_noptimal_mask[0] = False  # will be updated later
+
     def initialize_population(
             self,
-            noptimal_rel: float,
-            noptimal_abs: float,
-            violation_factor: float,
-            x0,  # : NDArray[float]
+            points,  # : NDArray[float]
     ):
         """
         populates the population points with a uniform distribution
@@ -171,35 +188,31 @@ class Population:
         if not self.problem_loaded:
             raise RuntimeError("Problem not loaded. Load problem before populating.")
 
-        self.noptimal_rel = noptimal_rel
-        self.noptimal_abs = noptimal_abs
-        self.violation_factor = violation_factor
-
-        if x0.ndim == 0 or x0.size == 0:
+        if points.ndim == 0 or points.size == 0:
             self._populate_randomly(0, self.num_niches)
         else:
-            if x0.ndim == 1:
-                if not x0.shape[0] == self.ndim:
-                    raise ValueError(f"1D 'x0' should have shape ({self.ndim},). Got {x0.shape}.")
-                x0 = x0.reshape(1, 1, self.ndim)
-            elif x0.ndim == 2:
-                if not (x0.shape[0] == self.pop_size and x0.shape[1] == self.ndim):
+            if points.ndim == 1:
+                if not points.shape[0] == self.ndim:
+                    raise ValueError(f"1D 'points' should have shape ({self.ndim},). Got {points.shape}.")
+                points = points.reshape(1, 1, self.ndim)
+            elif points.ndim == 2:
+                if not (points.shape[0] == self.pop_size and points.shape[1] == self.ndim):
                     raise ValueError(
-                        f"2D 'x0' should have shape (pop_size={self.pop_size}, ndim={self.ndim}). Got {x0.shape}."
+                        f"2D 'points' should have shape (pop_size={self.pop_size}, ndim={self.ndim}). Got {points}."
                         " If you are supplying (num_niches, ndim), try reshaping to (num_niches, 1, ndim)"
                     )
-                x0 = x0.reshape(1, self.pop_size, self.ndim)
-            elif x0.ndim == 3:
-                if not (x0.shape[0] == self.num_niches
-                        and x0.shape[1] == self.pop_size
-                        and x0.shape[2] == self.ndim):
+                points = points.reshape(1, self.pop_size, self.ndim)
+            elif points.ndim == 3:
+                if not (points.shape[0] == self.num_niches
+                        and points.shape[1] == self.pop_size
+                        and points.shape[2] == self.ndim):
                     raise ValueError(
-                        f"3D 'x0' should have shape (num_niches={self.num_niches}, pop_size={self.pop_size},"
-                        f"ndim={self.ndim}). Got {x0.shape}"
+                        f"3D 'points' should have shape (num_niches={self.num_niches}, pop_size={self.pop_size},"
+                        f"ndim={self.ndim}). Got {points.shape}"
                     )
             else:
-                raise ValueError(f"'x0' should be 1D, 2D, or 3D array. Got {x0.ndim}D array.")
-            _clone(self.points, x0)
+                raise ValueError(f"'points' should be 1D, 2D, or 3D array. Got {points.ndim}D array.")
+            _clone(self.points, points)
 
         self.points[0, 0, :] = self.optima_points[0]  # inject known optimum
 
@@ -885,11 +898,6 @@ def load_problem_to_population(
     population.scaling_in_obj_func = problem.return_scaled
     population.lower_bounds = problem.lower_bounds
     population.upper_bounds = problem.upper_bounds
-
-    population.optima_points[0] = problem.known_optimum_point
-    population.optima_raw_objectives[0] = problem.known_optimum_value
-    population.optima_penalized_objectives[0] = problem.known_optimum_value
-    population.noptimal_threshold = -np.inf if population.maximize else np.inf
 
     population.is_continuous_space = (population.integrality.sum() == 0)
 

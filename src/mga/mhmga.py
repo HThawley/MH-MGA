@@ -27,6 +27,7 @@ class MGAProblem:
         self,
         problem: OptimizationProblem,
         x0: np.ndarray[float] = None,
+        starting_points: np.ndarray[float] = None,
         log_dir: str | None = None,
         log_freq: int = -1,
         random_seed: int | None = None,
@@ -52,7 +53,16 @@ class MGAProblem:
         self.stable_sort = random_seed is not None
         self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
 
-        self.x0 = self._sanitize_seed_points(x0, "x0")
+        if x0 is None:
+            self.x0 = np.empty([], dtype=npfloat)
+        else:
+            typing.sanitize_array_type(x0, 'float', "x0", self.problem.ndim)
+            self.x0 = x0.astype(npfloat)
+
+        if starting_points is None:
+            self.starting_points = np.empty([], dtype=npfloat)
+        else:
+            self.starting_points = self._sanitize_seed_points(starting_points, "starting_points")
 
         self.population = None
         self.current_iter = 0
@@ -141,21 +151,6 @@ class MGAProblem:
         typing.sanitize_range(pop_size, "pop_size", ge=2)
         self.pop_size = npint(pop_size)
 
-        typing.sanitize_type(elite_count, ("float", "integer"), "elite_count")
-        if typing.is_float(elite_count):
-            typing.sanitize_range(elite_count, "elite_count", ge=0, le=1)
-        else:
-            typing.sanitize_range(elite_count, "elite_count", ge=-1, le=pop_size)
-        typing.sanitize_type(tourn_count, ("float", "integer"), "tourn_count")
-        if typing.is_float(tourn_count):
-            typing.sanitize_range(tourn_count, "tourn_count", ge=0, le=1)
-        else:
-            typing.sanitize_range(tourn_count, "tourn_count", ge=-1, le=pop_size)
-
-        typing.sanitize_type(tourn_size, "integer", "tourn_size")
-        typing.sanitize_range(tourn_size, "tourn_size", gt=1, lt=pop_size)
-        self.tourn_size = npint(tourn_size)
-
         self.mutation_prob = typing.format_and_sanitize_ditherer(mutation_prob, "mutation_prob", npfloat, 0, 1)
         self.mutation_sigma = typing.format_and_sanitize_ditherer(mutation_sigma, "mutation_sigma", npfloat)
         self.crossover_prob = typing.format_and_sanitize_ditherer(crossover_prob, "crossover_prob", npfloat, 0, 1)
@@ -179,8 +174,15 @@ class MGAProblem:
         self.niche_elitism = niche_elitism
         self.niche_elitism_int = self.niche_elitism_dict[self.niche_elitism]
 
+        for variable, name in zip((elite_count, tourn_count), ("elite_count", "tourn_count")):
+            typing.sanitize_type(variable, ("float", "integer"), name)
+            if typing.is_float(variable):
+                typing.sanitize_range(variable, name, ge=0, le=1)
+            else:
+                typing.sanitize_range(variable, name, ge=-1, le=pop_size)
+
         if elite_count == -1 and tourn_count == -1:
-            raise ValueError("only 1 of 'elite_count' and 'tourn_count' may be -1")
+            raise ValueError("only one of 'elite_count' and 'tourn_count' may be -1")
         elite_count = npint(elite_count) if typing.is_integer(elite_count) else npint(elite_count * pop_size)
         tourn_count = npint(tourn_count) if typing.is_integer(tourn_count) else npint(tourn_count * pop_size)
         elite_count = pop_size - tourn_count if elite_count == -1 else elite_count
@@ -189,6 +191,15 @@ class MGAProblem:
             raise ValueError("'elite_count' + 'tourn_count' should be <= 'pop_size'")
         self.elite_count = npint(elite_count)
         self.tourn_count = npint(tourn_count)
+
+        if self.tourn_count > 0:
+            typing.sanitize_type(tourn_size, "integer", "tourn_size")
+            typing.sanitize_range(tourn_size, "tourn_size", ge=2, lt=pop_size)
+            self.tourn_size = npint(tourn_size)
+            if self.tourn_size < 2:
+                raise RuntimeError(
+                    f"'tourn_size should be >= 2 (got: {self.tourn_size}). Is this a hangover from previous step?"
+                )
 
         if str(mutation_scaler).lower() == "bounds":
             self.mutation_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
@@ -227,6 +238,7 @@ class MGAProblem:
 
     def _populate(
         self,
+        x0: np.ndarray = None,
         points: np.ndarray = None,
         force: bool = False,
         evaluate: bool = True,
@@ -254,10 +266,26 @@ class MGAProblem:
         load_problem_to_population(self.population, self.problem)
 
         self._update_population_hyperparameters()
-        if points is None:
-            self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, self.x0)
+
+        x0_given = x0 is not None and x0.size > 0 and x0.ndim > 0
+        points_given = points is not None and points.size > 0 and points.ndim > 0
+        _optimum = -np.inf if self.problem.maximize else np.inf
+
+        if x0_given:
+            _optimum_point = x0
+        elif points_given:
+            _optimum_point = points[0]
         else:
-            self.population.initialize_population(self.noptimal_rel, self.noptimal_abs, self.violation_factor, points)
+            _optimum_point = np.empty([], npfloat)
+        self.population._load_optimum(_optimum_point, _optimum, 0.0, 0.0)
+
+        if points_given:
+            pop_seed = points
+        elif x0_given:
+            pop_seed = x0
+        else:
+            pop_seed = np.empty([], npfloat)
+        self.population.initialize_population(pop_seed)
 
         if not self.problem.constraints:
             self.population.violations[:] = 0.0
@@ -291,7 +319,7 @@ class MGAProblem:
             if not hasattr(self, "num_niches") or self.num_niches < 1:
                 raise RuntimeError(f"'num_niches' must be greater than zero. Got: {self.num_niches}"
                                    ". Call `.add_niches()` first.")
-            self._populate()
+            self._populate(self.x0, self.starting_points)
         else:
             self._update_population_hyperparameters()
 

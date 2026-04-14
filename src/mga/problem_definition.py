@@ -21,7 +21,6 @@ class OptimizationProblem:
         constraints: bool = False,
         return_scaled: bool = False,
         integrality: bool | np.ndarray[bool] = False,
-        known_optimum: np.ndarray = None,
         fargs: tuple = (),
         fkwargs: dict = None,
     ):
@@ -57,10 +56,6 @@ class OptimizationProblem:
         elif integrality is None:
             integrality = np.zeros(len(bounds[0]), np.bool_)
 
-        # Optional parameter validation
-        if known_optimum is not None:
-            typing.sanitize_array_type(known_optimum, "numeric", "known_optimum")
-
         typing.sanitize_type(fargs, tuple, "fargs")
         typing.sanitize_type(fkwargs, dict, "fkwargs")
 
@@ -86,20 +81,6 @@ class OptimizationProblem:
 
         self.integrality = integrality
         self.booleanality = (((self.upper_bounds - self.lower_bounds) == 1) & self.integrality)
-
-        if known_optimum is not None:
-            if known_optimum.ndim == 1:
-                self.known_optimum_point = known_optimum.astype(npfloat)
-            elif known_optimum.ndim == 2 and known_optimum.shape[0] == 1:
-                self.known_optimum_point = known_optimum.flatten().astype(npfloat)
-            else:
-                raise ValueError(f"known_optimum has bad shape. shape: {known_optimum.shape}")
-            print("known optimum supplied")
-        else:
-            print("known optimum not supplied, setting to center of bounds")
-            self.known_optimum_point = (self.upper_bounds + self.lower_bounds)/2
-
-        self.known_optimum_value = -np.inf if self.maximize else np.inf
 
 
 class MultiObjectiveProblem:

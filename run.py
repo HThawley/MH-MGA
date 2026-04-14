@@ -130,12 +130,14 @@ def inspect_recomb(points=None, random_seed=1, **hyperparameters):
     algorithm = MGAProblem(
         problem=problem,
         x0=None,
+        starting_points=points,
         log_dir=None,
         log_freq=-1,
         random_seed=random_seed,
     )
 
-    hyperparameters["pop_size"] = points.shape[0]
+    if points.ndim > 1:
+        hyperparameters["pop_size"] = points.shape[0]
 
     algorithm.add_niches(num_niches=1)
     algorithm.update_hyperparameters(**hyperparameters)
@@ -170,26 +172,30 @@ def inspect_recomb(points=None, random_seed=1, **hyperparameters):
     _plot(ax2, "offspring")
 
     fig.colorbar(sc1, cax=cax, label='Objective Value')
+    return result
 
 
 if __name__ == "__main__":
 
     file_prefix = "logs/testprob"
-    algorithm = run(file_prefix=file_prefix)
+    # algorithm = run(file_prefix=file_prefix)
     # plot(file_prefix)
-    points = algorithm.population.points[0, :100, :].copy()
+    # points = algorithm.population.points[0, :100, :].copy()
+
+    points = np.array([0.8, 0.8])
 
     hyperparameters = dict(
         max_iter=1,
-        pop_size=points.shape[0],
-        elite_count=0.3,
+        pop_size=32,
+        # pop_size=points.shape[0],
+        elite_count=0,
         tourn_count=-1,
         tourn_size=2,
-        mutation_prob=0.25,
-        mutation_sigma=0.01,
+        mutation_prob=0.66,
+        mutation_sigma=0.5,
         crossover_prob=0.0,
         niche_elitism="selfish",
         noptimal_rel=0.12,
     )
 
-    inspect_recomb(points, random_seed=1, **hyperparameters)
+    results = inspect_recomb(points, random_seed=1, **hyperparameters)
