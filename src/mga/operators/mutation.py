@@ -63,8 +63,6 @@ def mutate_gaussian_niche_float(niche, mutation_sigma, mutation_prob, rng, start
 
 
 # private helper functions
-
-
 @njit
 def _mutate_float(item, mutation_sigma, rng):
     """gaussian mutation for single variable"""

@@ -226,9 +226,9 @@ def _select_best(selected, niche, selection_criterion, n, maximize, stable):
     """
     if n == 0:
         return
-    if n == len(selected):
+    if n == len(selection_criterion):
         for j in range(n):
-            niche[j, :] = selected[j, :]
+            selected[j, :] = niche[j, :]
         return
 
     indices = np.empty(n, npintp)

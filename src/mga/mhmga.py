@@ -320,6 +320,8 @@ class MGAProblem:
                 raise RuntimeError(f"'num_niches' must be greater than zero. Got: {self.num_niches}"
                                    ". Call `.add_niches()` first.")
             self._populate(self.x0, self.starting_points)
+            if self.callback is not None:
+                self.callback(self.population)
         else:
             self._update_population_hyperparameters()
 
