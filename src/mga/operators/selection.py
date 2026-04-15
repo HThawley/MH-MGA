@@ -23,14 +23,16 @@ def selection(
     """
 
     if champ_count > 0:
-        _select_champ(selected, niche, selection_criterion, maximize, champ_count)
+        _select_champ(
+            selected, niche, selection_criterion, champ_count, 0, maximize
+        )
     if elite_count > 0:
         _select_best(
-            selected[champ_count: champ_count + elite_count], niche, selection_criterion, elite_count, maximize, stable
+            selected, niche, selection_criterion, elite_count, champ_count, maximize, stable
         )
     if tourn_count > 0:
         _select_tournament(
-            selected[champ_count + elite_count:], niche, selection_criterion, tourn_count, tourn_size, rng, maximize
+            selected, niche, selection_criterion, tourn_count, tourn_size, champ_count + elite_count, rng, maximize
         )
 
 
@@ -60,19 +62,21 @@ def selection_with_fallback(
             noptimal_mask,
             penalized_objectives,
             champ_count,
-            maximize
+            0,
+            maximize,
         )
 
     if elite_count > 0:
         _select_best_with_fallback(
-            selected[champ_count: champ_count + elite_count],
+            selected,
             niche,
             fitness,
             noptimal_mask,
             penalized_objectives,
             elite_count,
+            champ_count,
             maximize,
-            stable
+            stable,
         )
     if tourn_count > 0:
         _select_tournament_with_fallback(
@@ -83,13 +87,14 @@ def selection_with_fallback(
             penalized_objectives,
             tourn_count,
             tourn_size,
+            champ_count + elite_count,
             rng,
-            maximize
+            maximize,
         )
 
 
 @njit
-def select_elite(selected, niche, selection_criterion, maximize):
+def select_elite(selected, niche, selection_criterion, start_idx, maximize):
     """
     Special case of `_select_best` when n = 1
     """
@@ -97,11 +102,11 @@ def select_elite(selected, niche, selection_criterion, maximize):
         index = selection_criterion.argmax()
     else:
         index = selection_criterion.argmin()
-    selected[:] = niche[index, :]
+    selected[start_idx, :] = niche[index, :]
 
 
 @njit
-def select_elite_with_fallback(selected, niche, fitness, noptimal_mask, penalized_objectives, maximize):
+def select_elite_with_fallback(selected, niche, fitness, noptimal_mask, penalized_objectives, start_idx, maximize):
     """
     Special case of `_select_best_with_fallback` when n = 1
     Selects best 'n' individuals based on 'fitness'.
@@ -121,23 +126,25 @@ def select_elite_with_fallback(selected, niche, fitness, noptimal_mask, penalize
     if index == -1:
         select_elite(selected, niche, penalized_objectives, maximize)
 
-    selected[:] = niche[index, :]
+    selected[start_idx, :] = niche[index, :]
 
 
 # private helper functions
 @njit
-def _select_champ(selected, niche, selection_criterion, maximize, champ_count):
+def _select_champ(selected, niche, selection_criterion, n, start_idx, maximize):
     if maximize:
         index = selection_criterion.argmax()
     else:
         index = selection_criterion.argmin()
 
-    for j in range(champ_count):
+    for j in range(start_idx, start_idx + n):
         selected[j, :] = niche[index, :]
 
 
 @njit
-def _select_champ_with_fallback(selected, niche, fitness, noptimal_mask, penalized_objectives, champ_count, maximize):
+def _select_champ_with_fallback(
+    selected, niche, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize
+):
     index = fitness.argmax()
 
     if not noptimal_mask[index]:
@@ -146,7 +153,7 @@ def _select_champ_with_fallback(selected, niche, fitness, noptimal_mask, penaliz
         else:
             index = penalized_objectives.argmin()
 
-    for j in range(champ_count):
+    for j in range(start_idx, start_idx + n):
         selected[j, :] = niche[index, :]
 
 
@@ -185,7 +192,7 @@ def _do_tournament(selection_criterion, maximize, indices):
 
 
 @njit
-def _select_tournament(selected, niche, selection_criterion, n, tourn_size, rng, maximize):
+def _select_tournament(selected, niche, selection_criterion, n, tourn_size, start_idx, rng, maximize):
     """
     Selects {n} individuals from a population according to selection tournament
     """
@@ -193,7 +200,7 @@ def _select_tournament(selected, niche, selection_criterion, n, tourn_size, rng,
         return
     indices = np.empty(tourn_size, npintp)
 
-    for m in range(n):
+    for m in range(start_idx, start_idx + n):
         _draw_tournament_indices(indices, niche.shape[0], rng)
         _selected_idx = _do_tournament(selection_criterion, maximize, indices)
         selected[m, :] = niche[_selected_idx, :]
@@ -208,6 +215,7 @@ def _select_tournament_with_fallback(
     penalized_objectives,
     n,
     tourn_size,
+    start_idx,
     rng,
     maximize,
 ):
@@ -216,16 +224,10 @@ def _select_tournament_with_fallback(
     if n == 0:
         return
 
-    # _nopt = 0
-    # for i in range(len(noptimal_mask)):
-    #     if noptimal_mask[i]:
-    #         _nopt += 1
-
     indices = np.empty(tourn_size, npintp)
     noptimality_threshold = tourn_size / 2
-    # noptimality_threshold = len(selected) / 2
 
-    for m in range(n):
+    for m in range(start_idx, start_idx + n):
         _draw_tournament_indices(indices, niche.shape[0], rng)
 
         _nopt = 0
@@ -265,14 +267,14 @@ def _stabilize_sort(indices, values):
 
 
 @njit
-def _select_best(selected, niche, selection_criterion, n, maximize, stable):
+def _select_best(selected, niche, selection_criterion, n, start_idx, maximize, stable):
     """
     Selects best individuals from a population
     """
     if n == 0:
         return
     if n == len(selection_criterion):
-        for j in range(n):
+        for j in range(start_idx, start_idx + n):
             selected[j, :] = niche[j, :]
         return
 
@@ -292,12 +294,16 @@ def _select_best(selected, niche, selection_criterion, n, maximize, stable):
         else:
             indices = np.argpartition(selection_criterion, n)[:n]
 
-    for j in range(n):
-        selected[j, :] = niche[indices[j], :]
+    indices_idx = 0
+    for j in range(start_idx, start_idx + n):
+        selected[j, :] = niche[indices[indices_idx], :]
+        indices_idx += 1
 
 
 @njit
-def _select_best_with_fallback(selected, niche, fitness, noptimal_mask, penalized_objectives, n, maximize, stable):
+def _select_best_with_fallback(
+    selected, niche, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize, stable
+):
     """Selects best `n` individuals based on fitness.
     If there are not `n` noptimal individuals, selects on penalized_objectives"""
     if n == 0:
@@ -322,5 +328,7 @@ def _select_best_with_fallback(selected, niche, fitness, noptimal_mask, penalize
     else:
         indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, -n)[-n:]]
 
-    for j in range(n):
-        selected[j, :] = niche[indices[j], :]
+    indices_idx = 0
+    for j in range(start_idx, start_idx + n):
+        selected[j, :] = niche[indices[indices_idx], :]
+        indices_idx += 1

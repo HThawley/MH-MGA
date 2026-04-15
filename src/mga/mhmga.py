@@ -182,7 +182,7 @@ class MGAProblem:
             if typing.is_float(variable):
                 typing.sanitize_range(variable, name, ge=0, le=1)
             else:
-                typing.sanitize_range(variable, name, ge=-1, le=pop_size)
+                typing.sanitize_range(variable, name, ge=-1, le=self.pop_size)
 
         champ_is_neg1 = champ_count == -1
         elite_is_neg1 = elite_count == -1
@@ -190,18 +190,18 @@ class MGAProblem:
 
         if (champ_is_neg1 + elite_is_neg1 + tourn_is_neg1) > 1:
             raise ValueError(f"only one of '{champ_count=}', '{elite_count=}', and '{tourn_count=}' may be -1")
-        champ_count = npint(champ_count) if typing.is_integer(champ_count) else npint(champ_count * pop_size)
-        elite_count = npint(elite_count) if typing.is_integer(elite_count) else npint(elite_count * pop_size)
-        tourn_count = npint(tourn_count) if typing.is_integer(tourn_count) else npint(tourn_count * pop_size)
+        champ_count = npint(champ_count) if typing.is_integer(champ_count) else npint(champ_count * self.pop_size)
+        elite_count = npint(elite_count) if typing.is_integer(elite_count) else npint(elite_count * self.pop_size)
+        tourn_count = npint(tourn_count) if typing.is_integer(tourn_count) else npint(tourn_count * self.pop_size)
         if champ_is_neg1:
             champ_count = pop_size - elite_count - tourn_count
-        if champ_is_neg1:
+        if elite_is_neg1:
             elite_count = pop_size - champ_count - tourn_count
-        if champ_is_neg1:
+        if tourn_is_neg1:
             tourn_count = pop_size - champ_count - elite_count
         if champ_count + elite_count + tourn_count > pop_size:
             raise ValueError(f"'{champ_count=}' + '{elite_count=}' + '{tourn_count=}' should be <= '{pop_size=}'")
-        self.champ_count = npint(elite_count)
+        self.champ_count = npint(champ_count)
         self.elite_count = npint(elite_count)
         self.tourn_count = npint(tourn_count)
 
@@ -456,7 +456,7 @@ class MGAProblem:
         self.population.resize(
             -1,  # ignore niches
             self.pop_size,  # pop_size
-            self.tourn_count + self.elite_count,  # parent_size
+            self.champ_count + self.elite_count + self.tourn_count,  # parent_size
         )
 
     def _sanitize_seed_points(self, points, name="points", check_all_dims=False):
