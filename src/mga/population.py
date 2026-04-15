@@ -192,6 +192,7 @@ class Population:
             self._populate_randomly(0, self.num_niches)
         else:
             if points.ndim == 1:
+                # TODO: avoid redundant calculation
                 if not points.shape[0] == self.ndim:
                     raise ValueError(f"1D 'points' should have shape ({self.ndim},). Got {points.shape}.")
                 points = points.reshape(1, 1, self.ndim)
