@@ -117,6 +117,7 @@ class Population:
         self.upper_bounds = np.empty(ndim, dtype=npfloat)
         self.scaled_upper_bounds = np.empty(ndim, dtype=npfloat)
         self.problem_loaded = False
+        self.hyperparameters_set = False
 
         # Population data arrays
         self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
@@ -178,7 +179,7 @@ class Population:
         self.optima_penalized_objectives[0] = objective + violation_factor * violation
         self.optima_noptimal_mask[0] = False  # will be updated later
 
-    def initialize_population(
+    def initialize_population(  # noqa: C901
             self,
             points,  # : NDArray[float]
     ):
@@ -187,22 +188,36 @@ class Population:
         """
         if not self.problem_loaded:
             raise RuntimeError("Problem not loaded. Load problem before populating.")
+        if not self.hyperparameters_set:
+            raise RuntimeError("Please set hyperparameters before populating")
 
         if points.ndim == 0 or points.size == 0:
             self._populate_randomly(0, self.num_niches)
         else:
             if points.ndim == 1:
-                # TODO: avoid redundant calculation
                 if not points.shape[0] == self.ndim:
                     raise ValueError(f"1D 'points' should have shape ({self.ndim},). Got {points.shape}.")
-                points = points.reshape(1, 1, self.ndim)
+
+                parent_size = self.parent_size
+                self._resize_parent_size(1)
+
+                for i in range(self.num_niches):
+                    self.parents[i, 0, :] = points
+                self.generate_offspring()
+
+                self._resize_parent_size(parent_size)
+
             elif points.ndim == 2:
-                if not (points.shape[0] == self.pop_size and points.shape[1] == self.ndim):
+                if not (points.shape[0] == self.pop_size
+                        and points.shape[1] == self.ndim):
                     raise ValueError(
                         f"2D 'points' should have shape (pop_size={self.pop_size}, ndim={self.ndim}). Got {points}."
                         " If you are supplying (num_niches, ndim), try reshaping to (num_niches, 1, ndim)"
                     )
-                points = points.reshape(1, self.pop_size, self.ndim)
+
+                for i in range(self.num_niches):
+                    self.points[i, :, :] = points
+
             elif points.ndim == 3:
                 if not (points.shape[0] == self.num_niches
                         and points.shape[1] == self.pop_size
@@ -211,9 +226,10 @@ class Population:
                         f"3D 'points' should have shape (num_niches={self.num_niches}, pop_size={self.pop_size},"
                         f"ndim={self.ndim}). Got {points.shape}"
                     )
+                _clone(self.points, points)
+
             else:
                 raise ValueError(f"'points' should be 1D, 2D, or 3D array. Got {points.ndim}D array.")
-            _clone(self.points, points)
 
         self.points[0, 0, :] = self.optima_points[0]  # inject known optimum
 
@@ -293,6 +309,9 @@ class Population:
         self.objective_scaler = nbfloat(objective_scaler)
 
         self._rescale_bounds()
+        self.dither_probabilities()
+
+        self.hyperparameters_set = True
 
     def select_parents(self):
         """
