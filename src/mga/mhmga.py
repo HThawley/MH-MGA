@@ -77,6 +77,7 @@ class MGAProblem:
         # State and hyperparameter storage
         self._is_populated = False
         self.pop_size = npint(0)
+        self.champ_count = npint(0)
         self.elite_count = npint(0)
         self.tourn_count = npint(0)
         self.tourn_size = npint(0)
@@ -129,8 +130,9 @@ class MGAProblem:
             self,
             max_iter: int = 0,
             pop_size: int = 100,
+            champ_count: int | float = 1,
             elite_count: int | float = 0.2,
-            tourn_count: int | float = 0.8,
+            tourn_count: int | float = -1,
             tourn_size: int = 2,
             mutation_prob: float | tuple[float, float] = 0.3,
             mutation_sigma: float | tuple[float, float] = 0.05,
@@ -174,21 +176,32 @@ class MGAProblem:
         self.niche_elitism = niche_elitism
         self.niche_elitism_int = self.niche_elitism_dict[self.niche_elitism]
 
-        for variable, name in zip((elite_count, tourn_count), ("elite_count", "tourn_count")):
+        for variable, name in zip((champ_count, elite_count, tourn_count),
+                                  ("champ_count", "elite_count", "tourn_count")):
             typing.sanitize_type(variable, ("float", "integer"), name)
             if typing.is_float(variable):
                 typing.sanitize_range(variable, name, ge=0, le=1)
             else:
                 typing.sanitize_range(variable, name, ge=-1, le=pop_size)
 
-        if elite_count == -1 and tourn_count == -1:
-            raise ValueError("only one of 'elite_count' and 'tourn_count' may be -1")
+        champ_is_neg1 = champ_count == -1
+        elite_is_neg1 = elite_count == -1
+        tourn_is_neg1 = tourn_count == -1
+
+        if (champ_is_neg1 + elite_is_neg1 + tourn_is_neg1) > 1:
+            raise ValueError(f"only one of '{champ_count=}', '{elite_count=}', and '{tourn_count=}' may be -1")
+        champ_count = npint(champ_count) if typing.is_integer(champ_count) else npint(champ_count * pop_size)
         elite_count = npint(elite_count) if typing.is_integer(elite_count) else npint(elite_count * pop_size)
         tourn_count = npint(tourn_count) if typing.is_integer(tourn_count) else npint(tourn_count * pop_size)
-        elite_count = pop_size - tourn_count if elite_count == -1 else elite_count
-        tourn_count = pop_size - elite_count if tourn_count == -1 else tourn_count
-        if elite_count + tourn_count > pop_size:
-            raise ValueError("'elite_count' + 'tourn_count' should be <= 'pop_size'")
+        if champ_is_neg1:
+            champ_count = pop_size - elite_count - tourn_count
+        if champ_is_neg1:
+            elite_count = pop_size - champ_count - tourn_count
+        if champ_is_neg1:
+            tourn_count = pop_size - champ_count - elite_count
+        if champ_count + elite_count + tourn_count > pop_size:
+            raise ValueError(f"'{champ_count=}' + '{elite_count=}' + '{tourn_count=}' should be <= '{pop_size=}'")
+        self.champ_count = npint(elite_count)
         self.elite_count = npint(elite_count)
         self.tourn_count = npint(tourn_count)
 
@@ -518,6 +531,7 @@ class MGAProblem:
     def _update_population_hyperparameters(self):
         # numba does not like keyword arguments
         self.population.update_hyperparameters(
+            self.champ_count,
             self.elite_count,
             self.tourn_count,
             self.tourn_size,

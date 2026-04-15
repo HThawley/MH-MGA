@@ -56,6 +56,7 @@ if JIT_ENABLED:
 
         # Hyperparameters
         # (Defined individually in spec as they are assigned in update_hyperparameters)
+        ('champ_count', nbint),
         ('elite_count', nbint),
         ('tourn_count', nbint),
         ('tourn_size', nbint),
@@ -145,6 +146,7 @@ class Population:
         self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
         self.noptimal_threshold = 0.0
 
+        self.champ_count = 0
         self.elite_count = 0
         self.tourn_count = 0
         self.tourn_size = 0
@@ -280,6 +282,7 @@ class Population:
 
     def update_hyperparameters(
         self,
+        champ_count: int,
         elite_count: int,
         tourn_count: int,
         tourn_size: int,
@@ -294,6 +297,7 @@ class Population:
         space_scaler: np.ndarray[float],
         objective_scaler: float,
     ):
+        self.champ_count = nbint(champ_count)
         self.elite_count = nbint(elite_count)
         self.tourn_count = nbint(tourn_count)
         self.tourn_size = nbint(tourn_size)
@@ -323,6 +327,7 @@ class Population:
             self.points[0],
             self.penalized_objectives[0],
             self.maximize,
+            self.champ_count,
             self.elite_count,
             self.tourn_count,
             self.tourn_size,
@@ -339,6 +344,7 @@ class Population:
                 self.noptimal_mask[i],
                 self.penalized_objectives[i],
                 self.maximize,
+                self.champ_count,
                 self.elite_count,
                 self.tourn_count,
                 self.tourn_size,
@@ -587,6 +593,7 @@ class Population:
                     self.points[0],
                     self.penalized_objectives[0],
                     self.maximize,
+                    self.champ_count,
                     self.elite_count,
                     self.tourn_count,
                     self.tourn_size,
@@ -603,6 +610,7 @@ class Population:
                         self.noptimal_mask[i],
                         self.penalized_objectives[i],
                         self.maximize,
+                        self.champ_count,
                         self.elite_count,
                         self.tourn_count,
                         self.tourn_size,

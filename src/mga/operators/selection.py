@@ -11,6 +11,7 @@ def selection(
     niche,
     selection_criterion,
     maximize,
+    champ_count,
     elite_count,
     tourn_count,
     tourn_size,
@@ -20,10 +21,17 @@ def selection(
     """
     Selects individuals using a combination of elitism and tournament selection.
     """
+
+    if champ_count > 0:
+        _select_champ(selected, niche, selection_criterion, maximize, champ_count)
     if elite_count > 0:
-        _select_best(selected[:elite_count], niche, selection_criterion, elite_count, maximize, stable)
+        _select_best(
+            selected[champ_count: champ_count + elite_count], niche, selection_criterion, elite_count, maximize, stable
+        )
     if tourn_count > 0:
-        _select_tournament(selected[elite_count:], niche, selection_criterion, tourn_count, tourn_size, rng, maximize)
+        _select_tournament(
+            selected[champ_count + elite_count:], niche, selection_criterion, tourn_count, tourn_size, rng, maximize
+        )
 
 
 @njit
@@ -34,6 +42,7 @@ def selection_with_fallback(
     noptimal_mask,
     penalized_objectives,
     maximize,
+    champ_count,
     elite_count,
     tourn_count,
     tourn_size,
@@ -43,9 +52,20 @@ def selection_with_fallback(
     """
     Selects based on fitness, falling back to penalized_objectives if not enough n-optimal individuals exist.
     """
+    if champ_count > 0:
+        _select_champ_with_fallback(
+            selected,
+            niche,
+            fitness,
+            noptimal_mask,
+            penalized_objectives,
+            champ_count,
+            maximize
+        )
+
     if elite_count > 0:
         _select_best_with_fallback(
-            selected[:elite_count],
+            selected[champ_count: champ_count + elite_count],
             niche,
             fitness,
             noptimal_mask,
@@ -56,7 +76,7 @@ def selection_with_fallback(
         )
     if tourn_count > 0:
         _select_tournament_with_fallback(
-            selected[elite_count:],
+            selected[champ_count + elite_count:],
             niche,
             fitness,
             noptimal_mask,
@@ -105,6 +125,31 @@ def select_elite_with_fallback(selected, niche, fitness, noptimal_mask, penalize
 
 
 # private helper functions
+@njit
+def _select_champ(selected, niche, selection_criterion, maximize, champ_count):
+    if maximize:
+        index = selection_criterion.argmax()
+    else:
+        index = selection_criterion.argmin()
+
+    for j in range(champ_count):
+        selected[j, :] = niche[index, :]
+
+
+@njit
+def _select_champ_with_fallback(selected, niche, fitness, noptimal_mask, penalized_objectives, champ_count, maximize):
+    index = fitness.argmax()
+
+    if not noptimal_mask[index]:
+        if maximize:
+            index = penalized_objectives.argmax()
+        else:
+            index = penalized_objectives.argmin()
+
+    for j in range(champ_count):
+        selected[j, :] = niche[index, :]
+
+
 @njit
 def _draw_tournament_indices(indices, ub, rng):
     """
