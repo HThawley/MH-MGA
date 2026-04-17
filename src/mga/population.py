@@ -31,6 +31,7 @@ if JIT_ENABLED:
         ('problem_loaded', boolean),
         ('rng', npy_rng),
         ('is_continuous_space', boolean),
+        ('optimum_given', boolean),
 
         # Main population arrays
         ('points', nbfloat[:, :, :]),
@@ -120,6 +121,7 @@ class Population:
         self.scaled_upper_bounds = np.empty(ndim, dtype=npfloat)
         self.problem_loaded = False
         self.hyperparameters_set = False
+        self.optimum_given = False
 
         # Population data arrays
         self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
@@ -169,14 +171,15 @@ class Population:
             violation: float,
             violation_factor: float,
     ):
-        if point.ndim == 0 or point.size == 0:
-            return
-        if not point.ndim == 1:
-            raise ValueError("optimum point should be 1D")
-        if not point.shape[0] == self.ndim:
-            raise ValueError(f"optimum point should have length {self.ndim}. Got: {point.shape[0]}")
+        if not (point.ndim == 0 or point.size == 0):
+            if not point.ndim == 1:
+                raise ValueError("optimum point should be 1D")
+            if not point.shape[0] == self.ndim:
+                raise ValueError(f"optimum point should have length {self.ndim}. Got: {point.shape[0]}")
 
-        self.optima_points[0, :] = point
+            self.optimum_given = True
+            self.optima_points[0, :] = point
+
         self.optima_raw_objectives[0] = objective
         self.optima_violations[0] = violation
         self.optima_penalized_objectives[0] = objective + violation_factor * violation
@@ -234,7 +237,8 @@ class Population:
             else:
                 raise ValueError(f"'points' should be 1D, 2D, or 3D array. Got {points.ndim}D array.")
 
-        self.points[0, 0, :] = self.optima_points[0]  # inject known optimum
+        if self.optimum_given:
+            self.points[0, 0, :] = self.optima_points[0]  # inject known optimum
 
         self._apply_integrality()
         self._apply_bounds()
@@ -259,6 +263,7 @@ class Population:
         num_total_niches = num_old_niches + num_new_niches
         self.resize(num_niches=num_total_niches)
 
+        # TODO: strategy = clone, clone with recombination
         self._populate_randomly(num_old_niches, num_total_niches)
 
         self.num_niches = num_total_niches

@@ -136,6 +136,38 @@ def argm_with_indices(array, indices, maximize):
 
 
 @njit
+def argmax_with_indices_mask(array, indices, mask, best=-np.inf):
+    best_i = -1
+    for idx in indices:
+        if mask[idx]:
+            val = array[idx]
+            if val > best:
+                best_i = idx
+                best = val
+    return best_i
+
+
+@njit
+def argmin_with_indices_mask(array, indices, mask, best=np.inf):
+    best_i = -1
+    for idx in indices:
+        if mask[idx]:
+            val = array[idx]
+            if val < best:
+                best_i = idx
+                best = val
+    return best_i
+
+
+@njit
+def argm_with_indices_mask(array, indices, mask, maximize):
+    if maximize:
+        return argmax_with_indices_mask(array, indices, mask)
+    else:
+        return argmin_with_indices_mask(array, indices, mask)
+
+
+@njit
 def argmax_with_mask_2d(array, mask, best=-np.inf):
     best_i = -1
     best_j = -1

@@ -46,9 +46,10 @@ def run(seed=None, file_prefix="logs/testprob"):
     algorithm.update_hyperparameters(
         max_iter=50,
         pop_size=200,
+        champ_count=5,
         elite_count=0.2,
         tourn_count=-1,
-        tourn_size=2,
+        tourn_size=3,
         mutation_prob=0.25,
         mutation_sigma=(0.05, 0.5),
         crossover_prob=0.0,
@@ -62,6 +63,7 @@ def run(seed=None, file_prefix="logs/testprob"):
     algorithm.update_hyperparameters(
         max_iter=50,
         pop_size=200,
+        champ_count=5,
         elite_count=0.2,
         tourn_count=-1,
         tourn_size=2,
@@ -178,25 +180,25 @@ def inspect_recomb(points=None, random_seed=1, **hyperparameters):
 if __name__ == "__main__":
 
     file_prefix = "logs/testprob"
-    # algorithm = run(file_prefix=file_prefix)
+    algorithm = run(file_prefix=file_prefix)
     # plot(file_prefix)
     # points = algorithm.population.points[0, :100, :].copy()
 
-    points = np.array([0.8, 0.8])
+    # points = np.array([0.8, 0.8])
 
-    hyperparameters = dict(
-        max_iter=1,
-        pop_size=32,
-        # pop_size=points.shape[0],
-        champ_count=2,
-        elite_count=6,
-        tourn_count=-1,
-        tourn_size=2,
-        mutation_prob=0.66,
-        mutation_sigma=0.5,
-        crossover_prob=0.0,
-        niche_elitism="selfish",
-        noptimal_rel=0.12,
-    )
+    # hyperparameters = dict(
+    #     max_iter=1,
+    #     pop_size=32,
+    #     # pop_size=points.shape[0],
+    #     champ_count=2,
+    #     elite_count=6,
+    #     tourn_count=-1,
+    #     tourn_size=2,
+    #     mutation_prob=0.66,
+    #     mutation_sigma=0.5,
+    #     crossover_prob=0.0,
+    #     niche_elitism="selfish",
+    #     noptimal_rel=0.12,
+    # )
 
-    results = inspect_recomb(points, random_seed=1, **hyperparameters)
+    # results = inspect_recomb(points, random_seed=1, **hyperparameters)
