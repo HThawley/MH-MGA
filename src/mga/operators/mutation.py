@@ -3,50 +3,24 @@ from mga.commons.numba_overload import njit
 
 # API functions
 @njit
-def mutate_gaussian_population_mixed(points, mutation_sigma, mutation_prob, rng, integrality, booleanality, startidx=0):
-    """
-    Mutate individuals in a population
-    Compatible with mixed dtypes
-    """
-    for i in range(points.shape[0]):
-        for j in range(startidx, points.shape[1]):
-            for k in range(points.shape[2]):
-                if rng.random() < mutation_prob:
-                    if booleanality[k]:
-                        points[i, j, k] = _mutate_bool(points[i, j, k], mutation_sigma[k], rng)
-                    elif integrality[k]:
-                        points[i, j, k] = _mutate_int(points[i, j, k], mutation_sigma[k], rng)
-                    else:
-                        points[i, j, k] = _mutate_float(points[i, j, k], mutation_sigma[k], rng)
-
-
-@njit
-def mutate_gaussian_population_float(points, mutation_sigma, mutation_prob, rng, startidx=0):
-    """
-    Mutate individuals in a population
-    Compatible only with float-only
-    """
-    for i in range(points.shape[0]):
-        for j in range(startidx, points.shape[1]):
-            for k in range(points.shape[2]):
-                if rng.random() < mutation_prob:
-                    points[i, j, k] = _mutate_float(points[i, j, k], mutation_sigma[k], rng)
-
-
-@njit
 def mutate_gaussian_niche_mixed(niche, mutation_sigma, mutation_prob, rng, integrality, booleanality, startidx=0):
     """
     Mutate individuals in a niche
     Compatible with mixed dtypes
     """
-    for j in range(startidx, niche.shape[0]):
-        for k in range(niche.shape[1]):
-            if rng.random() < mutation_prob:
-                if booleanality[k]:
+    # k in outer loop for better booleanality/integrality branch prediction
+    for k in range(niche.shape[1]):
+        if booleanality[k]:
+            for j in range(startidx, niche.shape[0]):
+                if rng.random() < mutation_prob:
                     niche[j, k] = _mutate_bool(niche[j, k], mutation_sigma[k], rng)
-                elif integrality[k]:
+        elif integrality[k]:
+            for j in range(startidx, niche.shape[0]):
+                if rng.random() < mutation_prob:
                     niche[j, k] = _mutate_int(niche[j, k], mutation_sigma[k], rng)
-                else:
+        else:
+            for j in range(startidx, niche.shape[0]):
+                if rng.random() < mutation_prob:
                     niche[j, k] = _mutate_float(niche[j, k], mutation_sigma[k], rng)
 
 
@@ -60,6 +34,26 @@ def mutate_gaussian_niche_float(niche, mutation_sigma, mutation_prob, rng, start
         for k in range(niche.shape[1]):
             if rng.random() < mutation_prob:
                 niche[j, k] = _mutate_float(niche[j, k], mutation_sigma[k], rng)
+
+
+@njit
+def mutate_gaussian_population_mixed(points, mutation_sigma, mutation_prob, rng, integrality, booleanality, startidx=0):
+    """
+    Mutate individuals in a population
+    Compatible with mixed dtypes
+    """
+    for i in range(points.shape[0]):
+        mutate_gaussian_niche_mixed(points[i], mutation_sigma, mutation_prob, rng, integrality, booleanality, startidx)
+
+
+@njit
+def mutate_gaussian_population_float(points, mutation_sigma, mutation_prob, rng, startidx=0):
+    """
+    Mutate individuals in a population
+    Compatible only with float-only
+    """
+    for i in range(points.shape[0]):
+        mutate_gaussian_niche_float(points[i], mutation_sigma, mutation_prob, rng, startidx)
 
 
 # private helper functions

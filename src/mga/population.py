@@ -4,6 +4,7 @@ from numba.types import npy_rng
 from mga.commons.constants import JIT_ENABLED
 from mga.commons.numba_overload import njit, jitclass
 from mga.commons.types import nbint, npintp, nbfloat, npfloat, boolean
+import mga.commons.utils as utils
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
 from mga.metrics import fitness as fit_metrics
@@ -440,9 +441,9 @@ class Population:
             gi, gj = self._find_global_best_idx()
         else:
             if self.maximize:
-                gi, gj = _argmax_2d(self.penalized_objectives)
+                gi, gj = utils.argmax_2d(self.penalized_objectives)
             else:
-                gi, gj = _argmin_2d(self.penalized_objectives)
+                gi, gj = utils.argmin_2d(self.penalized_objectives)
 
         if gi != -1:
             self.optima_points[0, :] = self.points[gi, gj]
@@ -527,9 +528,9 @@ class Population:
             self.mean_fitness = 0.0
 
     def dither_probabilities(self):
-        self.current_mutation_prob = _dither(self.mutation_prob, self.rng)
-        self.mutation_sigma_inst = _dither(self.mutation_sigma, self.rng)
-        self.current_crossover_prob = _dither(self.crossover_prob, self.rng)
+        self.current_mutation_prob = utils.dither(self.mutation_prob, self.rng)
+        self.mutation_sigma_inst = utils.dither(self.mutation_sigma, self.rng)
+        self.current_crossover_prob = utils.dither(self.crossover_prob, self.rng)
 
     def _apply_bounds(self):
         """
@@ -658,7 +659,7 @@ class Population:
         if self.include_obj_in_fitness:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.scaled_centroids[i, self.ndim] += _safe_divide(
+                    self.scaled_centroids[i, self.ndim] += utils.safe_divide_scalar(
                         self.raw_objectives[i, j], self.objective_scaler
                     )
         self.scaled_centroids /= self.points.shape[1]
@@ -670,12 +671,12 @@ class Population:
         for i in range(self.num_niches):
             for j in range(self.pop_size):
                 for k in range(self.ndim):
-                    self.scaled_points[i, j, k] = _safe_divide(self.points[i, j, k], self.space_scaler[k])
+                    self.scaled_points[i, j, k] = utils.safe_divide_scalar(self.points[i, j, k], self.space_scaler[k])
 
     def _rescale_bounds(self):
         for k in range(self.ndim):
-            self.scaled_lower_bounds[k] = _safe_divide(self.lower_bounds[k], self.space_scaler[k])
-            self.scaled_upper_bounds[k] = _safe_divide(self.upper_bounds[k], self.space_scaler[k])
+            self.scaled_lower_bounds[k] = utils.safe_divide_scalar(self.lower_bounds[k], self.space_scaler[k])
+            self.scaled_upper_bounds[k] = utils.safe_divide_scalar(self.upper_bounds[k], self.space_scaler[k])
 
     def _update_noptimal_mask(self):
         """
@@ -710,11 +711,11 @@ class Population:
         If none feasible, returns (-1, -1).
         """
         if self.maximize:
-            best_i, best_j = _argmax_with_mask_2d(
+            best_i, best_j = utils.argmax_with_mask_2d(
                 self.penalized_objectives, self.feasible_mask, self.optima_penalized_objectives[0]
             )
         else:
-            best_i, best_j = _argmin_with_mask_2d(
+            best_i, best_j = utils.argmin_with_mask_2d(
                 self.penalized_objectives, self.feasible_mask, self.optima_penalized_objectives[0]
             )
 
@@ -733,7 +734,7 @@ class Population:
         for i in range(1, self.num_niches):
             if self.feasible_mask[i].sum() >= 1:
                 # option 1: feasible & noptimal
-                best_j = _argmax_with_mask(self.fitnesses[i], self.feasible_mask[i])
+                best_j = utils.argmax_with_mask(self.fitnesses[i], self.feasible_mask[i])
 
             else:
                 # option 2: best penalized objective
@@ -785,135 +786,6 @@ def njit_deepcopy(new, old):
 
     for i in range(flat_old.shape[0]):
         flat_new[i] = flat_old[i]
-
-
-@njit
-def _argm_with_mask(array, mask, best, maximize):
-    best_i = -1
-    if maximize:
-        for i in range(array.shape[0]):
-            if mask[i]:
-                val = array[i]
-                if val > best:
-                    best_i = i
-                    best = val
-    else:
-        for i in range(array.shape[0]):
-            if mask[i]:
-                val = array[i]
-                if val < best:
-                    best_i = i
-                    best = val
-    return best_i
-
-
-@njit
-def _argmax_with_mask(array, mask):
-    return _argm_with_mask(array, mask, -np.inf, True)
-
-
-@njit
-def _argmin_with_mask(array, mask):
-    return _argm_with_mask(array, mask, np.inf, False)
-
-
-@njit
-def _argm_with_mask_2d(array, mask, best, maximize):
-    best_i = -1
-    best_j = -1
-    if maximize:
-        for i in range(array.shape[0]):
-            for j in range(array.shape[1]):
-                if mask[i, j]:
-                    val = array[i, j]
-                    if val > best:
-                        best_i = i
-                        best_j = j
-                        best = val
-    else:
-        for i in range(array.shape[0]):
-            for j in range(array.shape[1]):
-                if mask[i, j]:
-                    val = array[i, j]
-                    if val < best:
-                        best_i = i
-                        best_j = j
-                        best = val
-    return best_i, best_j
-
-
-@njit
-def _argmax_with_mask_2d(array, mask, best=-np.inf):
-    return _argm_with_mask_2d(array, mask, best, True)
-
-
-@njit
-def _argmin_with_mask_2d(array, mask, best=np.inf):
-    return _argm_with_mask_2d(array, mask, best, False)
-
-
-@njit
-def _dither(bounds, rng):
-    return rng.uniform(bounds[0], bounds[1])
-
-
-@njit
-def _safe_divide(
-    num,
-    denom,
-    fail=0.0,
-):
-    """ Zero-safe division of two scalars """
-    if denom == 0.0:
-        return fail
-    return num / denom
-
-
-@njit
-def _safe_divide_array(
-    num,
-    denom,
-    fail=0.0,
-):
-    """ Zero-safe division of two arrays. """
-    retarr = num.copy().ravel()
-    denom_ravel = denom.ravel()
-    for i in range(retarr.size):
-        if denom_ravel[i] == 0.0:
-            retarr[i] = fail
-        else:
-            retarr[i] /= denom_ravel[i]
-    return retarr.reshape(num.shape)
-
-
-@njit
-def _argmax_2d(array):
-    best_i = -1
-    best_j = -1
-    best = -np.inf
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            val = array[i, j]
-            if val > best:
-                best_i = i
-                best_j = j
-                best = val
-    return best_i, best_j
-
-
-@njit
-def _argmin_2d(array):
-    best_i = -1
-    best_j = -1
-    best = np.inf
-    for i in range(array.shape[0]):
-        for j in range(array.shape[1]):
-            val = array[i, j]
-            if val < best:
-                best_i = i
-                best_j = j
-                best = val
-    return best_i, best_j
 
 
 def load_problem_to_population(
