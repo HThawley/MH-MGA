@@ -546,6 +546,7 @@ class MGAProblem:
             self.space_scaler,
             self.objective_scaler
         )
+        self._update_parent_size()
 
     def _display_progress(self):
         """
