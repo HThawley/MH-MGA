@@ -406,11 +406,12 @@ class Population:
     def _mutate(self):
         sigma_vals = self.mutation_sigma_inst * self.mutation_scaler
         if self.is_continuous_space and self.do_skew_mutation:
+            alpha_vals = self.mutation_alpha * self.mutation_scaler
             mutation.mutate_skew_population_float(
                 points=self.points,
                 mutation_sigma=sigma_vals,
                 mutation_prob=self.current_mutation_prob,
-                mutation_alpha=self.mutation_alpha,
+                mutation_alpha=alpha_vals,
                 rng=self.rng,
             )
         elif self.is_continuous_space and not self.do_skew_mutation:
@@ -421,11 +422,12 @@ class Population:
                 rng=self.rng,
             )
         elif not self.is_continuous_space and self.do_skew_mutation:
+            alpha_vals = self.mutation_alpha * self.mutation_scaler
             mutation.mutate_skew_population_mixed(
                 points=self.points,
                 mutation_sigma=sigma_vals,
                 mutation_prob=self.current_mutation_prob,
-                mutation_alpha=self.mutation_alpha,
+                mutation_alpha=alpha_vals,
                 rng=self.rng,
                 integrality=self.integrality,
                 booleanality=self.booleanality,

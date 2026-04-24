@@ -93,10 +93,10 @@ def _mutate_skew_niche_mixed(
                     niche[j, k] = _mutate_bool(niche[j, k], mutation_sigma[k], rng)
             elif integrality[k]:
                 if rng.random() < mutation_prob:
-                    niche[j, k] = _mutate_int_skew(niche[j, k], mutation_sigma[k], mutation_alpha, rng)
+                    niche[j, k] = _mutate_int_skew(niche[j, k], mutation_sigma[k], mutation_alpha[k], rng)
             else:
                 if rng.random() < mutation_prob:
-                    niche[j, k] = _mutate_float_skew(niche[j, k], mutation_sigma[k], mutation_alpha, rng)
+                    niche[j, k] = _mutate_float_skew(niche[j, k], mutation_sigma[k], mutation_alpha[k], rng)
 
 
 @njit
@@ -108,7 +108,7 @@ def _mutate_skew_niche_float(niche, mutation_sigma, mutation_prob, mutation_alph
     for j in range(startidx, niche.shape[0]):
         for k in range(niche.shape[1]):
             if rng.random() < mutation_prob:
-                niche[j, k] = _mutate_float_skew(niche[j, k], mutation_sigma[k], mutation_alpha, rng)
+                niche[j, k] = _mutate_float_skew(niche[j, k], mutation_sigma[k], mutation_alpha[k], rng)
 
 
 @njit(inline='always')
