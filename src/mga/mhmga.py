@@ -102,7 +102,6 @@ class MGAProblem:
         self.evaluator = construct(
             self._can_use_fast_path,
             self.problem.vectorized,
-            self.problem.vectorized,
             self.problem.constraints,
             self.problem.return_scaled,
             parallelize,  # ignored if _can_use_fast_path is False
