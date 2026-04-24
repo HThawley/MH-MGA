@@ -2,49 +2,18 @@ from mga.commons.numba_overload import njit
 
 
 # API functions
-@njit
+@njit(cache=True)
 def crossover_population(points, crossover_prob, cx_func, rng, start_idx=0):
     """
     Applies crossover to an entire population, niche by niche.
     """
     for i in range(points.shape[0]):
         # Shuffle parents for mating
-        rng.shuffle(points[i, start_idx:])
-
-        for ind1, ind2 in zip(points[i, start_idx:][::2], points[i, start_idx:][1::2]):
-            if rng.random() < crossover_prob:
-                cx_func(ind1, ind2, rng)
+        _crossover_niche(points[i], crossover_prob, cx_func, rng, start_idx)
 
 
-@njit
-def crossover_niche(niche, crossover_prob, cx_func, rng, start_idx=0):
-    """
-    Applies crossover to a niche
-    """
-    # Shuffle parents for mating
-    rng.shuffle(niche[start_idx:])
-
-    for ind1, ind2 in zip(niche[start_idx:][::2], niche[start_idx:][1::2]):
-        if rng.random() < crossover_prob:
-            cx_func(ind1, ind2, rng)
-
-
-# private helper functions
-@njit
-def _do_cx(ind1, ind2, index1, index2):
-    """
-    Perform crossover
-    """
-    buffer = 0.0
-    # modify in place
-    for i in range(index1, index2):
-        buffer = ind1[i]
-        ind1[i] = ind2[i]
-        ind2[i] = buffer
-
-
-@njit
-def _cx_one_point(ind1, ind2, rng):
+@njit(inline='always')
+def cx_one_point(ind1, ind2, rng):
     """
     Single point crossover
     """
@@ -53,8 +22,8 @@ def _cx_one_point(ind1, ind2, rng):
     _do_cx(ind1, ind2, index1, len(ind1))
 
 
-@njit
-def _cx_two_point(ind1, ind2, rng):
+@njit(inline='always')
+def cx_two_point(ind1, ind2, rng):
     """
     Double point crossover
     """
@@ -67,3 +36,30 @@ def _cx_two_point(ind1, ind2, rng):
         index1, index2 = index2, index1
 
     _do_cx(ind1, ind2, index1, index2)
+
+
+# private helper functions
+@njit
+def _crossover_niche(niche, crossover_prob, cx_func, rng, start_idx=0):
+    """
+    Applies crossover to a niche
+    """
+    # Shuffle parents for mating
+    rng.shuffle(niche[start_idx:])
+
+    for ind1, ind2 in zip(niche[start_idx:][::2], niche[start_idx:][1::2]):
+        if rng.random() < crossover_prob:
+            cx_func(ind1, ind2, rng)
+
+
+@njit(inline='always')
+def _do_cx(ind1, ind2, index1, index2):
+    """
+    Perform crossover
+    """
+    buffer = 0.0
+    # modify in place
+    for i in range(index1, index2):
+        buffer = ind1[i]
+        ind1[i] = ind2[i]
+        ind2[i] = buffer

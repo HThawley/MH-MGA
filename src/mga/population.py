@@ -64,6 +64,7 @@ if JIT_ENABLED:
         ('tourn_size', nbint),
         ('mutation_prob', nbfloat[:]),
         ('mutation_sigma', nbfloat[:]),
+        ('mutation_alpha', nbfloat),
         ('crossover_prob', nbfloat[:]),
         ('noptimal_rel', nbfloat),
         ('noptimal_abs', nbfloat),
@@ -75,6 +76,10 @@ if JIT_ENABLED:
         ('current_mutation_prob', nbfloat),
         ('mutation_sigma_inst', nbfloat),
         ('current_crossover_prob', nbfloat),
+
+        ('hyperparameters_set', boolean),
+        ('do_skew_mutation', boolean),
+        ('use_cx_two_point', boolean),
 
         # Metrics
         ('vesa', nbfloat),
@@ -155,6 +160,7 @@ class Population:
         self.tourn_size = 0
         self.mutation_prob = np.empty(2, dtype=npfloat)
         self.mutation_sigma = np.empty(2, dtype=npfloat)
+        self.mutation_alpha = 0.0
         self.crossover_prob = np.empty(2, dtype=npfloat)
         self.niche_elitism = 0
         self.noptimal_rel = 0.0
@@ -163,6 +169,9 @@ class Population:
         self.mutation_scaler = np.empty(ndim, dtype=npfloat)
         self.space_scaler = np.empty(ndim, dtype=npfloat)
         self.objective_scaler = 1.0
+
+        self.do_skew_mutation = False
+        self.use_cx_two_point = self.ndim > 2
 
     def _load_optimum(
             self,
@@ -294,6 +303,7 @@ class Population:
         tourn_size: int,
         mutation_prob: np.ndarray[float],
         mutation_sigma: np.ndarray[float],
+        mutation_alpha: float,
         crossover_prob: np.ndarray[float],
         niche_elitism: int,
         noptimal_rel: float,
@@ -309,6 +319,7 @@ class Population:
         self.tourn_size = nbint(tourn_size)
         self.mutation_prob[:] = mutation_prob.astype(nbfloat)
         self.mutation_sigma[:] = mutation_sigma.astype(nbfloat)
+        self.mutation_alpha = nbfloat(mutation_alpha)
         self.crossover_prob[:] = crossover_prob.astype(nbfloat)
         self.niche_elitism = nbint(niche_elitism)
         self.noptimal_rel = nbfloat(noptimal_rel)
@@ -317,6 +328,8 @@ class Population:
         self.mutation_scaler[:] = mutation_scaler.astype(nbfloat)
         self.space_scaler[:] = space_scaler.astype(nbfloat)
         self.objective_scaler = nbfloat(objective_scaler)
+
+        self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
         self._rescale_bounds()
         self.dither_probabilities()
@@ -363,50 +376,59 @@ class Population:
         Generates offspring from parents via cloning, crossover, and mutation.
         """
         if self.niche_elitism == 2:
-            # rather than choosing the highest fitness individual from each niche (current noptima), we
-            # take either the current noptima or a previous set of noptima - whichever has the highest
-            # fitness measured to each other (rather than to the centroids)
-
-            # container for fitness function evaluated on set of elites rather than centroids
-            _fitness = np.empty((self.num_niches, 1))
-            # evaluate fitness w.r.t. each other
-            fit_metrics.evaluate_fitness_dist_to_centroids(
-                _fitness,
-                np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
-                self.optima_scaled_points
-            )
-
-            # update niche_elites
-            if np.mean(_fitness) > self.unselfish_niche_fitness_threshold:
-                self.unselfish_niche_fitness_threshold = np.mean(_fitness)
-                njit_deepcopy(self.niche_elites, self.optima_points[1:])
+            self._find_unselfish_elites()
 
         _clone(self.points, self.parents)
 
-        # Crossover
-        if self.ndim > 2:
+        self._crossover()
+        self._mutate()
+        self._preserve_elites()
+
+        self._apply_bounds()
+        self._scale_points()
+
+    def _crossover(self):
+        if self.use_cx_two_point:
             crossover.crossover_population(
                 points=self.points,
                 crossover_prob=self.current_crossover_prob,
-                cx_func=crossover._cx_two_point,
+                cx_func=crossover.cx_two_point,
                 rng=self.rng,
             )
         else:
             crossover.crossover_population(
                 points=self.points,
                 crossover_prob=self.current_crossover_prob,
-                cx_func=crossover._cx_one_point,
+                cx_func=crossover.cx_one_point,
                 rng=self.rng,
             )
 
-        # Mutation
+    def _mutate(self):
         sigma_vals = self.mutation_sigma_inst * self.mutation_scaler
-        if self.is_continuous_space:
+        if self.is_continuous_space and self.do_skew_mutation:
+            mutation.mutate_skew_population_float(
+                points=self.points,
+                mutation_sigma=sigma_vals,
+                mutation_prob=self.current_mutation_prob,
+                mutation_alpha=self.mutation_alpha,
+                rng=self.rng,
+            )
+        elif self.is_continuous_space and not self.do_skew_mutation:
             mutation.mutate_gaussian_population_float(
                 points=self.points,
                 mutation_sigma=sigma_vals,
                 mutation_prob=self.current_mutation_prob,
                 rng=self.rng,
+            )
+        elif not self.is_continuous_space and self.do_skew_mutation:
+            mutation.mutate_skew_population_mixed(
+                points=self.points,
+                mutation_sigma=sigma_vals,
+                mutation_prob=self.current_mutation_prob,
+                mutation_alpha=self.mutation_alpha,
+                rng=self.rng,
+                integrality=self.integrality,
+                booleanality=self.booleanality,
             )
         else:
             mutation.mutate_gaussian_population_mixed(
@@ -418,6 +440,7 @@ class Population:
                 booleanality=self.booleanality,
             )
 
+    def _preserve_elites(self):
         # Elitism: preserve best individuals
         self.points[0, 0, :] = self.optima_points[0]
         if self.niche_elitism == 1:
@@ -431,8 +454,24 @@ class Population:
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.niche_elites[i - 1]
 
-        self._apply_bounds()
-        self._scale_points()
+    def _find_unselfish_elites(self):
+        # rather than choosing the highest fitness individual from each niche (current noptima), we
+        # take either the current noptima or a previous set of noptima - whichever has the highest
+        # fitness measured to each other (rather than to the centroids)
+
+        # container for fitness function evaluated on set of elites rather than centroids
+        _fitness = np.empty((self.num_niches, 1))
+        # evaluate fitness w.r.t. each other
+        fit_metrics.evaluate_fitness_dist_to_centroids(
+            _fitness,
+            np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
+            self.optima_scaled_points
+        )
+
+        # update niche_elites
+        if np.mean(_fitness) > self.unselfish_niche_fitness_threshold:
+            self.unselfish_niche_fitness_threshold = np.mean(_fitness)
+            njit_deepcopy(self.niche_elites, self.optima_points[1:])
 
     def track_optima(self):
         """
@@ -743,10 +782,7 @@ class Population:
 
             else:
                 # option 2: best penalized objective
-                if self.maximize:
-                    best_j = self.penalized_objectives[i].argmax()
-                else:
-                    best_j = self.penalized_objectives[i].argmin()
+                best_j = utils.argm(self.penalized_objectives[i], self.maximize)
 
             out[i] = best_j
         return out

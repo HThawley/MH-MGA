@@ -136,6 +136,7 @@ class MGAProblem:
             tourn_size: int = 2,
             mutation_prob: float | tuple[float, float] = 0.3,
             mutation_sigma: float | tuple[float, float] = 0.05,
+            mutation_alpha: float = 0.0,
             crossover_prob: float | tuple[float, float] = 0.4,
             violation_factor: float = 1.0,
             noptimal_rel: float = 0.0,
@@ -145,29 +146,20 @@ class MGAProblem:
             space_scaler: NDArray = _SENTINEL,  # default: 'bounds'
             objective_scaler: float = _SENTINEL,  # default: 1.0
             ):
-        typing.sanitize_type(max_iter, "integer", "max_iter")
-        typing.sanitize_range(max_iter, "max_iter", ge=1)
-        self.max_iter = npint(max_iter)
-
-        typing.sanitize_type(pop_size, "integer", "pop_size")
-        typing.sanitize_range(pop_size, "pop_size", ge=2)
-        self.pop_size = npint(pop_size)
+        for attr, expected_type, ge in zip(
+            ("max_iter", "pop_size", "violation_factor", "noptimal_rel", "noptimal_abs", "mutation_alpha"),
+            ("integer", "integer", "float", "float", "float", "float"),
+            (1, 2, 1, 0, 0, None),
+        ):
+            var = locals()[attr]
+            typing.sanitize_type(var, expected_type, attr)
+            typing.sanitize_range(var, attr, ge=ge)
+            clean_type = npint if expected_type == "integer" else npfloat
+            setattr(self, attr, clean_type(var))
 
         self.mutation_prob = typing.format_and_sanitize_ditherer(mutation_prob, "mutation_prob", npfloat, 0, 1)
         self.mutation_sigma = typing.format_and_sanitize_ditherer(mutation_sigma, "mutation_sigma", npfloat)
         self.crossover_prob = typing.format_and_sanitize_ditherer(crossover_prob, "crossover_prob", npfloat, 0, 1)
-
-        typing.sanitize_type(violation_factor, "float", "violation_factor")
-        typing.sanitize_range(violation_factor, "violation_factor", ge=1)
-        self.violation_factor = npfloat(violation_factor)
-
-        typing.sanitize_type(noptimal_rel, "float", "noptimal_rel")
-        typing.sanitize_range(noptimal_rel, "noptimal_rel", ge=0)
-        self.noptimal_rel = npfloat(noptimal_rel)
-
-        typing.sanitize_type(noptimal_abs, "float", "noptimal_abs")
-        typing.sanitize_range(noptimal_abs, "noptimal_abs", ge=0)
-        self.noptimal_abs = npfloat(noptimal_abs)
 
         if niche_elitism not in (None, "selfish", "unselfish"):
             raise ValueError(
@@ -537,6 +529,7 @@ class MGAProblem:
             self.tourn_size,
             self.mutation_prob,
             self.mutation_sigma,
+            self.mutation_alpha,
             self.crossover_prob,
             self.niche_elitism_int,
             self.noptimal_rel,

@@ -2,7 +2,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-os.environ["MGA_JIT_ENABLED"] = "0"
+os.environ["MGA_JIT_ENABLED"] = "1"
 
 from mga.commons.numba_overload import njit  # noqa: E402
 from mga.problem_definition import OptimizationProblem  # noqa: E402
@@ -52,6 +52,7 @@ def run(seed=None, file_prefix="logs/testprob"):
         tourn_size=3,
         mutation_prob=0.25,
         mutation_sigma=(0.05, 0.5),
+        mutation_alpha=0.05,
         crossover_prob=0.0,
         niche_elitism="selfish",
         noptimal_rel=0.12,

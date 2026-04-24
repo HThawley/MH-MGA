@@ -95,17 +95,17 @@ def selection_with_fallback(
 
 
 # private helper functions
-@njit
+@njit(inline='always')
 def _assign_single_index(selected, niche, target_idx, n, start_idx):
     """Assigns the same niche row to n consecutive rows in selected."""
     selected[start_idx: start_idx + n, :] = niche[target_idx, :]
 
 
-@njit
+@njit(inline='always')
 def _assign_multiple_indices(selected, niche, target_indices, n, start_idx):
     """Assigns an array of niche rows to n consecutive rows in selected."""
-    for j in range(start_idx, start_idx + n):
-        selected[j, :] = niche[target_indices[j - start_idx], :]
+    for j in range(n):
+        selected[start_idx + j, :] = niche[target_indices[j], :]
 
 
 @njit
