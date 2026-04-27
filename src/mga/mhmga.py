@@ -74,6 +74,8 @@ class MGAProblem:
             "selfish": npint(1),
             "unselfish": npint(2),
         }
+        self.verbosity = 0
+        self.disp_rate = 0
 
         # State and hyperparameter storage
         self._is_populated = False
@@ -140,6 +142,10 @@ class MGAProblem:
             space_scaler: NDArray = _SENTINEL,  # default: 'bounds'
             objective_scaler: float = _SENTINEL,  # default: 1.0
             ):
+        # TODO: all should be _SENTINEL + default logic
+        #       and make handling of previous hyperparameters clearer.
+        #       currently, reset to default if not provided
+
         for attr, expected_type, ge in zip(
             ("max_iter", "pop_size", "violation_factor", "noptimal_rel", "noptimal_abs", "mutation_alpha"),
             ("integer", "integer", "float", "float", "float", "float"),
@@ -298,9 +304,16 @@ class MGAProblem:
 
         self._update_parent_size()
 
+    def set_verbosity(self, disp_rate=None, verbose=None):
+        if disp_rate is not None:
+            typing.sanitize_type(disp_rate, "integer", "disp_rate")
+            typing.sanitize_range(disp_rate, "disp_rate", ge=-1)
+            self.disp_rate = disp_rate
+        if verbose is not None:
+            self.verbosity = verbose
+
     def step(  # noqa: C901
         self,
-        disp_rate: int = 0,
         convergence_criteria: None | term.Convergence | list[term.Convergence] = None,
     ):
         """
@@ -308,8 +321,6 @@ class MGAProblem:
         """
         if not self.hyperparameters_set:
             raise RuntimeError("Set hyperparameters before launching a step (`.update_hyperparameters`)")
-        typing.sanitize_type(disp_rate, "integer", "disp_rate")
-        typing.sanitize_range(disp_rate, "disp_rate", ge=-1)
 
         termination_handler = self.configure_termination(convergence_criteria)
 
@@ -327,8 +338,7 @@ class MGAProblem:
         # Main algorithm loop
         try:
             while not termination_handler(self):
-                if disp_rate > 0 and self.current_iter % disp_rate == 0:
-                    self._display_progress()
+                self._display_progress()
 
                 self._run_iteration()
 
@@ -349,8 +359,7 @@ class MGAProblem:
             print("Received Keyboard Interrupt. Terminating gracefully.")
             pass
 
-        if disp_rate != 0:
-            self._display_progress()
+        self._display_progress()
 
     def inspect_recombination(
         self,
@@ -539,13 +548,36 @@ class MGAProblem:
         """
         Prints the current progress of the algorithm to the console.
         """
+        if self.disp_rate == 0:
+            return
+        if self.current_iter % self.disp_rate != 0:
+            return
+        if self.verbosity == 0:
+            return
+
         best_pobj = self.population.optima_penalized_objectives[0]
         elapsed = dt.now() - self.start_time
 
-        if self.population.optima_violations[0] > 0:
-            print(f"Iter: {self.current_iter}. Best Objective: {best_pobj:.2f} [infeasible]. Time: {elapsed}")
-        else:
-            print(f"Iter: {self.current_iter}. Best Objective: {best_pobj:.2f}. Time: {elapsed}")
+        iter_str = f"Iter: {self.current_iter}. "
+        time_str = f"Time: {elapsed}. "
+
+        if self.verbosity >= 1:
+            print(iter_str + time_str, end="")
+
+        penobj_str = f"Best (pen) Objective: {best_pobj:.2f}"
+        infeas_str = " [infeasible]. " if self.population.optima_violations[0] > 0 else ". "
+
+        if self.verbosity >= 2:
+            print(penobj_str + infeas_str, end="")
+
+        dith_str = (f"mutation_prob: {self.population.current_mutation_prob:.4f}, "
+                    f"mutation_sigma: {self.population.current_mutation_sigma:.4f}, "
+                    f"crossover_prob: {self.population.current_crossover_prob:.4f}. ")
+
+        if self.verbosity >= 3:
+            print(dith_str, end="")
+
+        print("\n", end="")
 
     def configure_termination(self, convergence_criteria):
         typing.sanitize_type(

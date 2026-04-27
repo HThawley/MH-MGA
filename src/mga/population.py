@@ -74,7 +74,7 @@ if JIT_ENABLED:
         ('space_scaler', nbfloat[:]),
         ('objective_scaler', nbfloat),
         ('current_mutation_prob', nbfloat),
-        ('mutation_sigma_inst', nbfloat),
+        ('current_mutation_sigma', nbfloat),
         ('current_crossover_prob', nbfloat),
 
         ('hyperparameters_set', boolean),
@@ -404,7 +404,7 @@ class Population:
             )
 
     def _mutate(self):
-        sigma_vals = self.mutation_sigma_inst * self.mutation_scaler
+        sigma_vals = self.current_mutation_sigma * self.mutation_scaler
         if self.is_continuous_space and self.do_skew_mutation:
             mutation.mutate_skew_population_float(
                 points=self.points,
@@ -573,7 +573,7 @@ class Population:
 
     def dither_probabilities(self):
         self.current_mutation_prob = utils.dither(self.mutation_prob, self.rng)
-        self.mutation_sigma_inst = utils.dither(self.mutation_sigma, self.rng)
+        self.current_mutation_sigma = utils.dither(self.mutation_sigma, self.rng)
         self.current_crossover_prob = utils.dither(self.crossover_prob, self.rng)
 
     def _apply_bounds(self):

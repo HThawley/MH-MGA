@@ -58,7 +58,8 @@ def run(seed=None, file_prefix="logs/testprob"):
         noptimal_rel=0.12,
         space_scaler=np.array([2.0, 1.0]),
     )
-    algorithm.step(disp_rate=1)
+    algorithm.set_verbosity(disp_rate=1, verbose=2)
+    algorithm.step()
 
     algorithm.add_niches(num_niches=10)
     algorithm.update_hyperparameters(
@@ -75,7 +76,7 @@ def run(seed=None, file_prefix="logs/testprob"):
         noptimal_rel=0.12,
         space_scaler=np.array([2.0, 1.0]),
     )
-    algorithm.step(disp_rate=1)
+    algorithm.step()
 
     # algorithm.update_hyperparameters(
     #     max_iter=200,
