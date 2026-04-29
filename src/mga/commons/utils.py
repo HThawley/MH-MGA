@@ -3,7 +3,7 @@ import numpy as np
 from mga.commons.numba_overload import njit
 
 
-@njit
+@njit(inline='always')
 def argmax(array):
     best_i = -1
     best = -np.inf
@@ -15,7 +15,7 @@ def argmax(array):
     return best_i
 
 
-@njit
+@njit(inline='always')
 def argmin(array):
     best_i = -1
     best = np.inf
@@ -35,7 +35,7 @@ def argm(array, maximize):
         return argmin(array)
 
 
-@njit
+@njit(inline='always')
 def argmax_2d(array):
     best_i = -1
     best_j = -1
@@ -50,7 +50,7 @@ def argmax_2d(array):
     return best_i, best_j
 
 
-@njit
+@njit(inline='always')
 def argmin_2d(array):
     best_i = -1
     best_j = -1
@@ -73,7 +73,7 @@ def argm_2d(array, maximize):
         return argmin_2d(array)
 
 
-@njit
+@njit(inline='always')
 def argmax_with_mask(array, mask, best=-np.inf):
     best_i = -1
     for i in range(array.shape[0]):
@@ -85,7 +85,7 @@ def argmax_with_mask(array, mask, best=-np.inf):
     return best_i
 
 
-@njit
+@njit(inline='always')
 def argmin_with_mask(array, mask, best=np.inf):
     best_i = -1
     for i in range(array.shape[0]):
@@ -105,7 +105,7 @@ def argm_with_mask(array, mask, best, maximize):
         return argmin_with_mask(array, mask, best)
 
 
-@njit
+@njit(inline='always')
 def argmax_with_indices(array, indices, best=-np.inf):
     best_i = -1
     for idx in indices:
@@ -116,7 +116,7 @@ def argmax_with_indices(array, indices, best=-np.inf):
     return best_i
 
 
-@njit
+@njit(inline='always')
 def argmin_with_indices(array, indices, best=np.inf):
     best_i = -1
     for idx in indices:
@@ -135,7 +135,7 @@ def argm_with_indices(array, indices, maximize):
         return argmin_with_indices(array, indices)
 
 
-@njit
+@njit(inline='always')
 def argmax_with_indices_mask(array, indices, mask, best=-np.inf):
     best_i = -1
     for idx in indices:
@@ -147,7 +147,7 @@ def argmax_with_indices_mask(array, indices, mask, best=-np.inf):
     return best_i
 
 
-@njit
+@njit(inline='always')
 def argmin_with_indices_mask(array, indices, mask, best=np.inf):
     best_i = -1
     for idx in indices:
@@ -167,7 +167,7 @@ def argm_with_indices_mask(array, indices, mask, maximize):
         return argmin_with_indices_mask(array, indices, mask)
 
 
-@njit
+@njit(inline='always')
 def argmax_with_mask_2d(array, mask, best=-np.inf):
     best_i = -1
     best_j = -1
@@ -182,7 +182,7 @@ def argmax_with_mask_2d(array, mask, best=-np.inf):
     return best_i, best_j
 
 
-@njit
+@njit(inline='always')
 def argmin_with_mask_2d(array, mask, best=np.inf):
     best_i = -1
     best_j = -1
@@ -205,12 +205,17 @@ def argm_with_mask_2d(array, mask, best, maximize):
         return argmin_with_mask_2d(array, mask, best)
 
 
-@njit
-def dither(bounds, rng):
+@njit(inline='always')
+def loguniform_dither(logbounds, rng):
+    return np.exp(rng.uniform(logbounds[0], logbounds[1]))
+
+
+@njit(inline='always')
+def uniform_dither(bounds, rng):
     return rng.uniform(bounds[0], bounds[1])
 
 
-@njit
+@njit(inline='always')
 def safe_divide_scalar(
     num,
     denom,
@@ -222,7 +227,7 @@ def safe_divide_scalar(
     return num / denom
 
 
-@njit
+@njit(inline='always')
 def safe_divide_array(
     num,
     denom,

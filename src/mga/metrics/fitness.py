@@ -52,7 +52,7 @@ def evaluate_fitness_dist_to_centroids_ext(
 
 
 # private helper functions
-@njit
+@njit(inline='always')
 def _euclidean_distance(p1, p2):
     """Euclidean distance"""
     return np.sum((p1-p2)**2)**0.5

@@ -77,6 +77,8 @@ if JIT_ENABLED:
         ('current_mutation_sigma', nbfloat),
         ('current_crossover_prob', nbfloat),
 
+        ('log_mutation_sigma', nbfloat[:]),
+
         ('hyperparameters_set', boolean),
         ('do_skew_mutation', boolean),
         ('use_cx_two_point', boolean),
@@ -319,6 +321,7 @@ class Population:
         self.tourn_size = nbint(tourn_size)
         self.mutation_prob[:] = mutation_prob.astype(nbfloat)
         self.mutation_sigma[:] = mutation_sigma.astype(nbfloat)
+        self.log_mutation_sigma[:] = np.log(mutation_sigma)
         self.mutation_alpha = nbfloat(mutation_alpha)
         self.crossover_prob[:] = crossover_prob.astype(nbfloat)
         self.niche_elitism = nbint(niche_elitism)
@@ -572,9 +575,9 @@ class Population:
             self.mean_fitness = 0.0
 
     def dither_probabilities(self):
-        self.current_mutation_prob = utils.dither(self.mutation_prob, self.rng)
-        self.current_mutation_sigma = utils.dither(self.mutation_sigma, self.rng)
-        self.current_crossover_prob = utils.dither(self.crossover_prob, self.rng)
+        self.current_mutation_prob = utils.uniform_dither(self.mutation_prob, self.rng)
+        self.current_mutation_sigma = utils.loguniform_dither(self.log_mutation_sigma, self.rng)
+        self.current_crossover_prob = utils.uniform_dither(self.crossover_prob, self.rng)
 
     def _apply_bounds(self):
         """
