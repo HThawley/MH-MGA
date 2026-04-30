@@ -54,6 +54,7 @@ if JIT_ENABLED:
         ('optima_penalized_objectives', nbfloat[:]),
         ('optima_fitnesses', nbfloat[:]),
         ('optima_noptimal_mask', boolean[:]),
+        ('current_optimum', nbfloat),
         ('noptimal_threshold', nbfloat),
 
         # Hyperparameters
@@ -155,6 +156,7 @@ class Population:
         self.optima_fitnesses = np.empty((self.num_niches), dtype=npfloat)
         self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
         self.noptimal_threshold = 0.0
+        self.current_optimum = 0.0
 
         self.champ_count = 0
         self.elite_count = 0
@@ -502,6 +504,7 @@ class Population:
             # logically must be true but self.noptimal_mask has not been calculated yet
             self.optima_noptimal_mask[0] = True
 
+        self.current_optimum = self.optima_penalized_objectives[0]
         self._update_noptimal_threshold()
         self._update_noptimal_mask()
 
@@ -740,12 +743,12 @@ class Population:
                     self.noptimal_mask[i, j] = self.penalized_objectives[i, j] < self.noptimal_threshold
 
     def _update_noptimal_threshold(self):
-        margin = abs(self.optima_penalized_objectives[0]) * (self.noptimal_rel) + self.noptimal_abs
+        margin = abs(self.current_optimum) * (self.noptimal_rel) + self.noptimal_abs
 
         if self.maximize:
-            self.noptimal_threshold = self.optima_penalized_objectives[0] - margin
+            self.noptimal_threshold = self.current_optimum - margin
         else:
-            self.noptimal_threshold = self.optima_penalized_objectives[0] + margin
+            self.noptimal_threshold = self.current_optimum + margin
 
     def _update_feasible_mask(self):
         for i in range(self.num_niches):

@@ -265,7 +265,7 @@ class GradientStagnation(Convergence):
     ):
         assert window >= 2
         self.window = window
-        self.improvement = improvement
+        self.improvement = abs(improvement)
         self.sense = -1 if maximize else 1
         self.prev = [self.sense * float("inf")]
         self.attribute = attribute
