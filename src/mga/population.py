@@ -7,7 +7,7 @@ from mga.commons.types import nbint, npintp, nbfloat, npfloat, boolean
 import mga.commons.utils as utils
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
-from mga.metrics import fitness as fit_metrics
+from mga.metrics import fitness
 from mga.metrics import diversity
 
 if JIT_ENABLED:
@@ -19,6 +19,7 @@ if JIT_ENABLED:
         ('unselfish_niche_fitness_threshold', nbfloat),
         ('stable_sort', boolean),
         ('include_obj_in_fitness', boolean),
+        ('pure_optimization', boolean),
 
         ('integrality', boolean[:]),
         ('booleanality', boolean[:]),
@@ -74,6 +75,7 @@ if JIT_ENABLED:
         ('mutation_scaler', nbfloat[:]),
         ('space_scaler', nbfloat[:]),
         ('objective_scaler', nbfloat),
+        ('repulsion_weight', nbfloat),
 
         ('log_mutation_sigma', nbfloat[:]),
         ('current_mutation_prob', nbfloat),
@@ -108,7 +110,8 @@ class Population:
         ndim: int,
         stable_sort: bool,
         rng: npy_rng,
-        include_obj_in_fitness: bool
+        include_obj_in_fitness: bool,
+        pure_optimization: bool,
     ):
         self.num_niches = nbint(num_niches)
         self.pop_size = nbint(pop_size)
@@ -118,6 +121,7 @@ class Population:
         self.stable_sort = stable_sort
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
+        self.pure_optimization = pure_optimization
 
         self.integrality = np.empty(ndim, np.bool_)
         self.booleanality = np.empty(ndim, np.bool_)
@@ -142,7 +146,12 @@ class Population:
         self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=npfloat)
         self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
-        if self.include_obj_in_fitness:
+        if self.pure_optimization:
+            if self.include_obj_in_fitness:
+                print("Warning: include_obj_in_fitness has no effect when pure_optimization is True.")
+                self.include_obj_in_fitness = False
+            self.scaled_centroids = np.empty((1, self.ndim), dtype=npfloat)
+        elif self.include_obj_in_fitness:
             self.scaled_centroids = np.empty((self.num_niches, self.ndim+1), dtype=npfloat)
         else:
             self.scaled_centroids = np.empty((self.num_niches, self.ndim), dtype=npfloat)
@@ -174,6 +183,7 @@ class Population:
         self.mutation_scaler = np.empty(ndim, dtype=npfloat)
         self.space_scaler = np.empty(ndim, dtype=npfloat)
         self.objective_scaler = 1.0
+        self.repulsion_weight = 0.0
 
         self.do_skew_mutation = False
         self.use_cx_two_point = self.ndim > 2
@@ -317,6 +327,7 @@ class Population:
         mutation_scaler: np.ndarray[float],
         space_scaler: np.ndarray[float],
         objective_scaler: float,
+        repulsion_weight: float,
     ):
         self.champ_count = nbint(champ_count)
         self.elite_count = nbint(elite_count)
@@ -334,6 +345,7 @@ class Population:
         self.mutation_scaler[:] = mutation_scaler.astype(nbfloat)
         self.space_scaler[:] = space_scaler.astype(nbfloat)
         self.objective_scaler = nbfloat(objective_scaler)
+        self.repulsion_weight = nbfloat(repulsion_weight)
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
@@ -468,7 +480,7 @@ class Population:
         # container for fitness function evaluated on set of elites rather than centroids
         _fitness = np.empty((self.num_niches, 1))
         # evaluate fitness w.r.t. each other
-        fit_metrics.evaluate_fitness_dist_to_centroids(
+        fitness.evaluate_fitness_dist_to_centroids(
             _fitness,
             np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
             self.optima_scaled_points
@@ -525,8 +537,16 @@ class Population:
         Calculates fitness for each individual based on distance to other niche centroids.
         """
         self._find_scaled_centroids()
-        if self.include_obj_in_fitness:
-            fit_metrics.evaluate_fitness_dist_to_centroids_ext(
+        if self.pure_optimization:
+            fitness.evaluate_fitness_pure_optimization(
+                self.fitnesses,
+                self.scaled_points,
+                self.scaled_centroids,
+                self.raw_objectives,
+                self.repulsion_weight,
+            )
+        elif self.include_obj_in_fitness:
+            fitness.evaluate_fitness_dist_to_centroids_ext(
                 self.fitnesses,
                 self.scaled_points,
                 self.scaled_centroids,
@@ -534,7 +554,7 @@ class Population:
                 self.objective_scaler,
             )
         else:
-            fit_metrics.evaluate_fitness_dist_to_centroids(
+            fitness.evaluate_fitness_dist_to_centroids(
                 self.fitnesses,
                 self.scaled_points,
                 self.scaled_centroids,
@@ -702,7 +722,7 @@ class Population:
         Calculates the geometric center (centroid) of each niche.
         """
         self.scaled_centroids[:, :] = 0.0
-        for i in range(self.num_niches):
+        for i in range(self.scaled_centroids.shape[0]):
             for j in range(self.pop_size):
                 for k in range(self.ndim):
                     self.scaled_centroids[i, k] += self.scaled_points[i, j, k]

@@ -35,6 +35,7 @@ class MGAProblem:
         parallelize: bool = True,
         callback: Callable = None,
         include_obj_in_fitness: bool = False,
+        pure_optimization: bool = False,
     ):
         """
         Initializes the MGA algorithm
@@ -47,12 +48,14 @@ class MGAProblem:
         typing.sanitize_type(random_seed, ("integer", "none"), "random_seed")
         typing.sanitize_type(parallelize, "boolean", "parallelize")
         typing.sanitize_type(include_obj_in_fitness, "boolean", "include_obj_in_fitness")
+        typing.sanitize_type(pure_optimization, "boolean", "pure_optimization")
 
         # Instantiation
         self.problem = problem
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None
         self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
+        self.pure_optimization = pure_optimization
 
         if x0 is None:
             self.x0 = np.empty([], dtype=npfloat)
@@ -92,6 +95,8 @@ class MGAProblem:
         self.noptimal_abs = npfloat(0.0)
         self.mutation_scaler = None
         self.space_scaler = None
+        self.objective_scaler = None
+        self.repulsion_weight = npfloat(0.0)
         self.current_best_obj = npfloat(0)
         self.mean_fitness = npfloat(0)
         self.hyperparameters_set = False
@@ -141,15 +146,17 @@ class MGAProblem:
             mutation_scaler: NDArray = "bounds",
             space_scaler: NDArray = _SENTINEL,  # default: 'bounds'
             objective_scaler: float = _SENTINEL,  # default: 1.0
+            repulsion_weight: float = 1.0,
             ):
         # TODO: all should be _SENTINEL + default logic
         #       and make handling of previous hyperparameters clearer.
         #       currently, reset to default if not provided
 
         for attr, expected_type, ge in zip(
-            ("max_iter", "pop_size", "violation_factor", "noptimal_rel", "noptimal_abs", "mutation_alpha"),
-            ("integer", "integer", "float", "float", "float", "float"),
-            (1, 2, 1, 0, 0, None),
+            ("max_iter", "pop_size", "violation_factor", "noptimal_rel",
+             "noptimal_abs", "mutation_alpha", "repulsion_weight"),
+            ("integer", "integer", "float", "float", "float", "float", "float"),
+            (1, 2, 1, 0, 0, None, 0),
         ):
             var = locals()[attr]
             typing.sanitize_type(var, expected_type, attr)
@@ -267,6 +274,7 @@ class MGAProblem:
             rng=self.rng,
             stable_sort=self.stable_sort,
             include_obj_in_fitness=self.include_obj_in_fitness,
+            pure_optimization=self.pure_optimization,
         )
         load_problem_to_population(self.population, self.problem)
 
@@ -540,7 +548,8 @@ class MGAProblem:
             self.violation_factor,
             self.mutation_scaler,
             self.space_scaler,
-            self.objective_scaler
+            self.objective_scaler,
+            self.repulsion_weight,
         )
         self._update_parent_size()
 

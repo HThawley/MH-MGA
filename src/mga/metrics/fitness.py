@@ -51,6 +51,16 @@ def evaluate_fitness_dist_to_centroids_ext(
             fitness[i, j] = min_dist**0.5
 
 
+@njit
+def evaluate_fitness_pure_optimization(
+    fitness, points, centroids, raw_objectives, repulsion_weight
+):
+    for i in range(1, points.shape[0]):
+        for j in range(points.shape[1]):
+            dist = _euclidean_distance(points[i, j], centroids[0])
+            fitness[i, j] = (dist * repulsion_weight) + (raw_objectives[i, j] * (1.0 - repulsion_weight))
+
+
 # private helper functions
 @njit(inline='always')
 def _euclidean_distance(p1, p2):
