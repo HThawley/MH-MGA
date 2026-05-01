@@ -74,11 +74,11 @@ if JIT_ENABLED:
         ('mutation_scaler', nbfloat[:]),
         ('space_scaler', nbfloat[:]),
         ('objective_scaler', nbfloat),
+
+        ('log_mutation_sigma', nbfloat[:]),
         ('current_mutation_prob', nbfloat),
         ('current_mutation_sigma', nbfloat),
         ('current_crossover_prob', nbfloat),
-
-        ('log_mutation_sigma', nbfloat[:]),
 
         ('hyperparameters_set', boolean),
         ('do_skew_mutation', boolean),
@@ -164,6 +164,7 @@ class Population:
         self.tourn_size = 0
         self.mutation_prob = np.empty(2, dtype=npfloat)
         self.mutation_sigma = np.empty(2, dtype=npfloat)
+        self.log_mutation_sigma = np.empty(2, dtype=npfloat)
         self.mutation_alpha = 0.0
         self.crossover_prob = np.empty(2, dtype=npfloat)
         self.niche_elitism = 0
