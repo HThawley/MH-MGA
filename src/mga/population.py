@@ -472,6 +472,10 @@ class Population:
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.niche_elites[i - 1]
 
+        if self.pure_optimization:
+            for i in range(1, self.num_niches):
+                self.points[i, 0, :] = self.optima_points[0, :]
+
     def _find_unselfish_elites(self):
         # rather than choosing the highest fitness individual from each niche (current noptima), we
         # take either the current noptima or a previous set of noptima - whichever has the highest
@@ -531,6 +535,21 @@ class Population:
             self.optima_penalized_objectives[i] = self.penalized_objectives[i, js[i]]
             self.optima_fitnesses[i] = self.fitnesses[i, js[i]]
             self.optima_noptimal_mask[i] = self.noptimal_mask[i, js[i]]
+
+        if self.pure_optimization:
+            mean_abs_dif = 0.0
+            for i in range(1, self.num_niches):
+                diff = self.optima_penalized_objectives[i] - self.current_optimum
+                mean_abs_dif += -diff if self.maximize else diff
+
+            mean_abs_dif /= (self.num_niches - 1)
+            rel_dif = utils.safe_divide_scalar(mean_abs_dif, abs(self.current_optimum), mean_abs_dif)
+
+            target_weight = 0.005 / (rel_dif)
+            print("mean_rel_dif:", mean_abs_dif, ". old weight:", self.repulsion_weight,
+                  ". new weight:", (0.8 * self.repulsion_weight) + (0.2 * target_weight))
+
+            self.repulsion_weight = (0.8 * self.repulsion_weight) + (0.2 * target_weight)
 
     def evaluate_fitness(self):
         """
