@@ -6,22 +6,36 @@ from mga.commons.types import npint
 
 # API functions
 @njit
-def mean_of_shannon_of_projections(points, noptimal_mask, lb, ub):
+def mean_of_shannon_of_projections(points, lb, ub):
     """
     mean of shannon index along each dimension of a set of points
     To be called on problem.noptima
     """
     npoint, ndim = points.shape
     nbin = max(2, int(npoint**0.5))  # sqrt of number of samples, consider updating later
-    acc = 0
+    acc = 0.0
     counts = np.zeros(nbin, dtype=npint)
-    feasible_points = points[noptimal_mask].T
     for k in range(ndim):
         counts[:] = 0
-        acc += _shannon_index(feasible_points[k], lb[k], ub[k], nbin, npoint, counts)
+        acc += _shannon_index(points[k], lb[k], ub[k], nbin, npoint, counts)
     acc /= np.log(nbin)  # normalize
     acc /= ndim  # take mean
     return acc
+
+
+@njit
+def min_of_shannon_of_projections(points, lb, ub):
+    npoint, ndim = points.shape
+    nbin = max(2, int(npoint**0.5))
+
+    _min = np.inf
+    counts = np.zeros(nbin, dtype=npint)
+    for k in range(ndim):
+        counts[:] = 0
+        _si = _shannon_index(points[k], lb[k], ub[k], nbin, npoint, counts)
+        if _si < _min:
+            _min = _si
+    return _min
 
 
 @njit

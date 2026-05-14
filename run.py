@@ -40,6 +40,7 @@ def run(seed=None, file_prefix="logs/testprob"):
         log_dir=file_prefix,
         log_freq=-1,
         random_seed=seed,
+        pure_optimization=True,
     )
 
     algorithm.add_niches(num_niches=5)
@@ -57,26 +58,27 @@ def run(seed=None, file_prefix="logs/testprob"):
         niche_elitism="selfish",
         noptimal_rel=0.12,
         space_scaler=np.array([2.0, 1.0]),
+        repulsion_weight=0.2,
     )
     algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
 
-    algorithm.add_niches(num_niches=10)
-    algorithm.update_hyperparameters(
-        max_iter=50,
-        pop_size=200,
-        champ_count=5,
-        elite_count=0.2,
-        tourn_count=-1,
-        tourn_size=2,
-        mutation_prob=0.25,
-        mutation_sigma=(0.05, 0.5),
-        crossover_prob=0.0,
-        niche_elitism="selfish",
-        noptimal_rel=0.12,
-        space_scaler=np.array([2.0, 1.0]),
-    )
-    algorithm.step()
+    # algorithm.add_niches(num_niches=10)
+    # algorithm.update_hyperparameters(
+    #     max_iter=50,
+    #     pop_size=200,
+    #     champ_count=5,
+    #     elite_count=0.2,
+    #     tourn_count=-1,
+    #     tourn_size=2,
+    #     mutation_prob=0.25,
+    #     mutation_sigma=(0.05, 0.5),
+    #     crossover_prob=0.0,
+    #     niche_elitism="selfish",
+    #     noptimal_rel=0.12,
+    #     space_scaler=np.array([2.0, 1.0]),
+    # )
+    # algorithm.step()
 
     # algorithm.update_hyperparameters(
     #     max_iter=200,
@@ -183,7 +185,7 @@ if __name__ == "__main__":
 
     file_prefix = "logs/testprob"
     algorithm = run(file_prefix=file_prefix)
-    # plot(file_prefix)
+    plot(file_prefix)
     # points = algorithm.population.points[0, :100, :].copy()
 
     # points = np.array([0.8, 0.8])

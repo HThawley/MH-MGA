@@ -550,6 +550,7 @@ class Population:
                   ". new weight:", (0.8 * self.repulsion_weight) + (0.2 * target_weight))
 
             self.repulsion_weight = (0.8 * self.repulsion_weight) + (0.2 * target_weight)
+            # does putting optimum in offspring counteract this??
 
     def evaluate_fitness(self):
         """
@@ -586,7 +587,7 @@ class Population:
         scaled_nopt_points = self.optima_scaled_points[self.optima_noptimal_mask]
 
         # VESA
-        if scaled_nopt_points.shape[0] >= self.ndim + 1:
+        if scaled_nopt_points.shape[0] >= 2:
             self.vesa = diversity.volume_estimation_by_shadow_addition(
                 scaled_nopt_points, np.ones(scaled_nopt_points.shape[0], dtype=np.bool_)
             )
@@ -594,13 +595,9 @@ class Population:
             self.vesa = 0.0
 
         # Shannon Index
-        if self.scaling_in_obj_func:
-            # TODO: figure out bounds in this case
-            self.shannon = 0.0
-        elif scaled_nopt_points.shape[0] >= 1:
+        if scaled_nopt_points.shape[0] >= 1:
             self.shannon = diversity.mean_of_shannon_of_projections(
                 scaled_nopt_points,
-                np.ones(scaled_nopt_points.shape[0], dtype=np.bool_),
                 self.scaled_lower_bounds,
                 self.scaled_upper_bounds,
             )
