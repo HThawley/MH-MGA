@@ -15,7 +15,7 @@ def evaluate_fitness_angular_to_centroids(fitness, points, centroids):
     for i in range(points.shape[0]):
         for j in range(points.shape[1]):
             min_ang_sep = np.inf
-            for c in range(centroids.shape[0]):
+            for c in range(1, centroids.shape[0]):
                 if i == c:
                     continue
                 ang_sep = _angular_separation(points[i, j], centroids[c], anchor)
@@ -40,7 +40,7 @@ def evaluate_fitness_angular_to_centroids_ext(
             min_ang_sep = np.inf
             scaled_obj = raw_objectives[i, j] / objective_scaler
 
-            for c in range(centroids.shape[0]):
+            for c in range(1, centroids.shape[0]):
                 if i == c:
                     continue
 
@@ -128,6 +128,8 @@ def _accumulate_product_and_norms(p, c, anchor, dot_product, norm_p_sq, norm_c_s
     norm_p_sq += v_p * v_p
     norm_c_sq += v_c * v_c
 
+    return dot_product, norm_p_sq, norm_c_sq
+
 
 @njit(fastmath=True, inline="always")
 def _get_vector_components(p, c, anchor):
@@ -137,7 +139,9 @@ def _get_vector_components(p, c, anchor):
     norm_c_sq = 0.0
 
     for k in range(len(p)):
-        _accumulate_product_and_norms(p[k], c[k], anchor[k], dot_product, norm_p_sq, norm_c_sq)
+        dot_product, norm_p_sq, norm_c_sq = _accumulate_product_and_norms(
+           p[k], c[k], anchor[k], dot_product, norm_p_sq, norm_c_sq
+        )
 
     return dot_product, norm_p_sq, norm_c_sq
 
@@ -169,6 +173,6 @@ def _angular_separation_ext(p, c, anchor, p_obj, c_obj, anchor_obj):
     dp, np_sq, nc_sq = _get_vector_components(p, c, anchor)
 
     # Add objective dimension
-    _accumulate_product_and_norms(p_obj, c_obj, anchor_obj, dp, np_sq, nc_sq)
+    dp, np_sq, nc_sq = _accumulate_product_and_norms(p_obj, c_obj, anchor_obj, dp, np_sq, nc_sq)
 
     return _calc_similarity(dp, np_sq, nc_sq)

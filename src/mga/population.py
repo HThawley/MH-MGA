@@ -775,8 +775,8 @@ class Population:
 
         if self.include_obj_in_fitness:
             # TODO: revisit this logic
-            _feas = 0
             for i in range(self.num_niches):
+                _feas = 0
                 for j in range(self.pop_size):
                     if self.violations[i, j] > 0:
                         continue
@@ -788,6 +788,9 @@ class Population:
                 self.scaled_centroids[i, self.ndim] = utils.safe_divide_scalar(
                     self.scaled_centroids[i, self.ndim], _feas
                 )
+            if self.angular_fitness:
+                self.scaled_centroids[0, :self.ndim] = self.optima_scaled_points[0]
+                self.scaled_centroids[0, self.ndim] = self.optima_raw_objectives[0] / self.objective_scaler
 
     def _scale_points(self):
         """project points onto other space defined by space_scaler"""

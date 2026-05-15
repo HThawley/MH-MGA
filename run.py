@@ -45,9 +45,9 @@ def run(seed=None, file_prefix="logs/testprob"):
         angular_fitness=True,
     )
 
-    algorithm.add_niches(num_niches=10)
+    algorithm.add_niches(num_niches=20)
     algorithm.update_hyperparameters(
-        max_iter=1,
+        max_iter=50,
         pop_size=50,
         champ_count=0,
         elite_count=0.2,
@@ -111,7 +111,7 @@ def plot(file_prefix):
     if file_prefix is not None:
         print("\nGenerating plots...")
         plotting.plot_noptima(file_prefix)
-        # plotting.plot_stat_evolution(file_prefix)
+        plotting.plot_stat_evolution(file_prefix)
         # plotting.plot_vesa(file_prefix)
         # plotting.plot_shannon(file_prefix)
         plotting.show()
@@ -186,17 +186,17 @@ if __name__ == "__main__":
     import pandas as pd
 
     file_prefix = "logs/testprob"
-    algorithm = run(seed=1, file_prefix=file_prefix)
+    algorithm = run(seed=2, file_prefix=file_prefix)
     plot(file_prefix)
 
-    for i in range(20):
-        algorithm.step()
-        results = algorithm.get_results()
-        plot(file_prefix)
+    # for i in range(20):
+    #     algorithm.step()
+    #     results = algorithm.get_results()
+    #     plot(file_prefix)
 
-        df = pd.read_csv('logs/testprob-noptima.csv')
-        df = df.drop(index=df.index)
-        df.to_csv('logs/testprob-noptima.csv', index=False, header=True)
+    #     df = pd.read_csv('logs/testprob-noptima.csv')
+    #     df = df.drop(index=df.index)
+    #     df.to_csv('logs/testprob-noptima.csv', index=False, header=True)
 
     # points = algorithm.population.points[0, :100, :].copy()
 
