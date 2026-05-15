@@ -24,6 +24,7 @@ if JIT_ENABLED:
         ('integrality', boolean[:]),
         ('booleanality', boolean[:]),
         ('maximize', boolean),
+        ('angular_fitness', boolean),
         ('scaling_in_obj_func', boolean),
         ('lower_bounds', nbfloat[:]),
         ('scaled_lower_bounds', nbfloat[:]),
@@ -111,6 +112,7 @@ class Population:
         stable_sort: bool,
         rng: npy_rng,
         include_obj_in_fitness: bool,
+        angular_fitness: bool,
         pure_optimization: bool,
     ):
         self.num_niches = nbint(num_niches)
@@ -121,6 +123,7 @@ class Population:
         self.stable_sort = stable_sort
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
+        self.angular_fitness = angular_fitness
         self.pure_optimization = pure_optimization
 
         self.integrality = np.empty(ndim, np.bool_)
@@ -187,6 +190,12 @@ class Population:
 
         self.do_skew_mutation = False
         self.use_cx_two_point = self.ndim > 2
+
+        self.vesa = 0.0
+        self.shannon = 0.0
+        self.mean_fitness = 0.0
+        self.stds = np.empty(0, dtype=npfloat)  # len=num_niches
+        self.variances = np.empty(0, dtype=npfloat)  # len=num_niches
 
     def _load_optimum(
             self,
@@ -266,6 +275,7 @@ class Population:
 
         self._apply_integrality()
         self._apply_bounds()
+        self._scale_points()
 
     def _populate_randomly(self, start_idx, end_idx):
         """Helper to populate a slice of niches with random points."""
@@ -557,6 +567,7 @@ class Population:
         Calculates fitness for each individual based on distance to other niche centroids.
         """
         self._find_scaled_centroids()
+
         if self.pure_optimization:
             fitness.evaluate_fitness_pure_optimization(
                 self.fitnesses,
@@ -565,20 +576,37 @@ class Population:
                 self.raw_objectives,
                 self.repulsion_weight,
             )
-        elif self.include_obj_in_fitness:
-            fitness.evaluate_fitness_dist_to_centroids_ext(
-                self.fitnesses,
-                self.scaled_points,
-                self.scaled_centroids,
-                self.raw_objectives,
-                self.objective_scaler,
-            )
+            return
+        if self.angular_fitness:
+            if self.include_obj_in_fitness:
+                fitness.evaluate_fitness_angular_to_centroids_ext(
+                    self.fitnesses,
+                    self.scaled_points,
+                    self.scaled_centroids,
+                    self.raw_objectives,
+                    self.objective_scaler
+                )
+            else:
+                fitness.evaluate_fitness_angular_to_centroids(
+                    self.fitnesses,
+                    self.scaled_points,
+                    self.scaled_centroids,
+                )
         else:
-            fitness.evaluate_fitness_dist_to_centroids(
-                self.fitnesses,
-                self.scaled_points,
-                self.scaled_centroids,
-            )
+            if self.include_obj_in_fitness:
+                fitness.evaluate_fitness_dist_to_centroids_ext(
+                    self.fitnesses,
+                    self.scaled_points,
+                    self.scaled_centroids,
+                    self.raw_objectives,
+                    self.objective_scaler,
+                )
+            else:
+                fitness.evaluate_fitness_dist_to_centroids(
+                    self.fitnesses,
+                    self.scaled_points,
+                    self.scaled_centroids,
+                )
 
     def evaluate_diversity(self):
         """
@@ -743,13 +771,23 @@ class Population:
                 for k in range(self.ndim):
                     self.scaled_centroids[i, k] += self.scaled_points[i, j, k]
 
+        self.scaled_centroids /= self.points.shape[1]
+
         if self.include_obj_in_fitness:
+            # TODO: revisit this logic
+            _feas = 0
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
+                    if self.violations[i, j] > 0:
+                        continue
+                    _feas += 1
                     self.scaled_centroids[i, self.ndim] += utils.safe_divide_scalar(
                         self.raw_objectives[i, j], self.objective_scaler
                     )
-        self.scaled_centroids /= self.points.shape[1]
+
+                self.scaled_centroids[i, self.ndim] = utils.safe_divide_scalar(
+                    self.scaled_centroids[i, self.ndim], _feas
+                )
 
     def _scale_points(self):
         """project points onto other space defined by space_scaler"""

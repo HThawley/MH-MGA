@@ -17,7 +17,7 @@ def mean_of_shannon_of_projections(points, lb, ub):
     counts = np.zeros(nbin, dtype=npint)
     for k in range(ndim):
         counts[:] = 0
-        acc += _shannon_index(points[k], lb[k], ub[k], nbin, npoint, counts)
+        acc += _shannon_index(points[:, k], lb[k], ub[k], nbin, npoint, counts)
     acc /= np.log(nbin)  # normalize
     acc /= ndim  # take mean
     return acc
@@ -32,7 +32,7 @@ def min_of_shannon_of_projections(points, lb, ub):
     counts = np.zeros(nbin, dtype=npint)
     for k in range(ndim):
         counts[:] = 0
-        _si = _shannon_index(points[k], lb[k], ub[k], nbin, npoint, counts)
+        _si = _shannon_index(points[:, k], lb[k], ub[k], nbin, npoint, counts)
         if _si < _min:
             _min = _si
     return _min

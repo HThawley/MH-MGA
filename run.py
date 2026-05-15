@@ -2,7 +2,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-os.environ["MGA_JIT_ENABLED"] = "1"
+os.environ["MGA_JIT_ENABLED"] = "0"
 
 from mga.commons.numba_overload import njit  # noqa: E402
 from mga.problem_definition import OptimizationProblem  # noqa: E402
@@ -24,6 +24,7 @@ def objective_function(values_array):
 
 
 def run(seed=None, file_prefix="logs/testprob"):
+    global algorithm
     # 1. Define the optimization problem
     problem = OptimizationProblem(
         objective=objective_function,
@@ -40,25 +41,24 @@ def run(seed=None, file_prefix="logs/testprob"):
         log_dir=file_prefix,
         log_freq=-1,
         random_seed=seed,
-        pure_optimization=True,
+        include_obj_in_fitness=True,
+        angular_fitness=True,
     )
 
-    algorithm.add_niches(num_niches=5)
+    algorithm.add_niches(num_niches=10)
     algorithm.update_hyperparameters(
-        max_iter=50,
-        pop_size=200,
-        champ_count=5,
+        max_iter=1,
+        pop_size=50,
+        champ_count=0,
         elite_count=0.2,
         tourn_count=-1,
         tourn_size=3,
         mutation_prob=0.25,
-        mutation_sigma=(0.05, 0.5),
+        mutation_sigma=0.01,
         mutation_alpha=0.05,
         crossover_prob=0.0,
         niche_elitism="selfish",
         noptimal_rel=0.12,
-        space_scaler=np.array([2.0, 1.0]),
-        repulsion_weight=0.2,
     )
     algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
@@ -111,9 +111,9 @@ def plot(file_prefix):
     if file_prefix is not None:
         print("\nGenerating plots...")
         plotting.plot_noptima(file_prefix)
-        plotting.plot_stat_evolution(file_prefix)
-        plotting.plot_vesa(file_prefix)
-        plotting.plot_shannon(file_prefix)
+        # plotting.plot_stat_evolution(file_prefix)
+        # plotting.plot_vesa(file_prefix)
+        # plotting.plot_shannon(file_prefix)
         plotting.show()
 
 
@@ -183,23 +183,35 @@ def inspect_recomb(points=None, random_seed=1, **hyperparameters):
 
 if __name__ == "__main__":
 
+    import pandas as pd
+
     file_prefix = "logs/testprob"
-    algorithm = run(file_prefix=file_prefix)
+    algorithm = run(seed=1, file_prefix=file_prefix)
     plot(file_prefix)
+
+    for i in range(20):
+        algorithm.step()
+        results = algorithm.get_results()
+        plot(file_prefix)
+
+        df = pd.read_csv('logs/testprob-noptima.csv')
+        df = df.drop(index=df.index)
+        df.to_csv('logs/testprob-noptima.csv', index=False, header=True)
+
     # points = algorithm.population.points[0, :100, :].copy()
 
-    # points = np.array([0.8, 0.8])
+    # points = np.array([0.5, 0.5])
 
     # hyperparameters = dict(
     #     max_iter=1,
-    #     pop_size=32,
-    #     # pop_size=points.shape[0],
-    #     champ_count=2,
-    #     elite_count=6,
+    #     pop_size=50,
+    #     champ_count=0,
+    #     elite_count=0.2,
     #     tourn_count=-1,
-    #     tourn_size=2,
-    #     mutation_prob=0.66,
-    #     mutation_sigma=0.5,
+    #     tourn_size=3,
+    #     mutation_prob=0.25,
+    #     mutation_sigma=0.005,
+    #     mutation_alpha=0.05,
     #     crossover_prob=0.0,
     #     niche_elitism="selfish",
     #     noptimal_rel=0.12,

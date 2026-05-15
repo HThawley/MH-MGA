@@ -35,6 +35,7 @@ class MGAProblem:
         parallelize: bool = True,
         callback: Callable = None,
         include_obj_in_fitness: bool = False,
+        angular_fitness: bool = False,
         pure_optimization: bool = False,
     ):
         """
@@ -48,6 +49,7 @@ class MGAProblem:
         typing.sanitize_type(random_seed, ("integer", "none"), "random_seed")
         typing.sanitize_type(parallelize, "boolean", "parallelize")
         typing.sanitize_type(include_obj_in_fitness, "boolean", "include_obj_in_fitness")
+        typing.sanitize_type(angular_fitness, "boolean", "angular_fitness")
         typing.sanitize_type(pure_optimization, "boolean", "pure_optimization")
 
         # Instantiation
@@ -55,6 +57,7 @@ class MGAProblem:
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None
         self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
+        self.angular_fitness = angular_fitness
         self.pure_optimization = pure_optimization
 
         if x0 is None:
@@ -275,6 +278,7 @@ class MGAProblem:
             stable_sort=self.stable_sort,
             include_obj_in_fitness=self.include_obj_in_fitness,
             pure_optimization=self.pure_optimization,
+            angular_fitness=self.angular_fitness,
         )
         load_problem_to_population(self.population, self.problem)
 

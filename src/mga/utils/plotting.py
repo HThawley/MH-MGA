@@ -35,9 +35,16 @@ def plot_noptima(file_prefix):
         y="x_1",
         hue="objective",
         palette="viridis",
-        # sizes="obj",
         legend=False,
     )
+    print(df)
+    for i in range(1, len(df)):
+        ax.plot(
+            [df.loc[0, "x_0"], df.loc[i, "x_0"]],
+            [df.loc[0, "x_1"], df.loc[i, "x_1"]],
+            linewidth=0.5
+        )
+
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
