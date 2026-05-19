@@ -360,7 +360,7 @@ class Population:
         new_scaled_ndim = space_scaler.shape[1]
         if new_scaled_ndim != self.scaled_ndim:
             self.scaled_ndim = nbint(new_scaled_ndim)
-            self._reallocate_scaled_arrays()
+            self._allocate_scaled_arrays()
 
         self._rescale_bounds()
         self.dither_probabilities()
@@ -499,7 +499,7 @@ class Population:
         # evaluate fitness w.r.t. each other
         fitness.evaluate_fitness_dist_to_centroids(
             _fitness,
-            np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
+            self.optima_scaled_points.reshape((self.num_niches, 1, self.scaled_ndim)),
             self.optima_scaled_points
         )
 
@@ -800,7 +800,8 @@ class Population:
 
         if self.angular_fitness:
             self.scaled_centroids[0, :self.scaled_ndim] = self.optima_scaled_points[0]
-            self.scaled_centroids[0, self.scaled_ndim] = self.optima_raw_objectives[0] / self.objective_scaler
+            if self.include_obj_in_fitness:
+                self.scaled_centroids[0, self.scaled_ndim] = self.optima_raw_objectives[0] / self.objective_scaler
 
     def _scale_points(self):
         """project points onto other space defined by space_scaler"""

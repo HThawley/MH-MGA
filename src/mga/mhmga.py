@@ -124,11 +124,16 @@ class MGAProblem:
         typing.sanitize_type(num_niches, "integer", "num_niches")
         typing.sanitize_range(num_niches, "num_niches", ge=1)
 
-        if not self._is_populated:
-            self.num_niches = num_niches
-        else:
+        if not hasattr(self, "num_niches"):
+            self.num_niches = 0
+
+        if self.pure_optimization:
+            if self.num_niches + num_niches > 1:
+                raise ValueError("Pure optimisation does not support num_niches > 1.")
+
+        if self._is_populated:
             self.population.add_niches(num_niches)
-            self.num_niches += num_niches
+        self.num_niches += num_niches
 
     def update_hyperparameters(  # noqa: C901
             self,
