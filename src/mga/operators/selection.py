@@ -8,14 +8,14 @@ import mga.commons.utils as utils
 # API functions
 @njit
 def selection(
-    selected,
-    niche,
+    out_indices,
     selection_criterion,
     maximize,
     champ_count,
     elite_count,
     tourn_count,
     tourn_size,
+    niche_size,
     rng,
     stable,
 ):
@@ -25,22 +25,37 @@ def selection(
 
     if champ_count > 0:
         _select_champ(
-            selected, niche, selection_criterion, champ_count, 0, maximize
+            out_indices,
+            selection_criterion,
+            champ_count,
+            0,
+            maximize,
         )
     if elite_count > 0:
         _select_elite(
-            selected, niche, selection_criterion, elite_count, champ_count, maximize, stable
+            out_indices,
+            selection_criterion,
+            elite_count,
+            champ_count,
+            maximize,
+            stable,
         )
     if tourn_count > 0:
         _select_tournament(
-            selected, niche, selection_criterion, tourn_count, tourn_size, champ_count + elite_count, rng, maximize
+            out_indices,
+            selection_criterion,
+            tourn_count,
+            tourn_size,
+            champ_count + elite_count,
+            niche_size,
+            rng,
+            maximize,
         )
 
 
 @njit
 def selection_with_fallback(
-    selected,
-    niche,
+    out_indices,
     fitness,
     noptimal_mask,
     penalized_objectives,
@@ -49,6 +64,7 @@ def selection_with_fallback(
     elite_count,
     tourn_count,
     tourn_size,
+    niche_size,
     rng,
     stable,
 ):
@@ -57,8 +73,7 @@ def selection_with_fallback(
     """
     if champ_count > 0:
         _select_champ_with_fallback(
-            selected,
-            niche,
+            out_indices,
             fitness,
             noptimal_mask,
             penalized_objectives,
@@ -69,8 +84,7 @@ def selection_with_fallback(
 
     if elite_count > 0:
         _select_elite_with_fallback(
-            selected,
-            niche,
+            out_indices,
             fitness,
             noptimal_mask,
             penalized_objectives,
@@ -81,14 +95,14 @@ def selection_with_fallback(
         )
     if tourn_count > 0:
         _select_tournament_with_fallback(
-            selected,
-            niche,
+            out_indices,
             fitness,
             noptimal_mask,
             penalized_objectives,
             tourn_count,
             tourn_size,
             champ_count + elite_count,
+            niche_size,
             rng,
             maximize,
         )
@@ -96,28 +110,28 @@ def selection_with_fallback(
 
 # private helper functions
 @njit(inline='always')
-def _assign_single_index(selected, niche, target_idx, n, start_idx):
+def _assign_single_index(out_indices, target_idx, n, start_idx):
     """Assigns the same niche row to n consecutive rows in selected."""
-    selected[start_idx: start_idx + n, :] = niche[target_idx, :]
+    out_indices[start_idx: start_idx + n] = target_idx
 
 
 @njit(inline='always')
-def _assign_multiple_indices(selected, niche, target_indices, n, start_idx):
+def _assign_multiple_indices(out_indices, target_indices, n, start_idx):
     """Assigns an array of niche rows to n consecutive rows in selected."""
     for j in range(n):
-        selected[start_idx + j, :] = niche[target_indices[j], :]
+        out_indices[start_idx + j] = target_indices[j]
 
 
 @njit
-def _select_champ(selected, niche, selection_criterion, n, start_idx, maximize):
+def _select_champ(out_indices, selection_criterion, n, start_idx, maximize):
     """ selects the champion (single best individual) and clones n times"""
     index = utils.argm(selection_criterion, maximize)
-    _assign_single_index(selected, niche, index, n, start_idx)
+    _assign_single_index(out_indices, index, n, start_idx)
 
 
 @njit
 def _select_champ_with_fallback(
-    selected, niche, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize
+    out_indices, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize
 ):
     """ selects the champion (single best individual) and clones n times.
     Selects champion from noptimal solutions on fitness. Falls back to objective """
@@ -126,7 +140,7 @@ def _select_champ_with_fallback(
     if index == -1:
         index = utils.argm(penalized_objectives, maximize)
 
-    _assign_single_index(selected, niche, index, n, start_idx)
+    _assign_single_index(out_indices, index, n, start_idx)
 
 
 @njit
@@ -139,7 +153,16 @@ def _draw_tournament_indices(indices, ub, rng):
 
 
 @njit
-def _select_tournament(selected, niche, selection_criterion, n, tourn_size, start_idx, rng, maximize):
+def _select_tournament(
+    out_indices,
+    selection_criterion,
+    n,
+    tourn_size,
+    start_idx,
+    niche_size,
+    rng,
+    maximize,
+):
     """
     Selects {n} individuals from a population according to selection tournament
     """
@@ -148,21 +171,20 @@ def _select_tournament(selected, niche, selection_criterion, n, tourn_size, star
     indices = np.empty(tourn_size, npintp)
 
     for m in range(start_idx, start_idx + n):
-        _draw_tournament_indices(indices, niche.shape[0], rng)
-        _selected_idx = utils.argm_with_indices(selection_criterion, indices, maximize)
-        selected[m, :] = niche[_selected_idx, :]
+        _draw_tournament_indices(indices, niche_size, rng)
+        out_indices[m] = utils.argm_with_indices(selection_criterion, indices, maximize)
 
 
 @njit
 def _select_tournament_with_fallback(
-    selected,
-    niche,
+    out_indices,
     fitness,
     noptimal_mask,
     penalized_objectives,
     n,
     tourn_size,
     start_idx,
+    niche_size,
     rng,
     maximize,
 ):
@@ -174,7 +196,7 @@ def _select_tournament_with_fallback(
     indices = np.empty(tourn_size, npintp)
 
     for m in range(start_idx, start_idx + n):
-        _draw_tournament_indices(indices, niche.shape[0], rng)
+        _draw_tournament_indices(indices, niche_size, rng)
 
         # first try select on fitness
         _selected_idx = utils.argm_with_indices_mask(fitness, indices, noptimal_mask, True)
@@ -183,7 +205,7 @@ def _select_tournament_with_fallback(
             # select on objective
             _selected_idx = utils.argm_with_indices(penalized_objectives, indices, maximize)
 
-        selected[m, :] = niche[_selected_idx, :]
+        out_indices[m] = _selected_idx
 
 
 @njit
@@ -210,7 +232,7 @@ def _stabilize_sort(indices, values):
 
 
 @njit
-def _select_elite(selected, niche, selection_criterion, n, start_idx, maximize, stable):
+def _select_elite(out_indices, selection_criterion, n, start_idx, maximize, stable):
     """
     Selects best individuals from a population
     """
@@ -218,7 +240,7 @@ def _select_elite(selected, niche, selection_criterion, n, start_idx, maximize, 
         return
     if n == len(selection_criterion):
         for j in range(start_idx, start_idx + n):
-            selected[j, :] = niche[j - start_idx, :]
+            out_indices[j] = j - start_idx
         return
 
     indices = np.empty(n, npintp)
@@ -237,12 +259,19 @@ def _select_elite(selected, niche, selection_criterion, n, start_idx, maximize, 
         else:
             indices[:] = np.argpartition(selection_criterion, n)[:n]
 
-    _assign_multiple_indices(selected, niche, indices, n, start_idx)
+    _assign_multiple_indices(out_indices, indices, n, start_idx)
 
 
 @njit
 def _select_elite_with_fallback(
-    selected, niche, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize, stable
+    out_indices,
+    fitness,
+    noptimal_mask,
+    penalized_objectives,
+    n,
+    start_idx,
+    maximize,
+    stable,
 ):
     """Selects best `n` individuals based on fitness.
     If there are not `n` noptimal individuals, selects on penalized_objectives"""
@@ -254,10 +283,9 @@ def _select_elite_with_fallback(
             _nopt += 1
 
     if _nopt <= n:  # not enough near-optimal points
-        return _select_elite(selected, niche, penalized_objectives, n, start_idx, maximize, stable)
+        return _select_elite(out_indices, penalized_objectives, n, start_idx, maximize, stable)
 
     indices = np.empty(n, npintp)
-
     noptimal_indices = np.where(noptimal_mask)[0]
     noptimal_fitness = fitness[noptimal_indices]
 
@@ -268,4 +296,4 @@ def _select_elite_with_fallback(
     else:
         indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, -n)[-n:]]
 
-    _assign_multiple_indices(selected, niche, indices, n, start_idx)
+    _assign_multiple_indices(out_indices, indices, n, start_idx)

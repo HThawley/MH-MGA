@@ -3,7 +3,7 @@ from numba.types import npy_rng
 
 from mga.commons.constants import JIT_ENABLED
 from mga.commons.numba_overload import njit, jitclass
-from mga.commons.types import nbint, npintp, nbfloat, npfloat, boolean
+from mga.commons.types import nbint, nbintp, npintp, nbfloat, npfloat, boolean
 import mga.commons.utils as utils
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
@@ -47,6 +47,7 @@ if JIT_ENABLED:
         ('scaled_centroids', nbfloat[:, :]),
         ('niche_elites', nbfloat[:, :, :]),
         ('parents', nbfloat[:, :, :]),
+        ('parent_indices', nbintp[:]),
 
         # Optima tracking
         ('optima_points', nbfloat[:, :]),
@@ -182,6 +183,7 @@ class Population:
         self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=npfloat)
         self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
+        self.parent_indices = np.empty((0,), dtype=npintp)
 
         # Overall best found
         self.optima_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
@@ -263,7 +265,7 @@ class Population:
                         f"3D 'points' should have shape (num_niches={self.num_niches}, pop_size={self.pop_size},"
                         f"ndim={self.ndim}). Got {points.shape}"
                     )
-                _clone(self.points, points)
+                _clone_3d(self.points, points)
 
             else:
                 raise ValueError(f"'points' should be 1D, 2D, or 3D array. Got {points.ndim}D array.")
@@ -373,23 +375,23 @@ class Population:
         """
         # Niche 0 (optimization) selects on objective value
         selection.selection(
-            self.parents[0],
-            self.points[0],
+            self.parent_indices,
             self.penalized_objectives[0],
             self.maximize,
             self.champ_count,
             self.elite_count,
             self.tourn_count,
             self.tourn_size,
+            self.pop_size,
             self.rng,
             self.stable_sort
         )
+        self.parents[0] = self.points[0, self.parent_indices]
 
         # Other niches (diversity) select on fitness, with objective as fallback
         for i in range(1, self.num_niches):
             selection.selection_with_fallback(
-                self.parents[i],
-                self.points[i],
+                self.parent_indices,
                 self.fitnesses[i],
                 self.noptimal_mask[i],
                 self.penalized_objectives[i],
@@ -398,9 +400,11 @@ class Population:
                 self.elite_count,
                 self.tourn_count,
                 self.tourn_size,
+                self.pop_size,
                 self.rng,
                 self.stable_sort,
             )
+            self.parents[i] = self.points[i, self.parent_indices]
 
     def generate_offspring(self):
         """
@@ -409,7 +413,7 @@ class Population:
         if self.niche_elitism == 2:
             self._find_unselfish_elites()
 
-        _clone(self.points, self.parents)
+        _clone_3d(self.points, self.parents)
 
         self._crossover()
         self._mutate()
@@ -697,34 +701,53 @@ class Population:
             self.num_niches = new_niche_size
 
     def _resize_pop_size(self, new_pop_size: int):
-        if new_pop_size != self.pop_size:
-            # Create new arrays with the target size
-            new_points = np.empty((self.num_niches, new_pop_size, self.ndim))
+        if new_pop_size == self.pop_size:
+            return
 
-            if new_pop_size > self.pop_size:
-                _clone(new_points, self.points)
+        # Create new arrays with the target size
+        new_points = np.empty((self.num_niches, new_pop_size, self.ndim))
+        new_scaled_points = np.empty((self.num_niches, new_pop_size, self.scaled_ndim), dtype=npfloat)
+        new_raw_objectives = np.empty((self.num_niches, new_pop_size), dtype=npfloat)
+        new_violations = np.zeros((self.num_niches, new_pop_size), dtype=npfloat)
+        new_penalized_objectives = np.empty((self.num_niches, new_pop_size), dtype=npfloat)
+        new_feasible_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
+        new_fitnesses = np.empty((self.num_niches, new_pop_size), dtype=npfloat)
+        new_noptimal_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
 
-            else:  # new_pop_size < self.pop_size
-                # Decrease size: select the best individuals to keep
-                # Niche 0 (optimization) is selected based on objective value
-                selection.selection(
-                    new_points[0],
-                    self.points[0],
-                    self.penalized_objectives[0],
-                    self.maximize,
-                    self.champ_count,
-                    self.elite_count,
-                    self.tourn_count,
-                    self.tourn_size,
-                    self.rng,
-                    self.stable_sort,
-                )
+        if new_pop_size > self.pop_size:
+            _clone_3d(new_points, self.points)
+            _clone_3d(new_scaled_points, self.scaled_points)
+            _clone_2d(new_raw_objectives, self.raw_objectives)
+            _clone_2d(new_violations, self.violations)
+            _clone_2d(new_penalized_objectives, self.penalized_objectives)
+            _clone_2d(new_feasible_mask, self.feasible_mask)
+            _clone_2d(new_fitnesses, self.fitnesses)
+            _clone_2d(new_noptimal_mask, self.noptimal_mask)
 
-                # Other niches (diversity) are selected based on fitness
-                for i in range(1, self.num_niches):
+        else:  # new_pop_size < self.pop_size
+            # Decrease size: select the best individuals to keep
+
+            indices = np.empty(new_pop_size, npintp)
+
+            # Other niches (diversity) are selected based on fitness
+            for i in range(self.num_niches):
+                if i == 0:
+                    # Niche 0 (optimization) is selected based on objective value
+                    selection.selection(
+                        indices,
+                        self.penalized_objectives[0],
+                        self.maximize,
+                        self.champ_count,
+                        self.elite_count,
+                        self.tourn_count,
+                        self.tourn_size,
+                        self.pop_size,
+                        self.rng,
+                        self.stable_sort,
+                    )
+                else:
                     selection.selection_with_fallback(
-                        new_points[i],
-                        self.points[i],
+                        indices,
                         self.fitnesses[i],
                         self.noptimal_mask[i],
                         self.penalized_objectives[i],
@@ -733,36 +756,43 @@ class Population:
                         self.elite_count,
                         self.tourn_count,
                         self.tourn_size,
+                        self.pop_size,
                         self.rng,
                         self.stable_sort,
                     )
 
-            # Replace points array and re-initialize metric arrays
-            self.points = new_points
-            self.scaled_points = np.empty((self.num_niches, new_pop_size, self.scaled_ndim))
-            if self.scaling_in_obj_func:
-                self.scaled_points[:] = 0.0
-            else:
-                self._scale_points()
-            self.raw_objectives = np.empty((self.num_niches, new_pop_size))
-            self.violations = np.zeros((self.num_niches, new_pop_size))
-            self.penalized_objectives = np.empty((self.num_niches, new_pop_size))
-            self.feasible_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
-            self.fitnesses = np.empty((self.num_niches, new_pop_size))
-            self.noptimal_mask = np.empty((self.num_niches, new_pop_size), dtype=np.bool_)
+                new_points[i] = self.points[i, indices]
+                new_scaled_points[i] = self.scaled_points[i, indices]
+                new_raw_objectives[i] = self.raw_objectives[i, indices]
+                new_violations[i] = self.violations[i, indices]
+                new_penalized_objectives[i] = self.penalized_objectives[i, indices]
+                new_feasible_mask[i] = self.feasible_mask[i, indices]
+                new_fitnesses[i] = self.fitnesses[i, indices]
+                new_noptimal_mask[i] = self.noptimal_mask[i, indices]
 
-            self.pop_size = new_pop_size
+        # Replace points array and re-initialize metric arrays
+        self.points = new_points
+        self.scaled_points = new_scaled_points
+        self.raw_objectives = new_raw_objectives
+        self.violations = new_violations
+        self.penalized_objectives = new_penalized_objectives
+        self.feasible_mask = new_feasible_mask
+        self.fitnesses = new_fitnesses
+        self.noptimal_mask = new_noptimal_mask
+
+        self.pop_size = new_pop_size
 
     def _resize_parent_size(self, new_parent_size):
         if new_parent_size != self.parent_size:
             if self.parent_size > 0:
                 new_parents = np.empty((self.num_niches, new_parent_size, self.ndim), dtype=npfloat)
-                _clone(new_parents, self.parents)
+                _clone_3d(new_parents, self.parents)
                 self.parents = new_parents
                 self.parent_size = nbint(new_parent_size)
             else:
                 self.parents = np.empty((self.num_niches, new_parent_size, self.ndim), dtype=npfloat)
                 self.parent_size = nbint(new_parent_size)
+            self.parent_indices = np.empty(self.parent_size, npintp)
 
     def _allocate_scaled_arrays(self):
         self.scaled_points = np.empty((self.num_niches, self.pop_size, self.scaled_ndim))
@@ -928,7 +958,7 @@ def _add_niche_to_array(old_array, num_niches):
 
 
 @njit
-def _clone(target, parents):
+def _clone_3d(target, parents):
     """
     fills a target array of shape (num_niches, pop_size, ndim) with clones
     of parents of shape (num_niches, parent_size, ndim) by repeating parents as needed.
@@ -941,6 +971,17 @@ def _clone(target, parents):
             j_n = j % nindividuals
             for k in range(target.shape[2]):
                 target[i, j, k] = parents[i_n, j_n, k]
+
+
+@njit
+def _clone_2d(target, parents):
+    nniches = parents.shape[0]
+    nindividuals = parents.shape[1]
+    for i in range(target.shape[0]):
+        i_n = i % nniches
+        for j in range(target.shape[1]):
+            j_n = j % nindividuals
+            target[i, j] = parents[i_n, j_n]
 
 
 @njit
