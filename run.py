@@ -61,7 +61,7 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
     algorithm.add_niches(num_niches=20)
     # algorithm.starting_points = np.full((20, 50, 2), 0.5)
     algorithm.update_hyperparameters(
-        max_iter=200,
+        max_iter=100,
         pop_size=50,
         champ_count=0,
         elite_count=0.2,
@@ -73,7 +73,9 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         crossover_prob=0.0,
         niche_elitism="selfish",
         noptimal_rel=0.12,
-        objective_scaler=16.18)
+        objective_scaler=16.18,
+        # space_scaler=[1.0, 10.0],
+        )
     # algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
 

@@ -147,7 +147,7 @@ class MGAProblem:
             noptimal_abs: float = 0.0,
             niche_elitism: str = "selfish",
             mutation_scaler: NDArray = "bounds",
-            space_scaler: NDArray = _SENTINEL,  # default: 'bounds'
+            space_scaler: NDArray = _SENTINEL,  # default: np.ones
             objective_scaler: float = _SENTINEL,  # default: 1.0
             repulsion_weight: float = 1.0,
             ):
@@ -230,13 +230,26 @@ class MGAProblem:
                 "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
             )
 
-        if (str(space_scaler).lower() == "bounds") or not space_scaler_given:
-            self.space_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
-        elif space_scaler is None:
-            self.space_scaler = np.ones(self.problem.ndim, dtype=npfloat)
+        if space_scaler is None or not space_scaler_given:
+            self.space_scaler = np.ones((1, self.problem.ndim), dtype=npfloat)
+        elif isinstance(space_scaler, str):
+            if space_scaler.lower() == "bounds":
+                _scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
+                self.space_scaler = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
+            else:
+                raise ValueError(f"Received unknown space_scaler. Expected an array or 'bounds'. Got: {space_scaler}")
         else:
-            typing.sanitize_array_type(space_scaler, 'float', 'space_scaler', self.problem.ndim)
-            self.space_scaler = np.array(space_scaler, dtype=npfloat)
+            space_scaler = np.array(space_scaler, dtype=npfloat)
+            if space_scaler.ndim == 1:
+                if space_scaler.shape[0] != self.problem.ndim:
+                    raise ValueError(f"1D space_scaler must have length {self.problem.ndim}")
+                self.space_scaler = space_scaler.reshape(1, self.problem.ndim)
+            elif space_scaler.ndim == 2:
+                if space_scaler.shape[0] != self.problem.ndim:
+                    raise ValueError(f"2D space_scaler must have shape ({self.problem.ndim}, k)")
+                self.space_scaler = space_scaler
+            else:
+                raise ValueError("Array type space_scaler must be 1D or 2D")
 
         objective_scaler_given = objective_scaler is not _SENTINEL
         if objective_scaler_given and not self.include_obj_in_fitness:

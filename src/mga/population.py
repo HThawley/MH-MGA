@@ -74,10 +74,11 @@ if JIT_ENABLED:
         ('violation_factor', nbfloat),
         ('niche_elitism', nbint),
         ('mutation_scaler', nbfloat[:]),
-        ('space_scaler', nbfloat[:]),
+        ('space_scaler', nbfloat[:, :]),
         ('objective_scaler', nbfloat),
         ('repulsion_weight', nbfloat),
 
+        ('scaled_ndim', nbint),
         ('log_mutation_sigma', nbfloat[:]),
         ('current_mutation_prob', nbfloat),
         ('current_mutation_sigma', nbfloat),
@@ -126,50 +127,22 @@ class Population:
         self.angular_fitness = angular_fitness
         self.pure_optimization = pure_optimization
 
+        if self.pure_optimization:
+            if self.include_obj_in_fitness:
+                print("Warning: include_obj_in_fitness has no effect when pure_optimization is True.")
+                self.include_obj_in_fitness = False
+
         self.integrality = np.empty(ndim, np.bool_)
         self.booleanality = np.empty(ndim, np.bool_)
         self.maximize = False
         self.scaling_in_obj_func = False
         self.lower_bounds = np.empty(ndim, dtype=npfloat)
-        self.scaled_lower_bounds = np.empty(ndim, dtype=npfloat)
         self.upper_bounds = np.empty(ndim, dtype=npfloat)
-        self.scaled_upper_bounds = np.empty(ndim, dtype=npfloat)
         self.problem_loaded = False
         self.hyperparameters_set = False
         self.optimum_given = False
 
-        # Population data arrays
-        self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
-        self.scaled_points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
-        self.raw_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
-        self.violations = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
-        self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
-        self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
-        self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=npfloat)
-        self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
-        if self.pure_optimization:
-            if self.include_obj_in_fitness:
-                print("Warning: include_obj_in_fitness has no effect when pure_optimization is True.")
-                self.include_obj_in_fitness = False
-            self.scaled_centroids = np.empty((1, self.ndim), dtype=npfloat)
-        elif self.include_obj_in_fitness:
-            self.scaled_centroids = np.empty((self.num_niches, self.ndim+1), dtype=npfloat)
-        else:
-            self.scaled_centroids = np.empty((self.num_niches, self.ndim), dtype=npfloat)
-
-        # Overall best found
-        self.optima_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
-        self.optima_scaled_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
-        self.optima_raw_objectives = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_violations = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_penalized_objectives = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_fitnesses = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
-        self.noptimal_threshold = 0.0
-        self.current_optimum = 0.0
-
+        # Hyperparameters
         self.champ_count = 0
         self.elite_count = 0
         self.tourn_count = 0
@@ -184,18 +157,43 @@ class Population:
         self.noptimal_abs = 0.0
         self.violation_factor = 0.0
         self.mutation_scaler = np.empty(ndim, dtype=npfloat)
-        self.space_scaler = np.empty(ndim, dtype=npfloat)
+        self.space_scaler = np.empty((1, ndim), dtype=npfloat)
         self.objective_scaler = 1.0
         self.repulsion_weight = 0.0
 
+        self.scaled_ndim = nbint(ndim)
         self.do_skew_mutation = False
         self.use_cx_two_point = self.ndim > 2
 
+        # Diversity loggers
         self.vesa = 0.0
         self.shannon = 0.0
         self.mean_fitness = 0.0
         self.stds = np.empty(0, dtype=npfloat)  # len=num_niches
         self.variances = np.empty(0, dtype=npfloat)  # len=num_niches
+
+        # Population data arrays
+        self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
+        self.raw_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
+        self.violations = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
+        self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
+        self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
+        self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
+        self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
+        self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=npfloat)
+        self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
+
+        # Overall best found
+        self.optima_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
+        self.optima_raw_objectives = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_violations = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_penalized_objectives = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_fitnesses = np.empty((self.num_niches), dtype=npfloat)
+        self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
+        self.noptimal_threshold = 0.0
+        self.current_optimum = 0.0
+
+        self._allocate_scaled_arrays()
 
     def _load_optimum(
             self,
@@ -353,11 +351,16 @@ class Population:
         self.noptimal_abs = nbfloat(noptimal_abs)
         self.violation_factor = nbfloat(violation_factor)
         self.mutation_scaler[:] = mutation_scaler.astype(nbfloat)
-        self.space_scaler[:] = space_scaler.astype(nbfloat)
         self.objective_scaler = nbfloat(objective_scaler)
         self.repulsion_weight = nbfloat(repulsion_weight)
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
+
+        self.space_scaler = space_scaler.astype(nbfloat)
+        new_scaled_ndim = space_scaler.shape[1]
+        if new_scaled_ndim != self.scaled_ndim:
+            self.scaled_ndim = nbint(new_scaled_ndim)
+            self._reallocate_scaled_arrays()
 
         self._rescale_bounds()
         self.dither_probabilities()
@@ -736,7 +739,7 @@ class Population:
 
             # Replace points array and re-initialize metric arrays
             self.points = new_points
-            self.scaled_points = np.empty((self.num_niches, new_pop_size, self.ndim))
+            self.scaled_points = np.empty((self.num_niches, new_pop_size, self.scaled_ndim))
             if self.scaling_in_obj_func:
                 self.scaled_points[:] = 0.0
             else:
@@ -761,50 +764,85 @@ class Population:
                 self.parents = np.empty((self.num_niches, new_parent_size, self.ndim), dtype=npfloat)
                 self.parent_size = nbint(new_parent_size)
 
+    def _allocate_scaled_arrays(self):
+        self.scaled_points = np.empty((self.num_niches, self.pop_size, self.scaled_ndim))
+        self.optima_scaled_points = np.empty((self.num_niches, self.scaled_ndim))
+
+        if self.pure_optimization:
+            self.scaled_centroids = np.empty((1, self.scaled_ndim), dtype=npfloat)
+        elif self.include_obj_in_fitness:
+            self.scaled_centroids = np.empty((self.num_niches, self.scaled_ndim + 1), dtype=npfloat)
+        else:
+            self.scaled_centroids = np.empty((self.num_niches, self.scaled_ndim), dtype=npfloat)
+
+        self.scaled_lower_bounds = np.empty(self.scaled_ndim, dtype=npfloat)
+        self.scaled_upper_bounds = np.empty(self.scaled_ndim, dtype=npfloat)
+
     def _find_scaled_centroids(self):
         """
         Calculates the geometric center (centroid) of each niche.
         """
         self.scaled_centroids[:, :] = 0.0
-        for i in range(self.scaled_centroids.shape[0]):
-            for j in range(self.pop_size):
-                for k in range(self.ndim):
-                    self.scaled_centroids[i, k] += self.scaled_points[i, j, k]
 
-        self.scaled_centroids /= self.points.shape[1]
+        for i in range(self.num_niches):
+            for j in range(self.pop_size):
+                for sk in range(self.scaled_ndim):
+                    self.scaled_centroids[i, sk] += self.scaled_points[i, j, sk]
 
         if self.include_obj_in_fitness:
-            # TODO: revisit this logic
             for i in range(self.num_niches):
-                _feas = 0
                 for j in range(self.pop_size):
-                    if self.violations[i, j] > 0:
-                        continue
-                    _feas += 1
-                    self.scaled_centroids[i, self.ndim] += utils.safe_divide_scalar(
-                        self.raw_objectives[i, j], self.objective_scaler
-                    )
+                    self.scaled_centroids[i, self.scaled_ndim] += self.raw_objectives[i, j]
 
-                self.scaled_centroids[i, self.ndim] = utils.safe_divide_scalar(
-                    self.scaled_centroids[i, self.ndim], _feas
-                )
-            if self.angular_fitness:
-                self.scaled_centroids[0, :self.ndim] = self.optima_scaled_points[0]
-                self.scaled_centroids[0, self.ndim] = self.optima_raw_objectives[0] / self.objective_scaler
+            self.scaled_centroids[:, self.scaled_ndim] /= self.objective_scaler
+
+        self.scaled_centroids /= self.pop_size
+
+        if self.angular_fitness:
+            self.scaled_centroids[0, :self.scaled_ndim] = self.optima_scaled_points[0]
+            self.scaled_centroids[0, self.scaled_ndim] = self.optima_raw_objectives[0] / self.objective_scaler
 
     def _scale_points(self):
         """project points onto other space defined by space_scaler"""
         if self.scaling_in_obj_func:
             return
-        for i in range(self.num_niches):
-            for j in range(self.pop_size):
-                for k in range(self.ndim):
-                    self.scaled_points[i, j, k] = utils.safe_divide_scalar(self.points[i, j, k], self.space_scaler[k])
+
+        if self.space_scaler.shape[0] == 1:
+            for i in range(self.num_niches):
+                for j in range(self.pop_size):
+                    for k in range(self.ndim):
+                        self.scaled_points[i, j, k] = utils.safe_divide_scalar(
+                            self.points[i, j, k], self.space_scaler[0, k]
+                        )
+
+        else:
+            for i in range(self.num_niches):
+                for j in range(self.pop_size):
+                    for sk in range(self.scaled_ndim):
+                        val = 0.0
+                        for k in range(self.ndim):
+                            val += self.points[i, j, k] * self.space_scaler[k, sk]
+                        self.scaled_points[i, j, sk] = val
 
     def _rescale_bounds(self):
-        for k in range(self.ndim):
-            self.scaled_lower_bounds[k] = utils.safe_divide_scalar(self.lower_bounds[k], self.space_scaler[k])
-            self.scaled_upper_bounds[k] = utils.safe_divide_scalar(self.upper_bounds[k], self.space_scaler[k])
+        if self.space_scaler.shape[0] == 1:
+            for k in range(self.ndim):
+                self.scaled_lower_bounds[k] = utils.safe_divide_scalar(self.lower_bounds[k], self.space_scaler[0, k])
+                self.scaled_upper_bounds[k] = utils.safe_divide_scalar(self.upper_bounds[k], self.space_scaler[0, k])
+        else:
+            for sk in range(self.scaled_ndim):
+                min_val = 0.0
+                max_val = 0.0
+                for k in range(self.ndim):
+                    p = self.space_scaler[k, sk]
+                    if p > 0:
+                        min_val += self.lower_bounds[k] * p
+                        max_val += self.upper_bounds[k] * p
+                    else:
+                        min_val += self.upper_bounds[k] * p
+                        max_val += self.lower_bounds[k] * p
+                self.scaled_lower_bounds[sk] = min_val
+                self.scaled_upper_bounds[sk] = max_val
 
     def _update_noptimal_mask(self):
         """
