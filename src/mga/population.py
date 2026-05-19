@@ -503,7 +503,7 @@ class Population:
         # evaluate fitness w.r.t. each other
         fitness.evaluate_fitness_dist_to_centroids(
             _fitness,
-            self.optima_scaled_points.reshape((self.num_niches, 1, self.scaled_ndim)),
+            np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
             self.optima_scaled_points
         )
 
