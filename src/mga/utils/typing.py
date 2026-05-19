@@ -55,19 +55,6 @@ def format_and_sanitize_ditherer(obj, name, strict_type, ge=None, le=None):
         return np.array(obj, strict_type)
 
 
-# def sanitize_type_wfunc(obj, dtype_func, name, dtype_name):
-#     if not dtype_func(obj):
-#         raise TypeError(f"'{name}' expected type: '{dtype_name}'. Got: '{type(obj)}'")
-#     return True
-
-
-# def sanitize_type_wfunc_mult(obj, dtype_funcs, name, dtype_names):
-#     check = max((dtype_func(obj) for dtype_func in dtype_funcs))
-#     if not check:
-#         raise TypeError(f"'{name}' expected one of {dtype_names}'. Got: '{type(obj)}'")
-#     return True
-
-
 def sanitize_value(obj, values):
     return obj in values
 

@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import pandas as pd  # noqa: F401
 
 os.environ["MGA_JIT_ENABLED"] = "0"
 
@@ -11,7 +12,7 @@ from mga.utils import plotting  # noqa: E402
 
 
 @njit(fastmath=True)
-def objective_function(values_array):
+def complex_objective(values_array):
     """
     A complex, multivariate objective function for testing the algorithm.
     This function is designed to be vectorized.
@@ -23,11 +24,23 @@ def objective_function(values_array):
     return z
 
 
-def run(seed=None, file_prefix="logs/testprob"):
+@njit(fastmath=True)
+def convex_objective(values_array):
+    """
+    2D trig function with a single local minimum.
+    """
+    z = np.full(values_array.shape[0], 3.15, dtype=np.float64)
+    for i in range(values_array.shape[0]):
+        for j in range(values_array.shape[1]):
+            z[i] += np.cos(3 * (values_array[i, j] - 0.5))
+    return z
+
+
+def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
     global algorithm
     # 1. Define the optimization problem
     problem = OptimizationProblem(
-        objective=objective_function,
+        objective=obj,
         bounds=(np.zeros(2), np.ones(2)),
         maximize=True,
         vectorized=True,
@@ -37,7 +50,7 @@ def run(seed=None, file_prefix="logs/testprob"):
     # 2. Configure the MGA algorithm
     algorithm = MGAProblem(
         problem=problem,
-        x0=None,
+        x0=np.array([0.5, 0.5]),
         log_dir=file_prefix,
         log_freq=-1,
         random_seed=seed,
@@ -46,8 +59,9 @@ def run(seed=None, file_prefix="logs/testprob"):
     )
 
     algorithm.add_niches(num_niches=20)
+    # algorithm.starting_points = np.full((20, 50, 2), 0.5)
     algorithm.update_hyperparameters(
-        max_iter=50,
+        max_iter=200,
         pop_size=50,
         champ_count=0,
         elite_count=0.2,
@@ -59,8 +73,8 @@ def run(seed=None, file_prefix="logs/testprob"):
         crossover_prob=0.0,
         niche_elitism="selfish",
         noptimal_rel=0.12,
-    )
-    algorithm.set_verbosity(disp_rate=1, verbose=2)
+        objective_scaler=16.18)
+    # algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
 
     # algorithm.add_niches(num_niches=10)
@@ -107,17 +121,48 @@ def run(seed=None, file_prefix="logs/testprob"):
     return algorithm
 
 
-def plot(file_prefix):
-    if file_prefix is not None:
-        print("\nGenerating plots...")
-        plotting.plot_noptima(file_prefix)
+def plot(file_prefix=None, obj=None):
+    print("\nGenerating plots...")
+    if file_prefix is None:
+        if obj is None:
+            plotting.plot_landscape(
+                complex_objective,
+                convex_objective,
+                np.zeros(2),
+                np.ones(2),
+                1 - 0.12,
+                "original",
+                "convex"
+            )
+        else:
+            plotting._landscape(
+                obj,
+                np.zeros(2),
+                np.ones(2),
+                1 - 0.12,
+                cbar=True
+            )
+    else:
+        if obj is None:
+            plotting.plot_noptima(file_prefix)
+        else:
+            ax, _ = plotting._landscape(
+                obj,
+                np.zeros(2),
+                np.ones(2),
+                1 - 0.12,
+                cbar=True
+            )
+            plotting.plot_noptima(file_prefix, ax)
+
         plotting.plot_stat_evolution(file_prefix)
-        # plotting.plot_vesa(file_prefix)
-        # plotting.plot_shannon(file_prefix)
-        plotting.show()
+        plotting.plot_vesa(file_prefix)
+        plotting.plot_shannon(file_prefix)
+
+    plotting.show()
 
 
-def inspect_recomb(points=None, random_seed=1, **hyperparameters):
+def inspect_recomb(obj=complex_objective, points=None, random_seed=1, **hyperparameters):
     if points is None:
         points = np.meshgrid(
             np.arange(0.8, 1.0, 0.02),
@@ -126,7 +171,7 @@ def inspect_recomb(points=None, random_seed=1, **hyperparameters):
         points = np.stack((points[0].flatten(), points[1].flatten())).T
 
     problem = OptimizationProblem(
-        objective=objective_function,
+        objective=obj,
         bounds=(np.zeros(2), np.ones(2)),
         maximize=True,
         vectorized=True,
@@ -183,11 +228,11 @@ def inspect_recomb(points=None, random_seed=1, **hyperparameters):
 
 if __name__ == "__main__":
 
-    import pandas as pd
+    plot()
 
     file_prefix = "logs/testprob"
-    algorithm = run(seed=2, file_prefix=file_prefix)
-    plot(file_prefix)
+    algorithm = run(convex_objective, seed=2, file_prefix=file_prefix)
+    plot(file_prefix, convex_objective)
 
     # for i in range(20):
     #     algorithm.step()

@@ -63,7 +63,7 @@ class MGAProblem:
         if x0 is None:
             self.x0 = np.empty([], dtype=npfloat)
         else:
-            typing.sanitize_array_type(x0, 'float', "x0", self.problem.ndim)
+            typing.sanitize_array_type(x0, 'float', "x0")
             self.x0 = x0.astype(npfloat)
 
         if starting_points is None:

@@ -1,10 +1,12 @@
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-def plot_opt_path_2d(file_prefix):
-    fig, ax = plt.subplots(figsize=(5, 5))
+def plot_opt_path_2d(file_prefix, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
 
     df = pd.read_csv(f"{file_prefix}-evolution.csv")
 
@@ -20,8 +22,11 @@ def plot_opt_path_2d(file_prefix):
     ax.legend()
 
 
-def plot_noptima(file_prefix):
-    fig, ax = plt.subplots(figsize=(5, 5))
+def plot_noptima(file_prefix, ax=None):
+    hue = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
+        hue = "objective"
 
     df = pd.read_csv(f"{file_prefix}-noptima.csv")
 
@@ -33,9 +38,10 @@ def plot_noptima(file_prefix):
         data=df,
         x="x_0",
         y="x_1",
-        hue="objective",
+        hue=hue,
         palette="viridis",
         legend=False,
+        ax=ax,
     )
 
     for i in range(1, len(df)):
@@ -50,8 +56,9 @@ def plot_noptima(file_prefix):
     ax.set_ylim(0, 1)
 
 
-def plot_vesa(file_prefix):
-    fig, ax = plt.subplots()
+def plot_vesa(file_prefix, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots()
 
     df = pd.read_csv(
         f"{file_prefix}-diversity.csv",
@@ -69,8 +76,9 @@ def plot_vesa(file_prefix):
     ax.set_title("VESA")
 
 
-def plot_shannon(file_prefix):
-    fig, ax = plt.subplots()
+def plot_shannon(file_prefix, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots()
 
     df = pd.read_csv(
         f"{file_prefix}-diversity.csv",
@@ -147,12 +155,71 @@ def plot_stat_evolution(file_prefix):
     # axs[-1].set_xticks(range(0, 201, 25))
 
 
+def _landscape(obj_func, lb, ub, isoline_ratio, ax=None, vmin=None, vmax=None, cbar=False):
+    """Plots the 2D landscape of the objective function."""
+    if ax is None:
+        ax = plt.gca()
+
+    # Generate grid
+    x = np.linspace(lb[0], ub[0], 200)
+    y = np.linspace(lb[1], ub[1], 200)
+    X, Y = np.meshgrid(x, y)
+
+    # Flatten for the njit function
+    points = np.column_stack((X.ravel(), Y.ravel()))
+    Z = obj_func(points).reshape(X.shape)
+
+    # Plot landscape
+    mesh = ax.contourf(X, Y, Z, levels=50, cmap='viridis', vmin=vmin, vmax=vmax)
+
+    # Plot isoline at isoline_ratio * maximum value
+    local_max = np.max(Z)
+    ax.contour(X, Y, Z, levels=[isoline_ratio * local_max], colors='red', linestyles='dotted')
+
+    if lb[0] == lb[1] and ub[0] == ub[1]:
+        ax.set_aspect('equal', adjustable='box')
+
+    if cbar:
+        plt.colorbar(mesh, ax=ax)
+
+    return ax, mesh
+
+
+def plot_landscape(func_1, func_2, lb, ub, isoline_ratio, name_1=None, name_2=None):
+    """
+    Plots two objective functions side-by-side.
+    """
+    # Pre-calculate global bounds to scale the shared colorbar correctly
+    x = np.linspace(lb[0], ub[0], 200)
+    y = np.linspace(lb[1], ub[1], 200)
+    X, Y = np.meshgrid(x, y)
+    points = np.column_stack((X.ravel(), Y.ravel()))
+
+    z1 = func_1(points)
+    z2 = func_2(points)
+    global_min = min(z1.min(), z2.min())
+    global_max = max(z1.max(), z2.max())
+
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    ax1, ax2 = axs
+
+    _landscape(func_1, lb, ub, isoline_ratio, ax=ax1, vmin=global_min, vmax=global_max)
+    _, mesh = _landscape(func_2, lb, ub, isoline_ratio, ax=ax2, vmin=global_min, vmax=global_max)
+
+    ax1.set_title(name_1)
+    ax2.set_title(name_2)
+
+    # Single shared colorbar
+    fig.colorbar(mesh, ax=[ax1, ax2], location='right', label='Objective Value')
+    return axs
+
+
 # facilitates avoiding duplicate matplotlib import on scripts which import these functions
 # i.e. `import plotlogs as p; p.plot(...); p.show()`
 show = plt.show
 
 if __name__ == "__main__":
-    FILE_PREFIX = "logs/testprob-z"
+    FILE_PREFIX = "logs/testprob"
     plot_noptima(FILE_PREFIX)
     plot_stat_evolution(FILE_PREFIX)
     plot_vesa(FILE_PREFIX)
