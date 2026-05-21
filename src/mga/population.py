@@ -824,14 +824,14 @@ class Population:
                 for j in range(self.pop_size):
                     self.scaled_centroids[i, self.scaled_ndim] += self.raw_objectives[i, j]
 
-            self.scaled_centroids[:, self.scaled_ndim] /= self.objective_scaler
+            self.scaled_centroids[:, self.scaled_ndim] *= self.objective_scaler
 
         self.scaled_centroids /= self.pop_size
 
         if self.angular_fitness:
             self.scaled_centroids[0, :self.scaled_ndim] = self.optima_scaled_points[0]
             if self.include_obj_in_fitness:
-                self.scaled_centroids[0, self.scaled_ndim] = self.optima_raw_objectives[0] / self.objective_scaler
+                self.scaled_centroids[0, self.scaled_ndim] = self.optima_raw_objectives[0] * self.objective_scaler
 
     def _scale_points(self):
         """project points onto other space defined by space_scaler"""
@@ -842,9 +842,7 @@ class Population:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
                     for k in range(self.ndim):
-                        self.scaled_points[i, j, k] = utils.safe_divide_scalar(
-                            self.points[i, j, k], self.space_scaler[0, k]
-                        )
+                        self.scaled_points[i, j, k] = self.points[i, j, k] * self.space_scaler[0, k]
 
         else:
             for i in range(self.num_niches):
@@ -858,8 +856,8 @@ class Population:
     def _rescale_bounds(self):
         if self.space_scaler.shape[0] == 1:
             for k in range(self.ndim):
-                self.scaled_lower_bounds[k] = utils.safe_divide_scalar(self.lower_bounds[k], self.space_scaler[0, k])
-                self.scaled_upper_bounds[k] = utils.safe_divide_scalar(self.upper_bounds[k], self.space_scaler[0, k])
+                self.scaled_lower_bounds[k] = self.lower_bounds[k] * self.space_scaler[0, k]
+                self.scaled_upper_bounds[k] = self.upper_bounds[k] * self.space_scaler[0, k]
         else:
             for sk in range(self.scaled_ndim):
                 min_val = 0.0

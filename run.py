@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd  # noqa: F401
 
-os.environ["MGA_JIT_ENABLED"] = "0"
+os.environ["MGA_JIT_ENABLED"] = "1"
 
 from mga.commons.numba_overload import njit  # noqa: E402
 from mga.problem_definition import OptimizationProblem  # noqa: E402
@@ -54,27 +54,27 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         log_dir=file_prefix,
         log_freq=-1,
         random_seed=seed,
-        include_obj_in_fitness=True,
-        angular_fitness=True,
+        include_obj_in_fitness=False,
+        # angular_fitness=True,
     )
 
-    algorithm.add_niches(num_niches=20)
+    algorithm.add_niches(num_niches=6)
     # algorithm.starting_points = np.full((20, 50, 2), 0.5)
     algorithm.update_hyperparameters(
-        max_iter=100,
+        max_iter=200,
         pop_size=50,
         champ_count=0,
         elite_count=0.2,
         tourn_count=-1,
         tourn_size=3,
         mutation_prob=0.25,
-        mutation_sigma=0.01,
-        mutation_alpha=0.05,
+        mutation_sigma=0.2,
+        mutation_alpha=0.0,
         crossover_prob=0.0,
         niche_elitism="selfish",
         noptimal_rel=0.12,
-        objective_scaler=16.18,
-        # space_scaler=[1.0, 10.0],
+        objective_scaler=0.01,
+        space_scaler=np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]]),
         )
     # algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
@@ -230,11 +230,11 @@ def inspect_recomb(obj=complex_objective, points=None, random_seed=1, **hyperpar
 
 if __name__ == "__main__":
 
-    plot()
+    # plot()
 
     file_prefix = "logs/testprob"
-    algorithm = run(convex_objective, seed=2, file_prefix=file_prefix)
-    plot(file_prefix, convex_objective)
+    algorithm = run(complex_objective, seed=2, file_prefix=file_prefix)
+    plot(file_prefix, complex_objective)
 
     # for i in range(20):
     #     algorithm.step()

@@ -38,7 +38,7 @@ def evaluate_fitness_angular_to_centroids_ext(
     for i in range(points.shape[0]):
         for j in range(points.shape[1]):
             min_ang_sep = np.inf
-            scaled_obj = raw_objectives[i, j] / objective_scaler
+            scaled_obj = raw_objectives[i, j] * objective_scaler
 
             for c in range(1, centroids.shape[0]):
                 if i == c:
@@ -81,7 +81,7 @@ def evaluate_fitness_dist_to_centroids_ext(fitness, points, centroids, raw_objec
     for i in range(points.shape[0]):
         for j in range(points.shape[1]):
             min_dist = np.inf
-            scaled_obj = raw_objectives[i, j] / objective_scaler
+            scaled_obj = raw_objectives[i, j] * objective_scaler
             for c in range(centroids.shape[0]):
                 if i == c:
                     continue

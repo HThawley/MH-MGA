@@ -1,5 +1,4 @@
 import numpy as np
-from numpy.typing import NDArray
 from datetime import datetime as dt
 import warnings
 from numba.core.registry import CPUDispatcher
@@ -23,6 +22,27 @@ class MGAProblem:
     Orchestrates the modelling to generate alternatives algorithm.
     Manages the optimization loop, problem state, and logging.
     """
+
+    _DEFAULT_HYPERPARAMS = {
+        "max_iter": 100,
+        "pop_size": 100,
+        "champ_count": 1,
+        "elite_count": 0.2,
+        "tourn_count": -1,
+        "tourn_size": 2,
+        "mutation_prob": 0.3,
+        "mutation_sigma": 0.05,
+        "mutation_alpha": 0.0,
+        "crossover_prob": 0.4,
+        "violation_factor": 1.0,
+        "noptimal_rel": 0.0,
+        "noptimal_abs": 0.0,
+        "niche_elitism": "selfish",
+        "mutation_scaler": "bounds",
+        "space_scaler": None,
+        "objective_scaler": None,
+        "repulsion_weight": 1.0,
+    }
 
     def __init__(
         self,
@@ -83,28 +103,16 @@ class MGAProblem:
         self.verbosity = 0
         self.disp_rate = 0
 
-        # State and hyperparameter storage
+        # Base State Configuration
         self._is_populated = False
-        self.pop_size = npint(0)
-        self.champ_count = npint(0)
-        self.elite_count = npint(0)
-        self.tourn_count = npint(0)
-        self.tourn_size = npint(0)
-        self.mutation_prob = npfloat(0.0)
-        self.mutation_sigma = npfloat(0.0)
-        self.crossover_prob = npfloat(0.0)
-        self.niche_elitism = None
-        self.noptimal_rel = npfloat(0.0)
-        self.noptimal_abs = npfloat(0.0)
-        self.mutation_scaler = None
-        self.space_scaler = None
-        self.objective_scaler = None
-        self.repulsion_weight = npfloat(0.0)
         self.current_best_obj = npfloat(0)
         self.mean_fitness = npfloat(0)
-        self.hyperparameters_set = False
         self.callback = callback
         self.include_obj_in_fitness = include_obj_in_fitness
+        self.hyperparameters_set = False
+
+        # Hyperparameter Defaults
+        self.update_hyperparameters(**self._DEFAULT_HYPERPARAMS)
 
         # Evaluation Paths
         self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
@@ -136,138 +144,164 @@ class MGAProblem:
         self.num_niches += num_niches
 
     def update_hyperparameters(  # noqa: C901
-            self,
-            max_iter: int = 0,
-            pop_size: int = 100,
-            champ_count: int | float = 1,
-            elite_count: int | float = 0.2,
-            tourn_count: int | float = -1,
-            tourn_size: int = 2,
-            mutation_prob: float | tuple[float, float] = 0.3,
-            mutation_sigma: float | tuple[float, float] = 0.05,
-            mutation_alpha: float = 0.0,
-            crossover_prob: float | tuple[float, float] = 0.4,
-            violation_factor: float = 1.0,
-            noptimal_rel: float = 0.0,
-            noptimal_abs: float = 0.0,
-            niche_elitism: str = "selfish",
-            mutation_scaler: NDArray = "bounds",
-            space_scaler: NDArray = _SENTINEL,  # default: np.ones
-            objective_scaler: float = _SENTINEL,  # default: 1.0
-            repulsion_weight: float = 1.0,
-            ):
-        # TODO: all should be _SENTINEL + default logic
-        #       and make handling of previous hyperparameters clearer.
-        #       currently, reset to default if not provided
+        self,
+        max_iter: int = _SENTINEL,
+        pop_size: int = _SENTINEL,
+        champ_count: int | float = _SENTINEL,
+        elite_count: int | float = _SENTINEL,
+        tourn_count: int | float = _SENTINEL,
+        tourn_size: int = _SENTINEL,
+        mutation_prob: float | tuple[float, float] = _SENTINEL,
+        mutation_sigma: float | tuple[float, float] = _SENTINEL,
+        mutation_alpha: float = _SENTINEL,
+        crossover_prob: float | tuple[float, float] = _SENTINEL,
+        violation_factor: float = _SENTINEL,
+        noptimal_rel: float = _SENTINEL,
+        noptimal_abs: float = _SENTINEL,
+        niche_elitism: str = _SENTINEL,
+        mutation_scaler: np.ndarray | str = _SENTINEL,
+        space_scaler: np.ndarray | str = _SENTINEL,
+        objective_scaler: float = _SENTINEL,
+        repulsion_weight: float = _SENTINEL,
+    ):
+        updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != 'self'}
 
+        if not updates:
+            return  # Nothing to update
+
+        # Update simple scalar parameters
         for attr, expected_type, ge in zip(
             ("max_iter", "pop_size", "violation_factor", "noptimal_rel",
              "noptimal_abs", "mutation_alpha", "repulsion_weight"),
             ("integer", "integer", "float", "float", "float", "float", "float"),
             (1, 2, 1, 0, 0, None, 0),
         ):
-            var = locals()[attr]
-            typing.sanitize_type(var, expected_type, attr)
-            typing.sanitize_range(var, attr, ge=ge)
-            clean_type = npint if expected_type == "integer" else npfloat
-            setattr(self, attr, clean_type(var))
+            if attr in updates:
+                var = updates[attr]
+                typing.sanitize_type(var, expected_type, attr)
+                typing.sanitize_range(var, attr, ge=ge)
+                clean_type = npint if expected_type == "integer" else npfloat
+                setattr(self, attr, clean_type(var))
 
-        self.mutation_prob = typing.format_and_sanitize_ditherer(mutation_prob, "mutation_prob", npfloat, 0, 1)
-        self.mutation_sigma = typing.format_and_sanitize_ditherer(mutation_sigma, "mutation_sigma", npfloat)
-        self.crossover_prob = typing.format_and_sanitize_ditherer(crossover_prob, "crossover_prob", npfloat, 0, 1)
+        # Tournament Size to be updated after pop_size
+        if "tourn_size" in updates:
+            ts = updates["tourn_size"]
+            typing.sanitize_type(ts, "integer", "tourn_size")
+            typing.sanitize_range(ts, "tourn_size", ge=2, lt=self.pop_size)
+            self.tourn_size = npint(ts)
 
-        if niche_elitism not in (None, "selfish", "unselfish"):
-            raise ValueError(
-                f"'niche_elitism' expected one of (None, 'selfish', 'unselfish'). Received: {niche_elitism}"
-            )
-        self.niche_elitism = niche_elitism
-        self.niche_elitism_int = self.niche_elitism_dict[self.niche_elitism]
+        # Update dithered probabilities
+        for attr, ge, le in zip(
+            ("mutation_prob", "mutation_sigma", "crossover_prob"),
+            (0, None, 0), (1, None, 1)
+        ):
+            if attr in updates:
+                val = typing.format_and_sanitize_ditherer(updates[attr], attr, npfloat, ge, le)
+                setattr(self, attr, val)
 
-        for variable, name in zip((champ_count, elite_count, tourn_count),
-                                  ("champ_count", "elite_count", "tourn_count")):
-            typing.sanitize_type(variable, ("float", "integer"), name)
-            if typing.is_float(variable):
-                typing.sanitize_range(variable, name, ge=0, le=1)
+        # Update Categoricals
+        if "niche_elitism" in updates:
+            val = updates["niche_elitism"]
+            if val not in (None, "selfish", "unselfish"):
+                raise ValueError(f"'niche_elitism' expected one of (None, 'selfish', 'unselfish'). Received: {val}")
+            self.niche_elitism = val
+            self.niche_elitism_int = self.niche_elitism_dict[val]
+
+        # Cascading Selection Counts
+        if any(k in updates for k in ("champ_count", "elite_count", "tourn_count", "pop_size")):
+            # Fetch explicitly provided updates, fallback to stored raw intents, fallback to standard defaults
+            c_raw = updates.get("champ_count", getattr(self, "_raw_champ_count", 1))
+            e_raw = updates.get("elite_count", getattr(self, "_raw_elite_count", 0.2))
+            t_raw = updates.get("tourn_count", getattr(self, "_raw_tourn_count", -1))
+
+            # Store raw intents so future pop_size updates recalculate correctly
+            self._raw_champ_count, self._raw_elite_count, self._raw_tourn_count = c_raw, e_raw, t_raw
+
+            for variable, name in zip((c_raw, e_raw, t_raw),
+                                      ("champ_count", "elite_count", "tourn_count")):
+                typing.sanitize_type(variable, ("float", "integer"), name)
+                if typing.is_float(variable):
+                    typing.sanitize_range(variable, name, ge=0, le=1)
+                else:
+                    typing.sanitize_range(variable, name, ge=-1, le=self.pop_size)
+
+            champ_is_neg1 = c_raw == -1
+            elite_is_neg1 = e_raw == -1
+            tourn_is_neg1 = t_raw == -1
+
+            if (champ_is_neg1 + elite_is_neg1 + tourn_is_neg1) > 1:
+                raise ValueError("only one of 'champ_count', 'elite_count', and 'tourn_count' may be -1")
+
+            c_int = npint(c_raw) if typing.is_integer(c_raw) else npint(c_raw * self.pop_size)
+            e_int = npint(e_raw) if typing.is_integer(e_raw) else npint(e_raw * self.pop_size)
+            t_int = npint(t_raw) if typing.is_integer(t_raw) else npint(t_raw * self.pop_size)
+
+            if champ_is_neg1:
+                c_int = self.pop_size - e_int - t_int
+            if elite_is_neg1:
+                e_int = self.pop_size - c_int - t_int
+            if tourn_is_neg1:
+                t_int = self.pop_size - c_int - e_int
+
+            if c_int + e_int + t_int > self.pop_size:
+                raise ValueError(f"champ_count + elite_count + tourn_count should be <= pop_size ({self.pop_size})")
+
+            self.champ_count, self.elite_count, self.tourn_count = npint(c_int), npint(e_int), npint(t_int)
+
+        # Scalers
+        if "mutation_scaler" in updates:
+            ms = updates["mutation_scaler"]
+            if str(ms).lower() == "bounds":
+                self.mutation_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
+            elif ms is None:
+                self.mutation_scaler = np.ones(self.problem.ndim, dtype=npfloat)
             else:
-                typing.sanitize_range(variable, name, ge=-1, le=self.pop_size)
+                typing.sanitize_array_type(ms, 'float', 'mutation_scaler', self.problem.ndim)
+                self.mutation_scaler = np.array(ms, dtype=npfloat)
 
-        champ_is_neg1 = champ_count == -1
-        elite_is_neg1 = elite_count == -1
-        tourn_is_neg1 = tourn_count == -1
-
-        if (champ_is_neg1 + elite_is_neg1 + tourn_is_neg1) > 1:
-            raise ValueError(f"only one of '{champ_count=}', '{elite_count=}', and '{tourn_count=}' may be -1")
-        champ_count = npint(champ_count) if typing.is_integer(champ_count) else npint(champ_count * self.pop_size)
-        elite_count = npint(elite_count) if typing.is_integer(elite_count) else npint(elite_count * self.pop_size)
-        tourn_count = npint(tourn_count) if typing.is_integer(tourn_count) else npint(tourn_count * self.pop_size)
-        if champ_is_neg1:
-            champ_count = pop_size - elite_count - tourn_count
-        if elite_is_neg1:
-            elite_count = pop_size - champ_count - tourn_count
-        if tourn_is_neg1:
-            tourn_count = pop_size - champ_count - elite_count
-        if champ_count + elite_count + tourn_count > pop_size:
-            raise ValueError(f"'{champ_count=}' + '{elite_count=}' + '{tourn_count=}' should be <= '{pop_size=}'")
-        self.champ_count = npint(champ_count)
-        self.elite_count = npint(elite_count)
-        self.tourn_count = npint(tourn_count)
-
-        if self.tourn_count > 0:
-            typing.sanitize_type(tourn_size, "integer", "tourn_size")
-            typing.sanitize_range(tourn_size, "tourn_size", ge=2, lt=pop_size)
-            self.tourn_size = npint(tourn_size)
-            if self.tourn_size < 2:
-                raise RuntimeError(
-                    f"'tourn_size should be >= 2 (got: {self.tourn_size}). Is this a hangover from previous step?"
+        if "space_scaler" in updates:
+            ss = updates["space_scaler"]
+            if self.problem.return_scaled:
+                warnings.warn(
+                    "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
                 )
-
-        if str(mutation_scaler).lower() == "bounds":
-            self.mutation_scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
-        elif mutation_scaler is None:
-            self.mutation_scaler = np.ones(self.problem.ndim, dtype=npfloat)
-        else:
-            typing.sanitize_array_type(mutation_scaler, 'float', 'mutation_scaler', self.problem.ndim)
-            self.mutation_scaler = np.array(mutation_scaler, dtype=npfloat)
-
-        space_scaler_given = space_scaler is not _SENTINEL
-        if space_scaler_given and self.problem.return_scaled:
-            warnings.warn(
-                "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
-            )
-
-        if space_scaler is None or not space_scaler_given:
-            self.space_scaler = np.ones((1, self.problem.ndim), dtype=npfloat)
-        elif isinstance(space_scaler, str):
-            if space_scaler.lower() == "bounds":
-                _scaler = (self.problem.upper_bounds - self.problem.lower_bounds)
-                self.space_scaler = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
+            if ss is None:
+                self.space_scaler = np.ones((1, self.problem.ndim), dtype=npfloat)
+            elif isinstance(ss, str):
+                if ss.lower() == "bounds":
+                    _scaler = 1.0 / (self.problem.upper_bounds - self.problem.lower_bounds)
+                    self.space_scaler = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
+                else:
+                    raise ValueError(f"Received unknown space_scaler. Expected an array or 'bounds'. Got: {ss}")
             else:
-                raise ValueError(f"Received unknown space_scaler. Expected an array or 'bounds'. Got: {space_scaler}")
-        else:
-            space_scaler = np.array(space_scaler, dtype=npfloat)
-            if space_scaler.ndim == 1:
-                if space_scaler.shape[0] != self.problem.ndim:
-                    raise ValueError(f"1D space_scaler must have length {self.problem.ndim}")
-                self.space_scaler = space_scaler.reshape(1, self.problem.ndim)
-            elif space_scaler.ndim == 2:
-                if space_scaler.shape[0] != self.problem.ndim:
-                    raise ValueError(f"2D space_scaler must have shape ({self.problem.ndim}, k)")
-                self.space_scaler = space_scaler
-            else:
-                raise ValueError("Array type space_scaler must be 1D or 2D")
+                ss = np.array(ss, dtype=npfloat)
+                if ss.ndim == 1:
+                    if ss.shape[0] != self.problem.ndim:
+                        raise ValueError(f"1D space_scaler must have length {self.problem.ndim}")
+                    self.space_scaler = ss.reshape(1, self.problem.ndim)
+                elif ss.ndim == 2:
+                    if ss.shape[0] != self.problem.ndim:
+                        raise ValueError(f"2D space_scaler must have shape ({self.problem.ndim}, k)")
+                    self.space_scaler = ss
+                else:
+                    raise ValueError("Array type space_scaler must be 1D or 2D")
 
-        objective_scaler_given = objective_scaler is not _SENTINEL
-        if objective_scaler_given and not self.include_obj_in_fitness:
-            warnings.warn(
-                "[MHMGA] include_obj_in_fitness is set to False. 'objective_scaler' will be ignored", UserWarning
-            )
-        if (not self.include_obj_in_fitness) or (not objective_scaler_given):
-            self.objective_scaler = npfloat(1.0)
-        else:
-            typing.sanitize_type(objective_scaler, 'float', 'objective_scaler')
-            self.objective_scaler = npfloat(objective_scaler)
+        if "objective_scaler" in updates:
+            os = updates["objective_scaler"]
+            if not self.include_obj_in_fitness:
+                warnings.warn("[MHMGA] include_obj_in_fitness is False. 'objective_scaler' ignored", UserWarning)
+
+            if os is None:
+                self.objective_scaler = npfloat(1.0)
+            else:
+                typing.sanitize_type(os, 'float', 'objective_scaler')
+                self.objective_scaler = npfloat(os)
 
         self.hyperparameters_set = True
+
+    def reset_hyperparameters(self):
+        """Restores all hyperparameters to their defaults."""
+        self.update_hyperparameters(**self._DEFAULT_HYPERPARAMS)
 
     def _populate(
         self,
