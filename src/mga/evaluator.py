@@ -37,12 +37,15 @@ def construct_python_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns obj_vals, violation_vals, and scaled_points.
             """
-            for i in range(population.num_niches):
-                (
-                    population.raw_objectives[i, :],
-                    population.violations[i, :],
-                    population.scaled_points[i, :, :],
-                 ) = objective_func(population.points[i], *fargs, **fkwargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+
+            raw_objectives, violations, scaled_points = objective_func(flat_points, *fargs, **fkwargs)
+
+            population.raw_objectives[:] = raw_objectives.reshape((num_niches, pop_size))
+            population.violations[:] = violations.reshape((num_niches, pop_size))
+            population.scaled_points[:] = scaled_points.reshape((num_niches, pop_size, ndim))
 
             population.penalized_objectives[:] = (
                 population.raw_objectives + population.violations * population.violation_factor
@@ -53,11 +56,14 @@ def construct_python_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns obj_vals and scaled_points.
             """
-            for i in range(population.num_niches):
-                (
-                    population.raw_objectives[i, :],
-                    population.scaled_points[i, :, :],
-                ) = objective_func(population.points[i], *fargs, **fkwargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+
+            raw_objectives, scaled_points = objective_func(flat_points, *fargs, **fkwargs)
+
+            population.raw_objectives[:] = raw_objectives.reshape((num_niches, pop_size))
+            population.scaled_points[:] = scaled_points.reshape((num_niches, pop_size, ndim))
 
             population.penalized_objectives[:] = population.raw_objectives  # No penalty
 
@@ -94,11 +100,14 @@ def construct_python_eval_func(  # noqa: C901
 
     elif vectorized and constraints and not return_scaled:
         def _evaluator(population: Population, objective_func: Callable, fargs: tuple, fkwargs: dict):
-            for i in range(population.num_niches):
-                (
-                    population.raw_objectives[i, :],
-                    population.violations[i, :],
-                ) = objective_func(population.points[i], *fargs, **fkwargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+
+            raw_objectives, violations = objective_func(flat_points, *fargs, **fkwargs)
+
+            population.raw_objectives[:] = raw_objectives.reshape((num_niches, pop_size))
+            population.violations[:] = violations.reshape((num_niches, pop_size))
 
             population.penalized_objectives[:] = (
                 population.raw_objectives + population.violations * population.violation_factor
@@ -109,9 +118,12 @@ def construct_python_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns only obj_vals.
             """
-            for i in range(population.num_niches):
-                population.raw_objectives[i, :] = objective_func(population.points[i], *fargs, **fkwargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
 
+            raw_objectives = objective_func(flat_points, *fargs, **fkwargs)
+            population.raw_objectives[:] = raw_objectives.reshape((num_niches, pop_size))
             population.penalized_objectives[:] = population.raw_objectives  # No penalty
 
     elif not vectorized and constraints and not return_scaled:
@@ -159,18 +171,21 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns obj_vals, violation_vals.
             """
-            for i in prange(population.num_niches):
-                (
-                    population.raw_objectives[i, :],
-                    population.violations[i, :],
-                    population.scaled_points[i, :, :],
-                ) = objective_func(population.points[i], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+            raw_objectives, violations, scaled_points = objective_func(flat_points, *fargs)
 
-                for j in range(population.pop_size):
-                    population.penalized_objectives[i, j] = (
-                        population.raw_objectives[i, j]
-                        + population.violations[i, j] * population.violation_factor
-                    )
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                population.raw_objectives[i, j] = raw_objectives[idx]
+                population.violations[i, j] = violations[idx]
+                population.scaled_points[i, j, :] = scaled_points[idx, :]
+
+                population.penalized_objectives[i, j] = (
+                    raw_objectives[idx] + violations[idx] * population.violation_factor
+                )
 
     elif vectorized and not constraints and return_scaled:
         @njit(parallel=parallelize)
@@ -178,14 +193,18 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns only obj_vals.
             """
-            for i in prange(population.num_niches):
-                (
-                    population.raw_objectives[i, :],
-                    population.scaled_points[i, :, :]
-                ) = objective_func(population.points[i], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+            raw_objectives, scaled_points = objective_func(flat_points, *fargs)
 
-                for j in range(population.pop_size):
-                    population.penalized_objectives[i, j] = population.raw_objectives[i, j]
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                population.raw_objectives[i, j] = raw_objectives[idx]
+                population.scaled_points[i, j, :] = scaled_points[idx, :]
+
+                population.penalized_objectives[i, j] = raw_objectives[idx]
 
     elif not vectorized and constraints and return_scaled:
         @njit(parallel=parallelize)
@@ -193,18 +212,20 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a scalar objective function that returns obj_val, violation_val.
             """
-            for i in prange(population.num_niches):
-                for j in range(population.pop_size):
-                    (
-                        population.raw_objectives[i, j],
-                        population.violations[i, j],
-                        population.scaled_points[i, j, :],
-                    ) = objective_func(population.points[i, j], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                (
+                    population.raw_objectives[i, j],
+                    population.violations[i, j],
+                    population.scaled_points[i, j, :],
+                ) = objective_func(population.points[i, j], *fargs)
 
-                    population.penalized_objectives[i, j] = (
-                        population.raw_objectives[i, j]
-                        + population.violations[i, j] * population.violation_factor
-                    )
+                population.penalized_objectives[i, j] = (
+                    population.raw_objectives[i, j] + population.violations[i, j] * population.violation_factor
+                )
 
     elif not vectorized and not constraints and return_scaled:
         @njit(parallel=parallelize)
@@ -212,14 +233,17 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a scalar objective function that returns only obj_val.
             """
-            for i in prange(population.num_niches):
-                for j in range(population.pop_size):
-                    (
-                        population.raw_objectives[i, j],
-                        population.scaled_points[i, j, :],
-                    ) = objective_func(population.points[i, j], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                (
+                    population.raw_objectives[i, j],
+                    population.scaled_points[i, j, :],
+                ) = objective_func(population.points[i, j], *fargs)
 
-                    population.penalized_objectives[i, j] = population.raw_objectives[i, j]
+                population.penalized_objectives[i, j] = population.raw_objectives[i, j]
 
     elif vectorized and constraints and not return_scaled:
         @njit(parallel=parallelize)
@@ -227,17 +251,20 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns obj_vals, violation_vals.
             """
-            for i in prange(population.num_niches):
-                (
-                    population.raw_objectives[i, :],
-                    population.violations[i, :]
-                ) = objective_func(population.points[i], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+            raw_objectives, violations = objective_func(flat_points, *fargs)
 
-                for j in range(population.pop_size):
-                    population.penalized_objectives[i, j] = (
-                        population.raw_objectives[i, j]
-                        + population.violations[i, j] * population.violation_factor
-                    )
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                population.raw_objectives[i, j] = raw_objectives[idx]
+                population.violations[i, j] = violations[idx]
+
+                population.penalized_objectives[i, j] = (
+                    raw_objectives[idx] + violations[idx] * population.violation_factor
+                )
 
     elif vectorized and not constraints and not return_scaled:
         @njit(parallel=parallelize)
@@ -245,11 +272,17 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a vectorized objective function that returns only obj_vals.
             """
-            for i in prange(population.num_niches):
-                population.raw_objectives[i, :] = objective_func(population.points[i], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            flat_points = population.points.reshape((N, ndim))
+            raw_objectives = objective_func(flat_points, *fargs)
 
-                for j in range(population.pop_size):
-                    population.penalized_objectives[i, j] = population.raw_objectives[i, j]
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                population.raw_objectives[i, j] = raw_objectives[idx]
+
+                population.penalized_objectives[i, j] = raw_objectives[idx]
 
     elif not vectorized and constraints and not return_scaled:
         @njit(parallel=parallelize)
@@ -257,17 +290,19 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a scalar objective function that returns obj_val, violation_val.
             """
-            for i in prange(population.num_niches):
-                for j in range(population.pop_size):
-                    (
-                        population.raw_objectives[i, j],
-                        population.violations[i, j]
-                    ) = objective_func(population.points[i, j], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                (
+                    population.raw_objectives[i, j],
+                    population.violations[i, j],
+                ) = objective_func(population.points[i, j], *fargs)
 
-                    population.penalized_objectives[i, j] = (
-                        population.raw_objectives[i, j]
-                        + population.violations[i, j] * population.violation_factor
-                    )
+                population.penalized_objectives[i, j] = (
+                    population.raw_objectives[i, j] + population.violations[i, j] * population.violation_factor
+                )
 
     else:  # not vectorized and not constraints and not return_scaled:
         @njit(parallel=parallelize)
@@ -275,10 +310,13 @@ def construct_njit_eval_func(  # noqa: C901
             """
             Evaluates a scalar objective function that returns only obj_val.
             """
-            for i in prange(population.num_niches):
-                for j in range(population.points[i].shape[0]):
-                    population.raw_objectives[i, j] = objective_func(population.points[i, j], *fargs)
+            num_niches, pop_size, ndim = population.points.shape
+            N = num_niches * pop_size
+            for idx in prange(N):
+                i = idx // pop_size
+                j = idx % pop_size
+                population.raw_objectives[i, j] = objective_func(population.points[i, j], *fargs)
 
-                    population.penalized_objectives[i, j] = population.raw_objectives[i, j]
+                population.penalized_objectives[i, j] = population.raw_objectives[i, j]
 
     return _evaluator

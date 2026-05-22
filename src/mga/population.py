@@ -21,42 +21,42 @@ if JIT_ENABLED:
         ('include_obj_in_fitness', boolean),
         ('pure_optimization', boolean),
 
-        ('integrality', boolean[:]),
-        ('booleanality', boolean[:]),
+        ('integrality', boolean[::1]),
+        ('booleanality', boolean[::1]),
         ('maximize', boolean),
         ('angular_fitness', boolean),
         ('scaling_in_obj_func', boolean),
-        ('lower_bounds', nbfloat[:]),
-        ('scaled_lower_bounds', nbfloat[:]),
-        ('upper_bounds', nbfloat[:]),
-        ('scaled_upper_bounds', nbfloat[:]),
+        ('lower_bounds', nbfloat[::1]),
+        ('scaled_lower_bounds', nbfloat[::1]),
+        ('upper_bounds', nbfloat[::1]),
+        ('scaled_upper_bounds', nbfloat[::1]),
         ('problem_loaded', boolean),
         ('rng', npy_rng),
         ('is_continuous_space', boolean),
         ('optimum_given', boolean),
 
         # Main population arrays
-        ('points', nbfloat[:, :, :]),
-        ('scaled_points', nbfloat[:, :, :]),
-        ('raw_objectives', nbfloat[:, :]),
-        ('violations', nbfloat[:, :]),
-        ('penalized_objectives', nbfloat[:, :]),
-        ('feasible_mask', boolean[:, :]),
-        ('fitnesses', nbfloat[:, :]),
-        ('noptimal_mask', boolean[:, :]),
-        ('scaled_centroids', nbfloat[:, :]),
-        ('niche_elites', nbfloat[:, :, :]),
-        ('parents', nbfloat[:, :, :]),
-        ('parent_indices', nbintp[:]),
+        ('points', nbfloat[:, :, ::1]),
+        ('scaled_points', nbfloat[:, :, ::1]),
+        ('raw_objectives', nbfloat[:, ::1]),
+        ('violations', nbfloat[:, ::1]),
+        ('penalized_objectives', nbfloat[:, ::1]),
+        ('feasible_mask', boolean[:, ::1]),
+        ('fitnesses', nbfloat[:, ::1]),
+        ('noptimal_mask', boolean[:, ::1]),
+        ('scaled_centroids', nbfloat[:, ::1]),
+        ('niche_elites', nbfloat[:, :, ::1]),
+        ('parents', nbfloat[:, :, ::1]),
+        ('parent_indices', nbintp[::1]),
 
         # Optima tracking
-        ('optima_points', nbfloat[:, :]),
-        ('optima_scaled_points', nbfloat[:, :]),
-        ('optima_raw_objectives', nbfloat[:]),
-        ('optima_violations', nbfloat[:]),
-        ('optima_penalized_objectives', nbfloat[:]),
-        ('optima_fitnesses', nbfloat[:]),
-        ('optima_noptimal_mask', boolean[:]),
+        ('optima_points', nbfloat[:, ::1]),
+        ('optima_scaled_points', nbfloat[:, ::1]),
+        ('optima_raw_objectives', nbfloat[::1]),
+        ('optima_violations', nbfloat[::1]),
+        ('optima_penalized_objectives', nbfloat[::1]),
+        ('optima_fitnesses', nbfloat[::1]),
+        ('optima_noptimal_mask', boolean[::1]),
         ('current_optimum', nbfloat),
         ('noptimal_threshold', nbfloat),
 
@@ -74,8 +74,8 @@ if JIT_ENABLED:
         ('noptimal_abs', nbfloat),
         ('violation_factor', nbfloat),
         ('niche_elitism', nbint),
-        ('mutation_scaler', nbfloat[:]),
-        ('space_scaler', nbfloat[:, :]),
+        ('mutation_scaler', nbfloat[::1]),
+        ('space_scaler', nbfloat[:, ::1]),
         ('objective_scaler', nbfloat),
         ('repulsion_weight', nbfloat),
 
@@ -358,7 +358,7 @@ class Population:
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
-        self.space_scaler = space_scaler.astype(nbfloat)
+        self.space_scaler = np.ascontiguousarray(space_scaler).astype(nbfloat)
         new_scaled_ndim = space_scaler.shape[1]
         if new_scaled_ndim != self.scaled_ndim:
             self.scaled_ndim = nbint(new_scaled_ndim)

@@ -62,7 +62,7 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
     # algorithm.starting_points = np.full((20, 50, 2), 0.5)
     algorithm.update_hyperparameters(
         max_iter=200,
-        pop_size=50,
+        pop_size=5,
         champ_count=0,
         elite_count=0.2,
         tourn_count=-1,
