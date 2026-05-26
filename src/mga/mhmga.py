@@ -95,8 +95,8 @@ class MGAProblem:
 
         self.fitness_method_dict = {
             "angular": npint(0),
-            "11": npint(1),
-            "12": npint(2),
+            "l1": npint(1),
+            "l2": npint(2),
         }
         self.verbosity = 0
         self.disp_rate = 0
