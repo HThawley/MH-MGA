@@ -5,17 +5,120 @@ from mga.commons.numba_overload import njit
 
 # API functions
 @njit
-def evaluate_fitness_angular_to_centroids(fitness, points, centroids):
+def evaluate_fitness_angular(
+    fitness, points, centroids, raw_objectives, objective_scaler, include_objective
+):
     """
-    Calculates fitness as the minimum angular separation (1 - cosine similarity)
-    to the nearest centroid of another niche.
+    Calculates fitness as the angular separation to the nearest centroid of another niche
+
+    optionally includes the scaled objective value as an additional dimension.
     """
     anchor = centroids[0]
 
-    for i in range(points.shape[0]):
+    if include_objective:
+        _angular_with_objective(anchor, fitness, points, centroids, raw_objectives, objective_scaler)
+    else:
+        _angular_standard(anchor, fitness, points, centroids)
+
+
+@njit
+def evaluate_fitness_distance(
+    fitness, points, centroids, raw_objectives, objective_scaler, method, include_objective
+):
+    """
+    Calculates fitness as the {method} distance to the nearest centroid of another niche.
+
+    optionally includes the scaled objective value as an additional dimension.
+    """
+    if method == 2:
+        power = 2
+        inv_power = 0.5
+    elif method == 1:
+        power = 1
+        inv_power = 1
+    else:
+        raise Exception
+
+    if include_objective:
+        _distance_with_objective(
+            fitness, points, centroids, raw_objectives, objective_scaler, power, inv_power
+        )
+    else:
+        _distance_standard(fitness, points, centroids, power, inv_power)
+
+
+@njit
+def evaluate_fitness_pure_optimization(fitness, points, centroids, raw_objectives, repulsion_weight, method):
+    if method == 2:
+        power = 2
+        inv_power = 0.5
+    elif method == 1:
+        power = 1
+        inv_power = 1
+    else:
+        raise Exception
+
+    for i in range(1, points.shape[0]):
         for j in range(points.shape[1]):
+            dist = ((points[i, j] - centroids[0]) ** power).sum() ** inv_power
+            fitness[i, j] = (dist * repulsion_weight) + (raw_objectives[i, j] * (1.0 - repulsion_weight))
+
+
+# private helper functions
+@njit
+def _distance_with_objective(
+    fitness, points, centroids, raw_objectives, objective_scaler, power, inv_power
+):
+    num_niches, pop_size, ndim = points.shape
+
+    for i in range(num_niches):
+        for j in range(pop_size):
+            min_dist = np.inf
+            scaled_obj = raw_objectives[i, j] * objective_scaler
+            for c in range(num_niches):
+                if i == c:
+                    continue
+
+                dist = 0
+                for k in range(ndim):
+                    dist += (points[i, j, k] - centroids[c, k]) ** power
+
+                # Add objective dimension distance
+                dist += (scaled_obj - centroids[c, -1]) ** power
+
+                if dist < min_dist:
+                    min_dist = dist
+            fitness[i, j] = min_dist ** inv_power
+
+
+@njit
+def _distance_standard(fitness, points, centroids, power, inv_power):
+    num_niches, pop_size, ndim = points.shape
+
+    for i in range(num_niches):
+        for j in range(pop_size):
+            min_dist = np.inf
+            for c in range(num_niches):
+                if i == c:
+                    continue
+
+                dist = 0
+                for k in range(ndim):
+                    dist += (points[i, j, k] - centroids[c, k]) ** power
+
+                if dist < min_dist:
+                    min_dist = dist
+            fitness[i, j] = min_dist ** inv_power
+
+
+@njit
+def _angular_standard(anchor, fitness, points, centroids):
+    num_niches, pop_size, ndim = points.shape
+
+    for i in range(num_niches):
+        for j in range(pop_size):
             min_ang_sep = np.inf
-            for c in range(1, centroids.shape[0]):
+            for c in range(1, num_niches):
                 if i == c:
                     continue
                 ang_sep = _angular_separation(points[i, j], centroids[c], anchor)
@@ -25,22 +128,16 @@ def evaluate_fitness_angular_to_centroids(fitness, points, centroids):
 
 
 @njit
-def evaluate_fitness_angular_to_centroids_ext(
-    fitness, points, centroids, raw_objectives, objective_scaler
-):
-    """
-    Calculates angular fitness including the scaled objective value
-    as an additional dimension.
-    """
-    anchor = centroids[0]
+def _angular_with_objective(anchor, fitness, points, centroids, raw_objectives, objective_scaler):
+    num_niches, pop_size, ndim = points.shape
     anchor_obj = anchor[-1]
 
-    for i in range(points.shape[0]):
-        for j in range(points.shape[1]):
+    for i in range(num_niches):
+        for j in range(pop_size):
             min_ang_sep = np.inf
             scaled_obj = raw_objectives[i, j] * objective_scaler
 
-            for c in range(1, centroids.shape[0]):
+            for c in range(1, num_niches):
                 if i == c:
                     continue
 
@@ -52,71 +149,6 @@ def evaluate_fitness_angular_to_centroids_ext(
                     min_ang_sep = ang_sep
 
             fitness[i, j] = min_ang_sep
-
-
-@njit
-def evaluate_fitness_dist_to_centroids(fitness, points, centroids):
-    """
-    Calculates fitness as the Euclidean distance to the nearest centroid of another niche.
-    """
-    for i in range(points.shape[0]):
-        for j in range(points.shape[1]):
-            min_dist = np.inf
-            for c in range(centroids.shape[0]):
-                if i == c:
-                    continue
-                dist = _euclidean_distance(points[i, j], centroids[c])
-                if dist < min_dist:
-                    min_dist = dist
-            fitness[i, j] = min_dist
-
-
-@njit
-def evaluate_fitness_dist_to_centroids_ext(fitness, points, centroids, raw_objectives, objective_scaler):
-    """
-    Calculates fitness including the scaled objective value as an additional dimension.
-
-    Currently only supports euclidean distance
-    """
-    for i in range(points.shape[0]):
-        for j in range(points.shape[1]):
-            min_dist = np.inf
-            scaled_obj = raw_objectives[i, j] * objective_scaler
-            for c in range(centroids.shape[0]):
-                if i == c:
-                    continue
-
-                # Euclidean distance squared
-                dist_sq = 0
-                for k in range(points.shape[2]):
-                    dist_sq += (points[i, j, k] - centroids[c, k]) ** 2
-                # Add objective dimension Euclidean distance squared
-                dist_sq += (scaled_obj - centroids[c, -1]) ** 2
-                dist = dist_sq
-
-                if dist < min_dist:
-                    min_dist = dist
-            fitness[i, j] = min_dist**0.5
-
-
-@njit
-def evaluate_fitness_pure_optimization(fitness, points, centroids, raw_objectives, repulsion_weight):
-    for i in range(1, points.shape[0]):
-        for j in range(points.shape[1]):
-            dist = _euclidean_distance(points[i, j], centroids[0])
-            fitness[i, j] = (dist * repulsion_weight) + (raw_objectives[i, j] * (1.0 - repulsion_weight))
-
-
-# private helper functions
-@njit(inline="always")
-def _euclidean_distance(p1, p2):
-    """Euclidean distance"""
-    return np.sum((p1 - p2) ** 2) ** 0.5
-
-
-@njit
-def _dimensionwise_distance(p1, p2):
-    return np.min(np.abs(p1 - p2))
 
 
 @njit(fastmath=True, inline="always")

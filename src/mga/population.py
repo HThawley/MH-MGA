@@ -16,7 +16,6 @@ if JIT_ENABLED:
         ('pop_size', nbint),
         ('ndim', nbint),
         ('parent_size', nbint),
-        ('unselfish_niche_fitness_threshold', nbfloat),
         ('stable_sort', boolean),
         ('include_obj_in_fitness', boolean),
         ('pure_optimization', boolean),
@@ -24,7 +23,6 @@ if JIT_ENABLED:
         ('integrality', boolean[::1]),
         ('booleanality', boolean[::1]),
         ('maximize', boolean),
-        ('angular_fitness', boolean),
         ('scaling_in_obj_func', boolean),
         ('lower_bounds', nbfloat[::1]),
         ('scaled_lower_bounds', nbfloat[::1]),
@@ -45,7 +43,6 @@ if JIT_ENABLED:
         ('fitnesses', nbfloat[:, ::1]),
         ('noptimal_mask', boolean[:, ::1]),
         ('scaled_centroids', nbfloat[:, ::1]),
-        ('niche_elites', nbfloat[:, :, ::1]),
         ('parents', nbfloat[:, :, ::1]),
         ('parent_indices', nbintp[::1]),
 
@@ -73,11 +70,12 @@ if JIT_ENABLED:
         ('noptimal_rel', nbfloat),
         ('noptimal_abs', nbfloat),
         ('violation_factor', nbfloat),
-        ('niche_elitism', nbint),
+        ('niche_elitism', boolean),
         ('mutation_scaler', nbfloat[::1]),
         ('space_scaler', nbfloat[:, ::1]),
         ('objective_scaler', nbfloat),
         ('repulsion_weight', nbfloat),
+        ('fitness_method', nbint),
 
         ('scaled_ndim', nbint),
         ('log_mutation_sigma', nbfloat[:]),
@@ -114,18 +112,15 @@ class Population:
         stable_sort: bool,
         rng: npy_rng,
         include_obj_in_fitness: bool,
-        angular_fitness: bool,
         pure_optimization: bool,
     ):
         self.num_niches = nbint(num_niches)
         self.pop_size = nbint(pop_size)
         self.ndim = nbint(ndim)
         self.parent_size = nbint(0)
-        self.unselfish_niche_fitness_threshold = nbfloat(0.0)
         self.stable_sort = stable_sort
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
-        self.angular_fitness = angular_fitness
         self.pure_optimization = pure_optimization
 
         if self.pure_optimization:
@@ -153,7 +148,7 @@ class Population:
         self.log_mutation_sigma = np.empty(2, dtype=npfloat)
         self.mutation_alpha = 0.0
         self.crossover_prob = np.empty(2, dtype=npfloat)
-        self.niche_elitism = 0
+        self.niche_elitism = False
         self.noptimal_rel = 0.0
         self.noptimal_abs = 0.0
         self.violation_factor = 0.0
@@ -161,6 +156,7 @@ class Population:
         self.space_scaler = np.empty((1, ndim), dtype=npfloat)
         self.objective_scaler = 1.0
         self.repulsion_weight = 0.0
+        self.fitness_method = 2
 
         self.scaled_ndim = nbint(ndim)
         self.do_skew_mutation = False
@@ -181,7 +177,6 @@ class Population:
         self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
         self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
         self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.niche_elites = np.empty((self.num_niches - 1, 1, self.ndim), dtype=npfloat)
         self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
         self.parent_indices = np.empty((0,), dtype=npintp)
 
@@ -330,7 +325,7 @@ class Population:
         mutation_sigma: np.ndarray[float],
         mutation_alpha: float,
         crossover_prob: np.ndarray[float],
-        niche_elitism: int,
+        niche_elitism: bool,
         noptimal_rel: float,
         noptimal_abs: float,
         violation_factor: float,
@@ -338,6 +333,7 @@ class Population:
         space_scaler: np.ndarray[float],
         objective_scaler: float,
         repulsion_weight: float,
+        fitness_method: int,
     ):
         self.champ_count = nbint(champ_count)
         self.elite_count = nbint(elite_count)
@@ -348,13 +344,14 @@ class Population:
         self.log_mutation_sigma[:] = np.log(mutation_sigma)
         self.mutation_alpha = nbfloat(mutation_alpha)
         self.crossover_prob[:] = crossover_prob.astype(nbfloat)
-        self.niche_elitism = nbint(niche_elitism)
+        self.niche_elitism = boolean(niche_elitism)
         self.noptimal_rel = nbfloat(noptimal_rel)
         self.noptimal_abs = nbfloat(noptimal_abs)
         self.violation_factor = nbfloat(violation_factor)
         self.mutation_scaler[:] = mutation_scaler.astype(nbfloat)
         self.objective_scaler = nbfloat(objective_scaler)
         self.repulsion_weight = nbfloat(repulsion_weight)
+        self.fitness_method = fitness_method
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
@@ -410,9 +407,6 @@ class Population:
         """
         Generates offspring from parents via cloning, crossover, and mutation.
         """
-        if self.niche_elitism == 2:
-            self._find_unselfish_elites()
-
         _clone_3d(self.points, self.parents)
 
         self._crossover()
@@ -478,39 +472,17 @@ class Population:
     def _preserve_elites(self):
         # Elitism: preserve best individuals
         self.points[0, 0, :] = self.optima_points[0]
-        if self.niche_elitism == 1:
+        if self.niche_elitism:
             # This part could be enhanced, for now, we just preserve the best from each parent set
             for i in range(1, self.num_niches):
                 if self.optima_noptimal_mask[i]:  # only preserve if noptimal
                     self.points[i, 0, :] = self.optima_points[i, :]
                 else:  # otherwise duplicate the current optimum
                     self.points[i, 0, :] = self.optima_points[0, :]
-        elif self.niche_elitism == 2:
-            for i in range(1, self.num_niches):
-                self.points[i, 0, :] = self.niche_elites[i - 1]
 
         if self.pure_optimization:
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.optima_points[0, :]
-
-    def _find_unselfish_elites(self):
-        # rather than choosing the highest fitness individual from each niche (current noptima), we
-        # take either the current noptima or a previous set of noptima - whichever has the highest
-        # fitness measured to each other (rather than to the centroids)
-
-        # container for fitness function evaluated on set of elites rather than centroids
-        _fitness = np.empty((self.num_niches, 1))
-        # evaluate fitness w.r.t. each other
-        fitness.evaluate_fitness_dist_to_centroids(
-            _fitness,
-            np.atleast_3d(self.optima_scaled_points).transpose(1, 0, 2),
-            self.optima_scaled_points
-        )
-
-        # update niche_elites
-        if np.mean(_fitness) > self.unselfish_niche_fitness_threshold:
-            self.unselfish_niche_fitness_threshold = np.mean(_fitness)
-            njit_deepcopy(self.niche_elites, self.optima_points[1:])
 
     def track_optima(self):
         """
@@ -582,38 +554,28 @@ class Population:
                 self.scaled_centroids,
                 self.raw_objectives,
                 self.repulsion_weight,
+                self.fitness_method,
             )
             return
-        if self.angular_fitness:
-            if self.include_obj_in_fitness:
-                fitness.evaluate_fitness_angular_to_centroids_ext(
-                    self.fitnesses,
-                    self.scaled_points,
-                    self.scaled_centroids,
-                    self.raw_objectives,
-                    self.objective_scaler
-                )
-            else:
-                fitness.evaluate_fitness_angular_to_centroids(
-                    self.fitnesses,
-                    self.scaled_points,
-                    self.scaled_centroids,
-                )
+        if self.fitness_method == 0:
+            fitness.evaluate_fitness_angular(
+                self.fitnesses,
+                self.scaled_points,
+                self.scaled_centroids,
+                self.raw_objectives,
+                self.objective_scaler,
+                self.include_obj_in_fitness,
+            )
         else:
-            if self.include_obj_in_fitness:
-                fitness.evaluate_fitness_dist_to_centroids_ext(
-                    self.fitnesses,
-                    self.scaled_points,
-                    self.scaled_centroids,
-                    self.raw_objectives,
-                    self.objective_scaler,
-                )
-            else:
-                fitness.evaluate_fitness_dist_to_centroids(
-                    self.fitnesses,
-                    self.scaled_points,
-                    self.scaled_centroids,
-                )
+            fitness.evaluate_fitness_distance(
+                self.fitnesses,
+                self.scaled_points,
+                self.scaled_centroids,
+                self.raw_objectives,
+                self.objective_scaler,
+                self.fitness_method,
+                self.include_obj_in_fitness,
+            )
 
     def evaluate_diversity(self):
         """
@@ -686,7 +648,6 @@ class Population:
             self.fitnesses = _add_niche_to_array(self.fitnesses, new_niche_size)
             self.noptimal_mask = _add_niche_to_array(self.noptimal_mask, new_niche_size)
             self.scaled_centroids = _add_niche_to_array(self.scaled_centroids, new_niche_size)
-            self.niche_elites = _add_niche_to_array(self.niche_elites, new_niche_size - 1)
             self.parents = _add_niche_to_array(self.parents, new_niche_size)
 
             self.optima_points = _add_niche_to_array(self.optima_points, new_niche_size)
@@ -697,7 +658,6 @@ class Population:
             self.optima_fitnesses = _add_niche_to_array(self.optima_fitnesses, new_niche_size)
             self.optima_noptimal_mask = _add_niche_to_array(self.optima_noptimal_mask, new_niche_size)
 
-            self.unselfish_niche_fitness_threshold = nbfloat(0.0)
             self.num_niches = new_niche_size
 
     def _resize_pop_size(self, new_pop_size: int):
@@ -828,7 +788,7 @@ class Population:
 
         self.scaled_centroids /= self.pop_size
 
-        if self.angular_fitness:
+        if self.fitness_method == 0:
             self.scaled_centroids[0, :self.scaled_ndim] = self.optima_scaled_points[0]
             if self.include_obj_in_fitness:
                 self.scaled_centroids[0, self.scaled_ndim] = self.optima_raw_objectives[0] * self.objective_scaler

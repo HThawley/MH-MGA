@@ -54,15 +54,14 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         log_dir=file_prefix,
         log_freq=-1,
         random_seed=seed,
-        include_obj_in_fitness=False,
-        # angular_fitness=True,
+        include_obj_in_fitness=True,
     )
 
     algorithm.add_niches(num_niches=6)
     # algorithm.starting_points = np.full((20, 50, 2), 0.5)
     algorithm.update_hyperparameters(
         max_iter=200,
-        pop_size=5,
+        pop_size=50,
         champ_count=0,
         elite_count=0.2,
         tourn_count=-1,
@@ -71,30 +70,21 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         mutation_sigma=0.2,
         mutation_alpha=0.0,
         crossover_prob=0.0,
-        niche_elitism="selfish",
+        niche_elitism=True,
         noptimal_rel=0.12,
         objective_scaler=0.01,
         space_scaler=np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]]),
+        fitness_method="L2",
         )
-    # algorithm.set_verbosity(disp_rate=1, verbose=2)
+    algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
 
     # algorithm.add_niches(num_niches=10)
-    # algorithm.update_hyperparameters(
-    #     max_iter=50,
-    #     pop_size=200,
-    #     champ_count=5,
-    #     elite_count=0.2,
-    #     tourn_count=-1,
-    #     tourn_size=2,
-    #     mutation_prob=0.25,
-    #     mutation_sigma=(0.05, 0.5),
-    #     crossover_prob=0.0,
-    #     niche_elitism="selfish",
-    #     noptimal_rel=0.12,
-    #     space_scaler=np.array([2.0, 1.0]),
-    # )
-    # algorithm.step()
+    algorithm.update_hyperparameters(
+        max_iter=50,
+        fitness_method="angular",
+    )
+    algorithm.step()
 
     # algorithm.update_hyperparameters(
     #     max_iter=200,
@@ -233,8 +223,8 @@ if __name__ == "__main__":
     # plot()
 
     file_prefix = "logs/testprob"
-    algorithm = run(complex_objective, seed=2, file_prefix=file_prefix)
-    plot(file_prefix, complex_objective)
+    algorithm = run(convex_objective, seed=2, file_prefix=file_prefix)
+    plot(file_prefix, convex_objective)
 
     # for i in range(20):
     #     algorithm.step()

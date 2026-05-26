@@ -37,11 +37,12 @@ class MGAProblem:
         "violation_factor": 1.0,
         "noptimal_rel": 0.0,
         "noptimal_abs": 0.0,
-        "niche_elitism": "selfish",
+        "niche_elitism": True,
         "mutation_scaler": "bounds",
         "space_scaler": None,
         "objective_scaler": None,
         "repulsion_weight": 1.0,
+        "fitness_method": "L2"
     }
 
     def __init__(
@@ -55,7 +56,6 @@ class MGAProblem:
         parallelize: bool = True,
         callback: Callable = None,
         include_obj_in_fitness: bool = False,
-        angular_fitness: bool = False,
         pure_optimization: bool = False,
     ):
         """
@@ -69,7 +69,6 @@ class MGAProblem:
         typing.sanitize_type(random_seed, ("integer", "none"), "random_seed")
         typing.sanitize_type(parallelize, "boolean", "parallelize")
         typing.sanitize_type(include_obj_in_fitness, "boolean", "include_obj_in_fitness")
-        typing.sanitize_type(angular_fitness, "boolean", "angular_fitness")
         typing.sanitize_type(pure_optimization, "boolean", "pure_optimization")
 
         # Instantiation
@@ -77,7 +76,6 @@ class MGAProblem:
         self.rng = np.random.default_rng(random_seed)
         self.stable_sort = random_seed is not None
         self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
-        self.angular_fitness = angular_fitness
         self.pure_optimization = pure_optimization
 
         if x0 is None:
@@ -95,10 +93,10 @@ class MGAProblem:
         self.current_iter = 0
         self.start_time = dt.now()
 
-        self.niche_elitism_dict = {
-            None: npint(0),
-            "selfish": npint(1),
-            "unselfish": npint(2),
+        self.fitness_method_dict = {
+            "angular": npint(0),
+            "L1": npint(1),
+            "L2": npint(2),
         }
         self.verbosity = 0
         self.disp_rate = 0
@@ -112,7 +110,7 @@ class MGAProblem:
         self.hyperparameters_set = False
 
         # Hyperparameter Defaults
-        self.update_hyperparameters(**self._DEFAULT_HYPERPARAMS)
+        self.reset_hyperparameters()
 
         # Evaluation Paths
         self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
@@ -158,11 +156,12 @@ class MGAProblem:
         violation_factor: float = _SENTINEL,
         noptimal_rel: float = _SENTINEL,
         noptimal_abs: float = _SENTINEL,
-        niche_elitism: str = _SENTINEL,
+        niche_elitism: bool = _SENTINEL,
         mutation_scaler: np.ndarray | str = _SENTINEL,
         space_scaler: np.ndarray | str = _SENTINEL,
         objective_scaler: float = _SENTINEL,
         repulsion_weight: float = _SENTINEL,
+        fitness_method: str = _SENTINEL,
     ):
         updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != 'self'}
 
@@ -202,10 +201,9 @@ class MGAProblem:
         # Update Categoricals
         if "niche_elitism" in updates:
             val = updates["niche_elitism"]
-            if val not in (None, "selfish", "unselfish"):
-                raise ValueError(f"'niche_elitism' expected one of (None, 'selfish', 'unselfish'). Received: {val}")
-            self.niche_elitism = val
-            self.niche_elitism_int = self.niche_elitism_dict[val]
+            if val not in (None, True, False):
+                raise ValueError(f"'niche_elitism' expected one of (None, True, False). Received: {val}")
+            self.niche_elitism = bool(val)
 
         # Cascading Selection Counts
         if any(k in updates for k in ("champ_count", "elite_count", "tourn_count", "pop_size")):
@@ -297,6 +295,13 @@ class MGAProblem:
                 typing.sanitize_type(os, 'float', 'objective_scaler')
                 self.objective_scaler = npfloat(os)
 
+        if "fitness_method" in updates:
+            fm = updates["fitness_method"]
+            if fm not in ("angular", "L1", "L2"):
+                raise ValueError(f"Unknown fitness method. Expected one of ('angular', 'L1', 'L2'). Got: '{fm}'")
+            self.fitness_method = fm
+
+        self.fitness_method_int = self.fitness_method_dict[self.fitness_method]
         self.hyperparameters_set = True
 
     def reset_hyperparameters(self):
@@ -330,7 +335,6 @@ class MGAProblem:
             stable_sort=self.stable_sort,
             include_obj_in_fitness=self.include_obj_in_fitness,
             pure_optimization=self.pure_optimization,
-            angular_fitness=self.angular_fitness,
         )
         load_problem_to_population(self.population, self.problem)
 
@@ -598,7 +602,7 @@ class MGAProblem:
             self.mutation_sigma,
             self.mutation_alpha,
             self.crossover_prob,
-            self.niche_elitism_int,
+            self.niche_elitism,
             self.noptimal_rel,
             self.noptimal_abs,
             self.violation_factor,
@@ -606,6 +610,7 @@ class MGAProblem:
             self.space_scaler,
             self.objective_scaler,
             self.repulsion_weight,
+            self.fitness_method_int,
         )
         self._update_parent_size()
 
