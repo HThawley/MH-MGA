@@ -42,7 +42,7 @@ class MGAProblem:
         "space_scaler": None,
         "objective_scaler": None,
         "repulsion_weight": 1.0,
-        "fitness_method": "L2"
+        "fitness_method": "l2"
     }
 
     def __init__(
@@ -95,8 +95,8 @@ class MGAProblem:
 
         self.fitness_method_dict = {
             "angular": npint(0),
-            "L1": npint(1),
-            "L2": npint(2),
+            "11": npint(1),
+            "12": npint(2),
         }
         self.verbosity = 0
         self.disp_rate = 0
@@ -296,9 +296,9 @@ class MGAProblem:
                 self.objective_scaler = npfloat(os)
 
         if "fitness_method" in updates:
-            fm = updates["fitness_method"]
-            if fm not in ("angular", "L1", "L2"):
-                raise ValueError(f"Unknown fitness method. Expected one of ('angular', 'L1', 'L2'). Got: '{fm}'")
+            fm = updates["fitness_method"].lower()
+            if fm not in ("angular", "l1", "l2"):
+                raise ValueError(f"Unknown fitness method. Expected one of ('angular', 'l1', 'l2'). Got: '{fm}'")
             self.fitness_method = fm
 
         self.fitness_method_int = self.fitness_method_dict[self.fitness_method]
