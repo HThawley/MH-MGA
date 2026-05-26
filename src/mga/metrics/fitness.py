@@ -81,10 +81,10 @@ def _distance_with_objective(
 
                 dist = 0
                 for k in range(ndim):
-                    dist += (points[i, j, k] - centroids[c, k]) ** power
+                    dist += abs(points[i, j, k] - centroids[c, k]) ** power
 
                 # Add objective dimension distance
-                dist += (scaled_obj - centroids[c, -1]) ** power
+                dist += abs(scaled_obj - centroids[c, -1]) ** power
 
                 if dist < min_dist:
                     min_dist = dist
@@ -104,7 +104,7 @@ def _distance_standard(fitness, points, centroids, power, inv_power):
 
                 dist = 0
                 for k in range(ndim):
-                    dist += (points[i, j, k] - centroids[c, k]) ** power
+                    dist += abs(points[i, j, k] - centroids[c, k]) ** power
 
                 if dist < min_dist:
                     min_dist = dist
