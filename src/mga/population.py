@@ -117,6 +117,7 @@ class Population:
         self.num_niches = nbint(num_niches)
         self.pop_size = nbint(pop_size)
         self.ndim = nbint(ndim)
+        self.scaled_ndim = nbint(ndim)
         self.parent_size = nbint(0)
         self.stable_sort = stable_sort
         self.rng = rng
@@ -356,12 +357,13 @@ class Population:
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
         self.space_scaler = np.ascontiguousarray(space_scaler).astype(nbfloat)
-        new_scaled_ndim = space_scaler.shape[1]
-        if new_scaled_ndim != self.scaled_ndim:
-            self.scaled_ndim = nbint(new_scaled_ndim)
-            self._allocate_scaled_arrays()
+        if not self.scaling_in_obj_func:
+            new_scaled_ndim = space_scaler.shape[1]
+            if new_scaled_ndim != self.scaled_ndim:
+                self.scaled_ndim = nbint(new_scaled_ndim)
+                self._allocate_scaled_arrays()
+            self._rescale_bounds()
 
-        self._rescale_bounds()
         self.dither_probabilities()
 
         self.hyperparameters_set = True
@@ -577,6 +579,7 @@ class Population:
                 self.include_obj_in_fitness,
             )
 
+# 2. Replace Population.evaluate_diversity (lines 415-445) with:
     def evaluate_diversity(self):
         """
         Calculates and returns a vector of diversity metrics for the current population state.
@@ -593,6 +596,10 @@ class Population:
 
         # Shannon Index
         if scaled_nopt_points.shape[0] >= 1:
+            if self.scaling_in_obj_func:
+                for sk in range(self.scaled_ndim):
+                    self.scaled_lower_bounds[sk] = np.min(self.scaled_points[:, :, sk])
+                    self.scaled_upper_bounds[sk] = np.max(self.scaled_points[:, :, sk])
             self.shannon = diversity.mean_of_shannon_of_projections(
                 scaled_nopt_points,
                 self.scaled_lower_bounds,
@@ -961,6 +968,10 @@ def load_problem_to_population(
     population.scaling_in_obj_func = problem.return_scaled
     population.lower_bounds = problem.lower_bounds
     population.upper_bounds = problem.upper_bounds
+
+    if problem.return_scaled and problem.scaled_ndim != population.scaled_ndim:
+        population.scaled_ndim = nbint(problem.scaled_ndim)
+        population._allocate_scaled_arrays()
 
     population.is_continuous_space = (population.integrality.sum() == 0)
 
