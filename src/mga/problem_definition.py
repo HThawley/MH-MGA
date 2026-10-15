@@ -51,7 +51,8 @@ class OptimizationProblem:
         typing.sanitize_type(vectorized, "boolean", "vectorized")
         typing.sanitize_type(constraints, "boolean", "constraints")
         typing.sanitize_type(return_scaled, "boolean", "return_scaled")
-        typing.sanitize_type(scaled_ndim, "integer", "scaled_ndim")
+        if scaled_ndim is not None:
+            typing.sanitize_type(scaled_ndim, "integer", "scaled_ndim")
 
         if typing.is_boolean(integrality):
             integrality = integrality * np.ones(len(bounds[0]), np.bool_)
