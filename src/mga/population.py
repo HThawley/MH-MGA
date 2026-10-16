@@ -15,6 +15,7 @@ if JIT_ENABLED:
         ('num_niches', nbint),
         ('pop_size', nbint),
         ('ndim', nbint),
+        ('scaled_ndim', nbint),
         ('parent_size', nbint),
         ('stable_sort', boolean),
         ('include_obj_in_fitness', boolean),
@@ -77,7 +78,6 @@ if JIT_ENABLED:
         ('repulsion_weight', nbfloat),
         ('fitness_method', nbint),
 
-        ('scaled_ndim', nbint),
         ('log_mutation_sigma', nbfloat[:]),
         ('current_mutation_prob', nbfloat),
         ('current_mutation_sigma', nbfloat),
