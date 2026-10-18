@@ -2,9 +2,13 @@ import numpy as np
 from mga.commons.numba_overload import njit
 from mga.commons.types import npfloat, npintp
 from mga.metrics.diversity import volume_estimation_by_shadow_addition
+from mga.metrics.distances import _minkowski_distance, _angular_separation
 
 
-def project_space(points: np.ndarray, space_scaler: np.ndarray | None = None) -> np.ndarray:
+def project_space(
+    points: np.ndarray,
+    space_scaler: np.ndarray | None = None,
+) -> np.ndarray:
     """
     Projects raw decision vectors into a scaled evaluation space using the provided space scaler.
     Supports both 1D element-wise scaling arrays and 2D linear projection matrices, aligning
@@ -74,6 +78,9 @@ def _max_min_dispersion_distance(
     selected = np.zeros(n, dtype=npintp)
     selected[0] = 0
 
+    is_selected = np.zeros(num_points, dtype=np.bool_)
+    is_selected[0] = True
+
     min_dists = np.full(num_points, np.inf, dtype=npfloat)
 
     power = 2.0 if method == 2 else 1.0
@@ -85,10 +92,10 @@ def _max_min_dispersion_distance(
         best_idx = -1
 
         for i in range(num_points):
-            dist = 0.0
-            for d in range(ndim):
-                dist += abs(points[i, d] - last_selected[d]) ** power
-            dist = dist ** inv_power
+            if is_selected[i]:
+                continue
+
+            dist = _minkowski_distance(points[i], last_selected, power, inv_power)
 
             if dist < min_dists[i]:
                 min_dists[i] = dist
@@ -98,6 +105,7 @@ def _max_min_dispersion_distance(
                 best_idx = i
 
         selected[k] = best_idx
+        is_selected[best_idx] = True
 
     return selected
 
@@ -117,6 +125,9 @@ def _max_min_dispersion_angular(
     selected[0] = 0
     anchor = points[0]
 
+    is_selected = np.zeros(num_points, dtype=np.bool_)
+    is_selected[0] = True
+
     min_dists = np.full(num_points, np.inf, dtype=npfloat)
 
     for k in range(1, n):
@@ -125,31 +136,29 @@ def _max_min_dispersion_angular(
         best_idx = -1
 
         for i in range(num_points):
-            dp = 0.0
-            np_sq = 0.0
-            nc_sq = 0.0
+            if is_selected[i]:
+                continue
 
-            for d in range(ndim):
-                v_p = points[i, d] - anchor[d]
-                v_c = last_selected[d] - anchor[d]
+            if k == 1:
+                # Bootstrap: Find L2 furthest point, but DO NOT write to min_dists
+                dist = _minkowski_distance(points[i], anchor, 2.0, 1.0)  # Using squared distance to avoid sqrt
 
-                dp += v_p * v_c
-                np_sq += v_p * v_p
-                nc_sq += v_c * v_c
-
-            if np_sq == 0.0 or nc_sq == 0.0:
-                dist = 0.0
+                if dist > best_dist:
+                    best_dist = dist
+                    best_idx = i
             else:
-                dist = 1.0 - (dp / ((np_sq * nc_sq) ** 0.5))
+                # k >= 2: Evaluate true angular separation and update state
+                dist = _angular_separation(points[i], last_selected, anchor)
 
-            if dist < min_dists[i]:
-                min_dists[i] = dist
+                if dist < min_dists[i]:
+                    min_dists[i] = dist
 
-            if min_dists[i] > best_dist:
-                best_dist = min_dists[i]
-                best_idx = i
+                if min_dists[i] > best_dist:
+                    best_dist = min_dists[i]
+                    best_idx = i
 
         selected[k] = best_idx
+        is_selected[best_idx] = True
 
     return selected
 
@@ -171,7 +180,7 @@ def _vesa_dispersion(
     is_selected[0] = True
 
     for k in range(1, n):
-        best_vesa = -1.0
+        best_metric = -1.0
         best_idx = -1
 
         subset = np.empty((k + 1, ndim), dtype=npfloat)
@@ -184,11 +193,15 @@ def _vesa_dispersion(
             if is_selected[i]:
                 continue
 
-            subset[k] = points[i]
-            current_vesa = volume_estimation_by_shadow_addition(subset, subset_mask)
+            if k == 1:
+                # Bootstrap k=1 using L2 distance squared
+                current_metric = _minkowski_distance(points[i], points[0], 2.0, 1.0)
+            else:
+                subset[k] = points[i]
+                current_metric = volume_estimation_by_shadow_addition(subset, subset_mask)
 
-            if current_vesa > best_vesa:
-                best_vesa = current_vesa
+            if current_metric > best_metric:
+                best_metric = current_metric
                 best_idx = i
 
         selected[k] = best_idx

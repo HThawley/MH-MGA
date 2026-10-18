@@ -1,6 +1,11 @@
 import numpy as np
 
 from mga.commons.numba_overload import njit
+from mga.metrics.distances import (
+    _minkowski_distance,
+    _angular_separation,
+    _angular_separation_ext,
+)
 
 
 # API functions
@@ -31,11 +36,11 @@ def evaluate_fitness_distance(
     optionally includes the scaled objective value as an additional dimension.
     """
     if method == 2:
-        power = 2
+        power = 2.0
         inv_power = 0.5
     elif method == 1:
-        power = 1
-        inv_power = 1
+        power = 1.0
+        inv_power = 1.0
     else:
         raise Exception
 
@@ -50,17 +55,17 @@ def evaluate_fitness_distance(
 @njit
 def evaluate_fitness_pure_optimization(fitness, points, centroids, raw_objectives, repulsion_weight, method):
     if method == 2:
-        power = 2
+        power = 2.0
         inv_power = 0.5
     elif method == 1:
-        power = 1
-        inv_power = 1
+        power = 1.0
+        inv_power = 1.0
     else:
         raise Exception
 
     for i in range(1, points.shape[0]):
         for j in range(points.shape[1]):
-            dist = ((points[i, j] - centroids[0]) ** power).sum() ** inv_power
+            dist = _minkowski_distance(points[i, j], centroids[0], power, inv_power)
             fitness[i, j] = (dist * repulsion_weight) + (raw_objectives[i, j] * (1.0 - repulsion_weight))
 
 
@@ -79,15 +84,15 @@ def _distance_with_objective(
                 if i == c:
                     continue
 
-                dist = 0
-                for k in range(ndim):
-                    dist += abs(points[i, j, k] - centroids[c, k]) ** power
+                # Calculate base spatial distance (un-inversed to allow adding the objective dimension)
+                dist = _minkowski_distance(points[i, j], centroids[c, :ndim], power, 1.0)
 
                 # Add objective dimension distance
                 dist += abs(scaled_obj - centroids[c, -1]) ** power
 
                 if dist < min_dist:
                     min_dist = dist
+
             fitness[i, j] = min_dist ** inv_power
 
 
@@ -102,12 +107,11 @@ def _distance_standard(fitness, points, centroids, power, inv_power):
                 if i == c:
                     continue
 
-                dist = 0
-                for k in range(ndim):
-                    dist += abs(points[i, j, k] - centroids[c, k]) ** power
+                dist = _minkowski_distance(points[i, j], centroids[c], power, 1.0)
 
                 if dist < min_dist:
                     min_dist = dist
+
             fitness[i, j] = min_dist ** inv_power
 
 
@@ -142,69 +146,10 @@ def _angular_with_objective(anchor, fitness, points, centroids, raw_objectives, 
                     continue
 
                 ang_sep = _angular_separation_ext(
-                    points[i, j], centroids[c], anchor, scaled_obj, centroids[c, -1], anchor_obj
+                    points[i, j], centroids[c, :ndim], anchor[:ndim], scaled_obj, centroids[c, -1], anchor_obj
                 )
 
                 if ang_sep < min_ang_sep:
                     min_ang_sep = ang_sep
 
             fitness[i, j] = min_ang_sep
-
-
-@njit(fastmath=True, inline="always")
-def _accumulate_product_and_norms(p, c, anchor, dot_product, norm_p_sq, norm_c_sq):
-    v_p = p - anchor
-    v_c = c - anchor
-
-    dot_product += v_p * v_c
-    norm_p_sq += v_p * v_p
-    norm_c_sq += v_c * v_c
-
-    return dot_product, norm_p_sq, norm_c_sq
-
-
-@njit(fastmath=True, inline="always")
-def _get_vector_components(p, c, anchor):
-    """Calculates dot product and squared norms for the decision variable arrays."""
-    dot_product = 0.0
-    norm_p_sq = 0.0
-    norm_c_sq = 0.0
-
-    for k in range(len(p)):
-        dot_product, norm_p_sq, norm_c_sq = _accumulate_product_and_norms(
-           p[k], c[k], anchor[k], dot_product, norm_p_sq, norm_c_sq
-        )
-
-    return dot_product, norm_p_sq, norm_c_sq
-
-
-@njit(fastmath=True, inline="always")
-def _calc_similarity(dot_product, norm_p_sq, norm_c_sq):
-    """Calculates final 1 - cosine similarity from components."""
-    if norm_p_sq == 0.0 or norm_c_sq == 0.0:
-        return 0.0
-
-    return 1.0 - (dot_product / ((norm_p_sq * norm_c_sq) ** 0.5))
-
-
-@njit(fastmath=True, inline="always")
-def _angular_separation(p, c, anchor):
-    """
-    Calculates 1 - cosine similarity between vector (p - anchor) and (c - anchor).
-    Returns 0.0 to 2.0.
-    """
-    dp, np_sq, nc_sq = _get_vector_components(p, c, anchor)
-    return _calc_similarity(dp, np_sq, nc_sq)
-
-
-@njit(fastmath=True, inline="always")
-def _angular_separation_ext(p, c, anchor, p_obj, c_obj, anchor_obj):
-    """
-    Calculates 1 - cosine similarity with an appended objective dimension.
-    """
-    dp, np_sq, nc_sq = _get_vector_components(p, c, anchor)
-
-    # Add objective dimension
-    dp, np_sq, nc_sq = _accumulate_product_and_norms(p_obj, c_obj, anchor_obj, dp, np_sq, nc_sq)
-
-    return _calc_similarity(dp, np_sq, nc_sq)
