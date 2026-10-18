@@ -39,7 +39,7 @@ def _get_vector_components(
     p: np.ndarray,
     c: np.ndarray,
     anchor: np.ndarray,
-) -> UniTuple[float]:
+) -> UniTuple:
     dot_product = 0.0
     norm_p_sq = 0.0
     norm_c_sq = 0.0
