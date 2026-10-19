@@ -25,7 +25,7 @@ def _accumulate_product_and_norms(
     dot_product: float,
     norm_p_sq: float,
     norm_c_sq: float,
-) -> UniTuple[float]:
+) -> UniTuple:
     v_p = p - anchor
     v_c = c - anchor
     dot_product += v_p * v_c
