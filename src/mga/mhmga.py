@@ -50,6 +50,8 @@ class MGAProblem:
         problem: OptimizationProblem,
         x0: np.ndarray[float] = None,
         starting_points: np.ndarray[float] = None,
+        starting_objectives: np.ndarray[float] = None,
+        starting_constraints: np.ndarray[float] = None,
         log_dir: str | None = None,
         log_freq: int = -1,
         random_seed: int | None = None,
@@ -88,7 +90,12 @@ class MGAProblem:
             self.starting_points = np.empty([], dtype=npfloat)
         else:
             self.starting_points = self._sanitize_seed_points(starting_points, "starting_points")
-
+        self.starting_objectives = (
+            None if starting_objectives is None else np.asarray(starting_objectives, dtype=npfloat)
+        )
+        self.starting_constraints = (
+            None if starting_constraints is None else np.asarray(starting_constraints, dtype=npfloat)
+        )
         self.population = None
         self.current_iter = 0
         self.start_time = dt.now()
@@ -312,21 +319,30 @@ class MGAProblem:
         self,
         x0: np.ndarray = None,
         points: np.ndarray = None,
+        objectives: np.ndarray = None,
+        constraints: np.ndarray = None,
         force: bool = False,
         evaluate: bool = True,
     ) -> None:
         """
-        generate starting population
+        Generates and initializes the starting population.
         """
         if self._is_populated and not force:
             return
         if self.pop_size < 1:
             raise ValueError("'pop_size' must be positive definite.")
-
         if not self.hyperparameters_set:
             raise RuntimeError("Set hyperparameters before populating (`.update_hyperparameters`)")
 
-        # Initialize population
+        self._init_population_container()
+        self._seed_population_points(x0, points)
+        self._init_population_objectives(objectives, constraints, evaluate=evaluate)
+
+        self._is_populated = True
+        self._update_parent_size()
+
+    def _init_population_container(self) -> None:
+        """Instantiates the Population jitclass and binds problem & hyperparameters."""
         self.population = Population(
             num_niches=self.num_niches,
             pop_size=self.pop_size,
@@ -337,9 +353,10 @@ class MGAProblem:
             pure_optimization=self.pure_optimization,
         )
         load_problem_to_population(self.population, self.problem)
-
         self._update_population_hyperparameters()
 
+    def _seed_population_points(self, x0: np.ndarray = None, points: np.ndarray = None) -> None:
+        """Loads initial optimum x0 and populates decision variable points."""
         x0_given = x0 is not None and x0.size > 0 and x0.ndim > 0
         points_given = points is not None and points.size > 0 and points.ndim > 0
         _optimum = -np.inf if self.problem.maximize else np.inf
@@ -347,9 +364,10 @@ class MGAProblem:
         if x0_given:
             _optimum_point = x0
         elif points_given:
-            _optimum_point = points[0]
+            _optimum_point = points[0] if points.ndim == 2 else points[0, 0]
         else:
             _optimum_point = np.empty([], npfloat)
+
         self.population._load_optimum(_optimum_point, _optimum, 0.0, 0.0)
 
         if points_given:
@@ -358,19 +376,46 @@ class MGAProblem:
             pop_seed = x0
         else:
             pop_seed = np.empty([], npfloat)
+
         self.population.initialize_population(pop_seed)
 
         if not self.problem.constraints:
             self.population.violations[:] = 0.0
 
-        if evaluate:
+    def _init_population_objectives(
+        self,
+        objectives: np.ndarray = None,
+        constraints: np.ndarray = None,
+        evaluate: bool = True,
+    ) -> None:
+        """Evaluates population or loads pre-evaluated objectives/constraints, then updates fitness & optima."""
+        has_preloaded = (
+            objectives is not None
+            and (not self.problem.constraints or constraints is not None)
+        )
+
+        if not evaluate and has_preloaded and not self.problem.return_scaled:
+            self.population.raw_objectives[:] = objectives.astype(npfloat)
+            if self.problem.constraints:
+                self.population.violations[:] = constraints.astype(npfloat)
+            self.population.penalized_objectives[:] = (
+                self.population.raw_objectives + self.population.violations * self.violation_factor
+            )
+        else:
+            if not evaluate and self.problem.return_scaled:
+                warnings.warn(
+                    "[MHMGA] Cannot skip evaluation when problem.return_scaled is True. Re-evaluating.",
+                    UserWarning,
+                )
+            elif not evaluate and not has_preloaded:
+                warnings.warn(
+                    "[MHMGA] evaluate=False requested but objectives/constraints missing. Re-evaluating.",
+                    UserWarning,
+                )
             self._evaluate_points()
-            self.population.evaluate_fitness()
-            self.population.track_optima()
 
-        self._is_populated = True
-
-        self._update_parent_size()
+        self.population.evaluate_fitness()
+        self.population.track_optima()
 
     def set_verbosity(self, disp_rate=None, verbose=None):
         if disp_rate is not None:
@@ -383,6 +428,7 @@ class MGAProblem:
     def step(  # noqa: C901
         self,
         convergence_criteria: None | term.Convergence | list[term.Convergence] = None,
+        evaluate_initial: bool | None = None
     ):
         """
         Executes the main optimization loop.
@@ -397,8 +443,17 @@ class MGAProblem:
             if not hasattr(self, "num_niches") or self.num_niches < 1:
                 raise RuntimeError(f"'num_niches' must be greater than zero. Got: {self.num_niches}"
                                    ". Call `.add_niches()` first.")
-            self._populate(self.x0, self.starting_points)
-            if self.callback is not None:
+            if evaluate_initial is None:
+                evaluate_initial = self.starting_objectives is None
+
+            self._populate(
+                x0=self.x0,
+                points=self.starting_points,
+                objectives=self.starting_objectives,
+                constraints=self.starting_constraints,
+                evaluate=evaluate_initial,
+            )
+            if self.callback is not None and evaluate_initial:
                 self.callback(self.population)
         else:
             self._update_population_hyperparameters()
@@ -462,15 +517,13 @@ class MGAProblem:
             cons_given = False  # ignore constraint inputs if problem has no constraints
             evaluate = point_objectives is None
 
-        self._populate(starting_points, force=True, evaluate=evaluate)
-        if not evaluate:
-            self.population.raw_objectives[0, :] = point_objectives.astype(npfloat)
-            self.population.violations[0, :] = point_constraints.astype(npfloat) if cons_given else npfloat(0.0)
-            self.population.penalized_objectives[:] = (
-                self.population.raw_objectives + self.population.violations * self.violation_factor
-            )
-            self.population.evaluate_fitness()
-            self.population.track_optima()
+        self._populate(
+            points=starting_points,
+            objectives=point_objectives,
+            constraints=point_constraints,
+            force=True,
+            evaluate=evaluate,
+        )
 
         starting_points = self.population.points[0, :, :].copy()  # standardise output to 2D
         point_objectives = self.population.raw_objectives[0, :].copy()
@@ -528,13 +581,12 @@ class MGAProblem:
 
         typing.sanitize_type(points, np.ndarray, name)
 
-        # Flatten if num_niches or pop_size is 1
-        if points.shape[0] == 1:
-            points = points[0]
-        if points.shape[0] == 1:
-            points = points[0]
-
         if check_all_dims:
+            if points.ndim == 3 and points.shape[0] == 1:
+                points = points[0]
+            if points.ndim == 2 and points.shape[0] == 1 and self.pop_size == 1:
+                points = points[0]
+
             expected_shape = {
                 1: (self.problem.ndim,),
                 2: (self.pop_size, self.problem.ndim),
@@ -557,8 +609,7 @@ class MGAProblem:
                     f"Last dimension of '{name}' should be ndim={self.problem.ndim}. Got shape {points.shape}."
                 )
 
-        points = points.astype(npfloat)
-        return points
+        return points.astype(npfloat)
 
     def _run_iteration(self):
         """
