@@ -115,6 +115,7 @@ class MGAProblem:
         self.callback = callback
         self.include_obj_in_fitness = include_obj_in_fitness
         self.hyperparameters_set = False
+        self._stop_requested = False
 
         # Hyperparameter Defaults
         self.reset_hyperparameters()
@@ -437,7 +438,6 @@ class MGAProblem:
             raise RuntimeError("Set hyperparameters before launching a step (`.update_hyperparameters`)")
 
         termination_handler = self.configure_termination(convergence_criteria)
-
         # Instantiation
         if not self._is_populated:
             if not hasattr(self, "num_niches") or self.num_niches < 1:
@@ -459,6 +459,7 @@ class MGAProblem:
             self._update_population_hyperparameters()
 
         # Main algorithm loop
+        self._stop_requested = False
         try:
             while not termination_handler(self):
                 self._display_progress()
@@ -480,7 +481,7 @@ class MGAProblem:
 
         except KeyboardInterrupt:
             print("Received Keyboard Interrupt. Terminating gracefully.")
-            pass
+            self._stop_requested = True
 
         self._display_progress()
 
