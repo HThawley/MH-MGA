@@ -479,7 +479,9 @@ class MGAProblem:
                 if self.callback is not None:
                     self.callback(self.population)
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemError) as exc:
+            if isinstance(exc, SystemError) and not getattr(self, "_stop_requested", False):
+                raise exc
             print("Received Keyboard Interrupt. Terminating gracefully.")
             self._stop_requested = True
 
