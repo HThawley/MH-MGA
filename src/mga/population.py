@@ -181,23 +181,23 @@ class Population:
         self.variances = np.empty(0, dtype=npfloat)  # len=num_niches
 
         # Population data arrays
-        self.points = np.empty((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
-        self.raw_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
+        self.points = np.zeros((self.num_niches, self.pop_size, self.ndim), dtype=npfloat)
+        self.raw_objectives = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
         self.violations = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
-        self.penalized_objectives = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
-        self.feasible_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.fitnesses = np.empty((self.num_niches, self.pop_size), dtype=npfloat)
-        self.noptimal_mask = np.empty((self.num_niches, self.pop_size), dtype=np.bool_)
-        self.parents = np.empty((self.num_niches, 0, self.ndim), dtype=npfloat)
-        self.parent_indices = np.empty((0,), dtype=npintp)
+        self.penalized_objectives = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
+        self.feasible_mask = np.zeros((self.num_niches, self.pop_size), dtype=np.bool_)
+        self.fitnesses = np.zeros((self.num_niches, self.pop_size), dtype=npfloat)
+        self.noptimal_mask = np.zeros((self.num_niches, self.pop_size), dtype=np.bool_)
+        self.parents = np.zeros((self.num_niches, 0, self.ndim), dtype=npfloat)
+        self.parent_indices = np.zeros((0,), dtype=npintp)
 
         # Overall best found
-        self.optima_points = np.empty((self.num_niches, self.ndim), dtype=npfloat)
-        self.optima_raw_objectives = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_violations = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_penalized_objectives = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_fitnesses = np.empty((self.num_niches), dtype=npfloat)
-        self.optima_noptimal_mask = np.empty((self.num_niches), dtype=np.bool_)
+        self.optima_points = np.zeros((self.num_niches, self.ndim), dtype=npfloat)
+        self.optima_raw_objectives = np.zeros((self.num_niches), dtype=npfloat)
+        self.optima_violations = np.zeros((self.num_niches), dtype=npfloat)
+        self.optima_penalized_objectives = np.zeros((self.num_niches), dtype=npfloat)
+        self.optima_fitnesses = np.zeros((self.num_niches), dtype=npfloat)
+        self.optima_noptimal_mask = np.zeros((self.num_niches), dtype=np.bool_)
         self.noptimal_threshold = 0.0
         self.current_optimum = 0.0
 
@@ -831,18 +831,18 @@ class Population:
             self.parent_indices = np.empty(self.parent_size, npintp)
 
     def _allocate_scaled_arrays(self):
-        self.scaled_points = np.empty((self.num_niches, self.pop_size, self.scaled_ndim))
-        self.optima_scaled_points = np.empty((self.num_niches, self.scaled_ndim))
+        self.scaled_points = np.zeros((self.num_niches, self.pop_size, self.scaled_ndim))
+        self.optima_scaled_points = np.zeros((self.num_niches, self.scaled_ndim))
 
         if self.pure_optimization:
-            self.scaled_centroids = np.empty((1, self.scaled_ndim), dtype=npfloat)
+            self.scaled_centroids = np.zeros((1, self.scaled_ndim), dtype=npfloat)
         elif self.include_obj_in_fitness:
-            self.scaled_centroids = np.empty((self.num_niches, self.scaled_ndim + 1), dtype=npfloat)
+            self.scaled_centroids = np.zeros((self.num_niches, self.scaled_ndim + 1), dtype=npfloat)
         else:
-            self.scaled_centroids = np.empty((self.num_niches, self.scaled_ndim), dtype=npfloat)
+            self.scaled_centroids = np.zeros((self.num_niches, self.scaled_ndim), dtype=npfloat)
 
-        self.scaled_lower_bounds = np.empty(self.scaled_ndim, dtype=npfloat)
-        self.scaled_upper_bounds = np.empty(self.scaled_ndim, dtype=npfloat)
+        self.scaled_lower_bounds = np.zeros(self.scaled_ndim, dtype=npfloat)
+        self.scaled_upper_bounds = np.zeros(self.scaled_ndim, dtype=npfloat)
 
     def _find_scaled_centroids(self):
         """
@@ -1019,7 +1019,7 @@ def _add_niche_to_array(old_array, num_niches):
     # 3. Dynamically create the new shape
     new_shape = (num_niches,) + old_array.shape[1:]
     # 4. Create the new array
-    new_array = np.empty(new_shape, dtype=old_array.dtype)
+    new_array = np.zeros(new_shape, dtype=old_array.dtype)
     # 5. Copy the old data into the new array using slicing
     # This is ndim-agnostic
     new_array[: old_array.shape[0]] = old_array
