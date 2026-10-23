@@ -56,19 +56,17 @@ def _calc_similarity(
     norm_p_sq: float,
     norm_c_sq: float,
 ) -> float:
-    if norm_p_sq == 0.0 or norm_c_sq == 0.0:
+    if norm_p_sq <= 0.0 or norm_c_sq <= 0.0:
         return 0.0
 
-    denominator = (norm_p_sq * norm_c_sq) ** 0.5
+    denominator = np.sqrt(norm_p_sq * norm_c_sq)
 
-    # Catch 0.0 to avoid runtime warnings on identical origin points
-    if denominator == 0.0:
-        return 1.0
+    if denominator <= 0.0 or np.isnan(denominator):
+        return 0.0
 
     sim = dot_product / denominator
 
-    # Clamp float imprecision to prevent negative angular separation
-    if sim >= 1.0:
+    if np.isnan(sim) or sim >= 1.0:
         return 0.0
     elif sim <= -1.0:
         return 2.0

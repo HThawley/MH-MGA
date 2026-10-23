@@ -606,9 +606,6 @@ class Population:
                 self._set_optimum(i, ei, ej)
                 self.optima_noptimal_mask[i] = True
 
-                val = self.scaled_points[ei, ej, dim_k]
-                self.optima_fitnesses[i] = -val if is_min else val
-
             elif not incumbent_noptimal:
                 best_j = utils.argm(self.penalized_objectives[i], self.maximize)
                 self._set_optimum(i, i, best_j)
