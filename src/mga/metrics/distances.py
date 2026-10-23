@@ -58,7 +58,22 @@ def _calc_similarity(
 ) -> float:
     if norm_p_sq == 0.0 or norm_c_sq == 0.0:
         return 0.0
-    return 1.0 - (dot_product / ((norm_p_sq * norm_c_sq) ** 0.5))
+
+    denominator = (norm_p_sq * norm_c_sq) ** 0.5
+
+    # Catch 0.0 to avoid runtime warnings on identical origin points
+    if denominator == 0.0:
+        return 1.0
+
+    sim = dot_product / denominator
+
+    # Clamp float imprecision to prevent negative angular separation
+    if sim >= 1.0:
+        return 0.0
+    elif sim <= -1.0:
+        return 2.0
+
+    return 1.0 - sim
 
 
 @njit(fastmath=True, inline="always")
