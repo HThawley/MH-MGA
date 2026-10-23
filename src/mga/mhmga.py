@@ -39,7 +39,6 @@ class MGAProblem:
         "noptimal_abs": 0.0,
         "niche_elitism": True,
         "mutation_scaler": "bounds",
-        "space_scaler": None,
         "objective_scaler": None,
         "repulsion_weight": 1.0,
         "fitness_method": "l2"
@@ -59,6 +58,7 @@ class MGAProblem:
         callback: Callable = None,
         include_obj_in_fitness: bool = False,
         pure_optimization: bool = False,
+        space_scaler: np.ndarray | str | None = None,
     ):
         """
         Initializes the MGA algorithm
@@ -79,6 +79,12 @@ class MGAProblem:
         self.stable_sort = random_seed is not None
         self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
         self.pure_optimization = pure_optimization
+
+        # Niche Configuration Recipe
+        self.niche_types = [0]          # 0: optimum, 1: extrema, 2: diversity
+        self.niche_target_dims = [-1]   # -1: None, >=0: scaled_dim index
+        self.niche_is_min = [False]
+        self.num_niches = 1
 
         if x0 is None:
             self.x0 = np.empty([], dtype=npfloat)
@@ -119,6 +125,9 @@ class MGAProblem:
 
         # Hyperparameter Defaults
         self.reset_hyperparameters()
+        self.space_scaler = None
+        if space_scaler is not None:
+            self.update_hyperparameters(space_scaler=space_scaler, mark_as_set=False)
 
         # Evaluation Paths
         self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
@@ -131,23 +140,120 @@ class MGAProblem:
             parallelize,  # ignored if _can_use_fast_path is False
         )
 
-    def add_niches(self, num_niches: int):
-        """
-        Adds niches to the problem
-        """
+    @property
+    def scaled_ndim(self) -> int:
+        """Resolves current scaled_ndim from problem or space_scaler."""
+        if self.problem.return_scaled:
+            return int(self.problem.scaled_ndim)
+        if hasattr(self, "space_scaler") and self.space_scaler is not None:
+            if self.space_scaler.ndim == 2 and self.space_scaler.shape[0] != 1:
+                return int(self.space_scaler.shape[1])
+        return int(self.problem.ndim)
+
+    def add_diversity_niches(self, num_niches: int):
+        """Adds standard centroid-repulsion diversity niches."""
         typing.sanitize_type(num_niches, "integer", "num_niches")
         typing.sanitize_range(num_niches, "num_niches", ge=1)
 
-        if not hasattr(self, "num_niches"):
-            self.num_niches = 0
-
-        if self.pure_optimization:
-            if self.num_niches + num_niches > 1:
-                raise ValueError("Pure optimisation does not support num_niches > 1.")
+        self.niche_types.extend([2] * num_niches)
+        self.niche_target_dims.extend([-1] * num_niches)
+        self.niche_is_min.extend([False] * num_niches)
+        self.num_niches += num_niches
 
         if self._is_populated:
-            self.population.add_niches(num_niches)
-        self.num_niches += num_niches
+            self.population.add_diversity_niches(num_niches)
+
+    def add_extrema_niches(self, target_dims: np.ndarray, is_min: np.ndarray):
+        """Adds dedicated directional search niches for specific scaled dimensions."""
+        if self.pure_optimization:
+            raise ValueError("Pure optimisation does not support extrema niches.")
+
+        target_dims = np.asarray(target_dims, dtype=npint)
+        is_min = np.asarray(is_min, dtype=np.bool_)
+
+        if len(target_dims) != len(is_min):
+            raise ValueError("Length of 'target_dims' and 'is_min' must match.")
+
+        # Filter against global bounds to clamp valid dimensions
+        valid_mask = (target_dims >= 0) & (target_dims < self.scaled_ndim)
+        target_dims = target_dims[valid_mask]
+        is_min = is_min[valid_mask]
+
+        if len(target_dims) == 0:
+            return
+
+        # Deduplicate internally within the new request
+        unique_pairs = np.unique(np.column_stack((target_dims, is_min)), axis=0)
+        req_dims = unique_pairs[:, 0]
+        req_is_min = unique_pairs[:, 1].astype(np.bool_)
+
+        # Filter against already existing extrema niches
+        existing_pairs = set()
+        for i in range(self.num_niches):
+            if self.niche_types[i] == 1:
+                existing_pairs.add((self.niche_target_dims[i], self.niche_is_min[i]))
+
+        novel_dims = []
+        novel_is_min = []
+        for d, m in zip(req_dims, req_is_min):
+            if (d, m) not in existing_pairs:
+                novel_dims.append(d)
+                novel_is_min.append(m)
+
+        if not novel_dims:
+            return  # All requested niches already exist
+
+        num_new = len(novel_dims)
+        self.niche_types.extend([1] * num_new)
+        self.niche_target_dims.extend(novel_dims)
+        self.niche_is_min.extend(novel_is_min)
+        self.num_niches += num_new
+
+        if self._is_populated:
+            self.population.add_extrema_niches(
+                np.array(novel_dims, dtype=npint),
+                np.array(novel_is_min, dtype=np.bool_)
+            )
+
+    def add_niches(
+        self,
+        diversity: int = 0,
+        extrema_dims: np.ndarray[int] | str | None = None,
+        extrema_is_min: np.ndarray[bool] | None = None,
+    ):
+        """
+        Dispatches niche allocation based on kwargs.
+        - diversity (int): Number of standard centroid-repulsion niches to add.
+        - extrema_dims (array-like | str): Target scaled dimensions, or "all", "all-min", "all-max".
+        - extrema_is_min (array-like): Boolean mask indicating if the extremum is a minimum.
+        """
+        if extrema_dims is not None:
+            if isinstance(extrema_dims, str):
+                d = self.scaled_ndim
+                mode = extrema_dims.lower()
+                if mode == "all":
+                    extrema_dims = np.repeat(np.arange(d), 2).astype(npint)
+                    extrema_is_min = np.tile([True, False], d).astype(np.bool_)
+                    print(f"[MHMGA] Attempting to generate all {2 * d} extrema niches.")
+                elif mode == "all-min":
+                    extrema_dims = np.arange(d, dtype=npint)
+                    extrema_is_min = np.ones(d, dtype=np.bool_)
+                    print(f"[MHMGA] Attempting to generate all {d} minimizing extrema niches.")
+                elif mode == "all-max":
+                    extrema_dims = np.arange(d, dtype=npint)
+                    extrema_is_min = np.zeros(d, dtype=np.bool_)
+                    print(f"[MHMGA] Attempting to generate all {d} maximizing extrema niches.")
+                else:
+                    raise ValueError(f"Unknown string value for 'extrema_dims': {extrema_dims}")
+            elif extrema_is_min is None:
+                raise ValueError("Either a special string value for 'extrema_dims' or both"
+                                 "'extrema_dims' and 'extrema_is_min' must be provided.")
+
+            self.add_extrema_niches(extrema_dims, extrema_is_min)
+
+        if diversity > 0:
+            typing.sanitize_type(diversity, "integer", "diversity")
+            self.add_diversity_niches(diversity)
 
     def update_hyperparameters(  # noqa: C901
         self,
@@ -170,6 +276,7 @@ class MGAProblem:
         objective_scaler: float = _SENTINEL,
         repulsion_weight: float = _SENTINEL,
         fitness_method: str = _SENTINEL,
+        mark_as_set: bool = True
     ):
         updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != 'self'}
 
@@ -271,26 +378,42 @@ class MGAProblem:
                 warnings.warn(
                     "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
                 )
-            if ss is None:
-                self.space_scaler = np.ones((1, self.problem.ndim), dtype=npfloat)
+                new_ss = np.ones((1, self.problem.ndim), dtype=npfloat)
+                new_scaled_ndim = self.problem.scaled_ndim
+            elif ss is None:
+                new_ss = np.ones((1, self.problem.ndim), dtype=npfloat)
+                new_scaled_ndim = self.problem.ndim
             elif isinstance(ss, str):
                 if ss.lower() == "bounds":
                     _scaler = 1.0 / (self.problem.upper_bounds - self.problem.lower_bounds)
-                    self.space_scaler = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
+                    new_ss = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
+                    new_scaled_ndim = self.problem.ndim
                 else:
                     raise ValueError(f"Received unknown space_scaler. Expected an array or 'bounds'. Got: {ss}")
             else:
-                ss = np.array(ss, dtype=npfloat)
-                if ss.ndim == 1:
-                    if ss.shape[0] != self.problem.ndim:
+                new_ss = np.array(ss, dtype=npfloat)
+                if new_ss.ndim == 1:
+                    if new_ss.shape[0] != self.problem.ndim:
                         raise ValueError(f"1D space_scaler must have length {self.problem.ndim}")
-                    self.space_scaler = ss.reshape(1, self.problem.ndim)
-                elif ss.ndim == 2:
-                    if ss.shape[0] != self.problem.ndim:
+                    new_ss = new_ss.reshape(1, self.problem.ndim)
+                    new_scaled_ndim = self.problem.ndim
+                elif new_ss.ndim == 2:
+                    if new_ss.shape[0] != self.problem.ndim:
                         raise ValueError(f"2D space_scaler must have shape ({self.problem.ndim}, k)")
-                    self.space_scaler = ss
+                    new_scaled_ndim = new_ss.shape[1]
                 else:
                     raise ValueError("Array type space_scaler must be 1D or 2D")
+
+            # Fail-fast guardrail: Prevents orphaned extrema niches
+            if hasattr(self, "num_niches") and self.num_niches > 1:
+                if new_scaled_ndim != self.scaled_ndim:
+                    raise ValueError(
+                        f"Cannot alter space_scaler dimensionality (from {self.scaled_ndim} to {new_scaled_ndim}) "
+                        "after niches have been allocated. Please define space_scaler at initialization "
+                        "or call update_hyperparameters before add_niches."
+                    )
+
+            self.space_scaler = new_ss
 
         if "objective_scaler" in updates:
             os = updates["objective_scaler"]
@@ -310,7 +433,7 @@ class MGAProblem:
             self.fitness_method = fm
 
         self.fitness_method_int = self.fitness_method_dict[self.fitness_method]
-        self.hyperparameters_set = True
+        self.hyperparameters_set = mark_as_set
 
     def reset_hyperparameters(self):
         """Restores all hyperparameters to their defaults."""
@@ -352,6 +475,9 @@ class MGAProblem:
             stable_sort=self.stable_sort,
             include_obj_in_fitness=self.include_obj_in_fitness,
             pure_optimization=self.pure_optimization,
+            niche_types=np.array(self.niche_types, dtype=npint),
+            niche_target_dims=np.array(self.niche_target_dims, dtype=npint),
+            niche_is_min=np.array(self.niche_is_min, dtype=np.bool_),
         )
         load_problem_to_population(self.population, self.problem)
         self._update_population_hyperparameters()

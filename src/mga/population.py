@@ -3,7 +3,7 @@ from numba.types import npy_rng
 
 from mga.commons.constants import JIT_ENABLED
 from mga.commons.numba_overload import njit, jitclass
-from mga.commons.types import nbint, nbintp, npintp, nbfloat, npfloat, boolean
+from mga.commons.types import nbint, nbintp, npintp, nbfloat, npfloat, boolean, npint
 import mga.commons.utils as utils
 from mga.problem_definition import OptimizationProblem
 from mga.operators import selection, crossover, mutation
@@ -21,6 +21,10 @@ if JIT_ENABLED:
         ('include_obj_in_fitness', boolean),
         ('pure_optimization', boolean),
 
+        ('pure_optimization', boolean),
+        ('niche_types', nbint[::1]),
+        ('niche_target_dims', nbint[::1]),
+        ('niche_is_min', boolean[::1]),
         ('integrality', boolean[::1]),
         ('booleanality', boolean[::1]),
         ('maximize', boolean),
@@ -113,6 +117,9 @@ class Population:
         rng: npy_rng,
         include_obj_in_fitness: bool,
         pure_optimization: bool,
+        niche_types: np.ndarray,
+        niche_target_dims: np.ndarray,
+        niche_is_min: np.ndarray,
     ):
         self.num_niches = nbint(num_niches)
         self.pop_size = nbint(pop_size)
@@ -129,6 +136,9 @@ class Population:
                 print("Warning: include_obj_in_fitness has no effect when pure_optimization is True.")
                 self.include_obj_in_fitness = False
 
+        self.niche_types = niche_types
+        self.niche_target_dims = niche_target_dims
+        self.niche_is_min = niche_is_min
         self.integrality = np.empty(ndim, np.bool_)
         self.booleanality = np.empty(ndim, np.bool_)
         self.maximize = False
@@ -280,6 +290,36 @@ class Population:
                 for k in range(self.ndim):
                     self.points[i, j, k] = self.rng.uniform(self.lower_bounds[k], self.upper_bounds[k])
 
+    def add_diversity_niches(self, num_new_niches: int):
+        if num_new_niches <= 0:
+            return
+        num_old = self.num_niches
+        num_total = num_old + num_new_niches
+
+        self.niche_types = _append_1d_int(self.niche_types, np.full(num_new_niches, 2, dtype=npint))
+        self.niche_target_dims = _append_1d_int(self.niche_target_dims, np.full(num_new_niches, -1, dtype=npint))
+        self.niche_is_min = _append_1d_bool(self.niche_is_min, np.zeros(num_new_niches, dtype=np.bool_))
+
+        self.resize(num_niches=num_total)
+        self._add_niche_clean_up(num_old, num_total)
+
+    def add_extrema_niches(self, target_dims: np.ndarray[int], is_min: np.ndarray[bool]):
+        num_old = self.num_niches
+        num_new_niches = len(target_dims)
+        num_total = num_old + num_new_niches
+
+        self.niche_types = _append_1d_int(self.niche_types, np.full(num_new_niches, 1, dtype=npint))
+        self.niche_target_dims = _append_1d_int(self.niche_target_dims, target_dims)
+        self.niche_is_min = _append_1d_bool(self.niche_is_min, is_min)
+
+        self.resize(num_niches=num_total)
+        self._add_niche_clean_up(num_old, num_total)
+
+    def _add_niche_clean_up(self, num_old: int, num_total: int):
+        self._populate_randomly(num_old, num_total)
+        self._apply_integrality()
+        self._apply_bounds()
+
     def add_niches(self, num_new_niches: int):
         """
         Adds niches to the population.
@@ -368,33 +408,41 @@ class Population:
 
         self.hyperparameters_set = True
 
-    def select_parents(self):
-        """
-        Selects parents for the next generation.
-        """
-        # Niche 0 (optimization) selects on objective value
-        selection.selection(
-            self.parent_indices,
-            self.penalized_objectives[0],
-            self.maximize,
-            self.champ_count,
-            self.elite_count,
-            self.tourn_count,
-            self.tourn_size,
-            self.pop_size,
-            self.rng,
-            self.stable_sort
-        )
-        self.parents[0] = self.points[0, self.parent_indices]
+    def _generate_selection_indices(
+        self,
+        i: int,
+        out_indices: np.ndarray
+    ):
+        """Generates selection indices based on niche type and selection pressure."""
+        if i == 0:
+            selection.selection(
+                out_indices,
+                self.penalized_objectives[0],
+                self.maximize,
+                self.champ_count,
+                self.elite_count,
+                self.tourn_count,
+                self.tourn_size,
+                self.pop_size,
+                self.rng,
+                self.stable_sort
+            )
+        else:
+            if self.niche_types[i] == 1:  # Extrema niche
+                dim_k = self.niche_target_dims[i]
+                sec_obj = self.scaled_points[i, :, dim_k]
+                maximize_sec = not self.niche_is_min[i]
+            else:  # Diversity niche (type 2)
+                sec_obj = self.fitnesses[i]
+                maximize_sec = True
 
-        # Other niches (diversity) select on fitness, with objective as fallback
-        for i in range(1, self.num_niches):
             selection.selection_with_fallback(
-                self.parent_indices,
-                self.fitnesses[i],
+                out_indices,
+                sec_obj,
                 self.noptimal_mask[i],
                 self.penalized_objectives[i],
                 self.maximize,
+                maximize_sec,
                 self.champ_count,
                 self.elite_count,
                 self.tourn_count,
@@ -403,6 +451,13 @@ class Population:
                 self.rng,
                 self.stable_sort,
             )
+
+    def select_parents(self):
+        """
+        Selects parents for the next generation.
+        """
+        for i in range(self.num_niches):
+            self._generate_selection_indices(i, self.parent_indices)
             self.parents[i] = self.points[i, self.parent_indices]
 
     def generate_offspring(self):
@@ -486,14 +541,35 @@ class Population:
             for i in range(1, self.num_niches):
                 self.points[i, 0, :] = self.optima_points[0, :]
 
+    def _set_optimum(
+        self,
+        target_niche: int,
+        source_niche: int,
+        source_ind: int
+    ):
+        """Helper to copy an individual's properties into the optima history arrays."""
+        self.optima_points[target_niche, :] = self.points[source_niche, source_ind, :]
+        self.optima_scaled_points[target_niche, :] = self.scaled_points[source_niche, source_ind, :]
+        self.optima_raw_objectives[target_niche] = self.raw_objectives[source_niche, source_ind]
+        self.optima_violations[target_niche] = self.violations[source_niche, source_ind]
+        self.optima_penalized_objectives[target_niche] = self.penalized_objectives[source_niche, source_ind]
+        self.optima_fitnesses[target_niche] = self.fitnesses[source_niche, source_ind]
+        self.optima_noptimal_mask[target_niche] = self.noptimal_mask[source_niche, source_ind]
+
     def track_optima(self):
-        """
-        Checks for and updates the global best solution found so far.
-        Updates near-optima according to near-optimal slack
-        """
-
         self._update_feasible_mask()
+        self._track_global_optimum()
+        self._update_noptimal_threshold()
+        self._update_noptimal_mask()
+        self.feasible_mask *= self.noptimal_mask
 
+        self._track_extrema_niches()
+        self._track_diversity_niches()
+
+        if self.pure_optimization:
+            self._track_pure_optimization()
+
+    def _track_global_optimum(self):
         if np.any(self.feasible_mask):
             gi, gj = self._find_global_best_idx()
         else:
@@ -503,62 +579,85 @@ class Population:
                 gi, gj = utils.argmin_2d(self.penalized_objectives)
 
         if gi != -1:
-            self.optima_points[0, :] = self.points[gi, gj]
-            self.optima_scaled_points[0, :] = self.scaled_points[gi, gj]
-            self.optima_raw_objectives[0] = self.raw_objectives[gi, gj]
-            self.optima_violations[0] = self.violations[gi, gj]
-            self.optima_penalized_objectives[0] = self.penalized_objectives[gi, gj]
-            self.optima_fitnesses[0] = self.fitnesses[gi, gj]
-            # logically must be true but self.noptimal_mask has not been calculated yet
+            self._set_optimum(0, gi, gj)
             self.optima_noptimal_mask[0] = True
 
         self.current_optimum = self.optima_penalized_objectives[0]
-        self._update_noptimal_threshold()
-        self._update_noptimal_mask()
 
-        self.feasible_mask *= self.noptimal_mask
-        js = self._find_best_in_niche()
+    def _track_extrema_niches(self):
         for i in range(1, self.num_niches):
-            self.optima_points[i, :] = self.points[i, js[i], :]
-            self.optima_scaled_points[i, :] = self.scaled_points[i, js[i], :]
-            self.optima_raw_objectives[i] = self.raw_objectives[i, js[i]]
-            self.optima_violations[i] = self.violations[i, js[i]]
-            self.optima_penalized_objectives[i] = self.penalized_objectives[i, js[i]]
-            self.optima_fitnesses[i] = self.fitnesses[i, js[i]]
-            self.optima_noptimal_mask[i] = self.noptimal_mask[i, js[i]]
+            if self.niche_types[i] != 1:
+                continue
 
-        if self.pure_optimization:
-            mean_abs_dif = 0.0
-            for i in range(1, self.num_niches):
-                diff = self.optima_penalized_objectives[i] - self.current_optimum
-                mean_abs_dif += -diff if self.maximize else diff
+            dim_k = self.niche_target_dims[i]
+            is_min = self.niche_is_min[i]
 
-            mean_abs_dif /= (self.num_niches - 1)
-            rel_dif = utils.safe_divide_scalar(mean_abs_dif, abs(self.current_optimum), mean_abs_dif)
+            incumbent_noptimal = False
+            if self.optima_noptimal_mask[i] and self.optima_violations[i] == 0.0:
+                if self.maximize:
+                    incumbent_noptimal = self.optima_penalized_objectives[i] > self.noptimal_threshold
+                else:
+                    incumbent_noptimal = self.optima_penalized_objectives[i] < self.noptimal_threshold
 
-            target_weight = 0.005 / (rel_dif)
-            print("mean_rel_dif:", mean_abs_dif, ". old weight:", self.repulsion_weight,
-                  ". new weight:", (0.8 * self.repulsion_weight) + (0.2 * target_weight))
+            incumbent_val = self.optima_scaled_points[i, dim_k] if incumbent_noptimal else 0.0
+            ei, ej = self._find_global_extremum_idx(dim_k, is_min, incumbent_noptimal, incumbent_val)
 
-            self.repulsion_weight = (0.8 * self.repulsion_weight) + (0.2 * target_weight)
-            # does putting optimum in offspring counteract this??
+            if ei != -1:
+                self._set_optimum(i, ei, ej)
+                self.optima_noptimal_mask[i] = True
+
+                val = self.scaled_points[ei, ej, dim_k]
+                self.optima_fitnesses[i] = -val if is_min else val
+
+            elif not incumbent_noptimal:
+                best_j = utils.argm(self.penalized_objectives[i], self.maximize)
+                self._set_optimum(i, i, best_j)
+                self.optima_noptimal_mask[i] = False
+
+    def _track_diversity_niches(self):
+        js = self._find_best_in_niche(1)
+        for i in range(1, self.num_niches):
+            if self.niche_types[i] != 2:
+                continue
+            self._set_optimum(i, i, js[i])
+
+    def _track_pure_optimization(self):
+        mean_abs_dif = 0.0
+        for i in range(1, self.num_niches):
+            diff = self.optima_penalized_objectives[i] - self.current_optimum
+            mean_abs_dif += -diff if self.maximize else diff
+
+        mean_abs_dif /= (self.num_niches - 1)
+        rel_dif = utils.safe_divide_scalar(mean_abs_dif, abs(self.current_optimum), mean_abs_dif)
+
+        target_weight = 0.005 / (rel_dif)
+        self.repulsion_weight = (0.8 * self.repulsion_weight) + (0.2 * target_weight)
 
     def evaluate_fitness(self):
         """
-        Calculates fitness for each individual based on distance to other niche centroids.
+        Calculates fitness for each individual.
+        Skips distance/angular evaluation if all non-optimum niches are extrema niches.
         """
-        self._find_scaled_centroids()
-
         if self.pure_optimization:
-            fitness.evaluate_fitness_pure_optimization(
-                self.fitnesses,
-                self.scaled_points,
-                self.scaled_centroids,
-                self.raw_objectives,
-                self.repulsion_weight,
-                self.fitness_method,
-            )
+            self._evaluate_pure_optimization_fitness()
             return
+
+        if self.num_niches > 1:
+            self._evaluate_diversity_fitness()
+
+    def _evaluate_pure_optimization_fitness(self):
+        self._find_scaled_centroids()
+        fitness.evaluate_fitness_pure_optimization(
+            self.fitnesses,
+            self.scaled_points,
+            self.scaled_centroids,
+            self.raw_objectives,
+            self.repulsion_weight,
+            self.fitness_method,
+        )
+
+    def _evaluate_diversity_fitness(self):
+        self._find_scaled_centroids()
         if self.fitness_method == 0:
             fitness.evaluate_fitness_angular(
                 self.fitnesses,
@@ -579,7 +678,6 @@ class Population:
                 self.include_obj_in_fitness,
             )
 
-# 2. Replace Population.evaluate_diversity (lines 415-445) with:
     def evaluate_diversity(self):
         """
         Calculates and returns a vector of diversity metrics for the current population state.
@@ -644,7 +742,7 @@ class Population:
                 np.round(self.points[:, :, k], out=self.points[:, :, k])
 
     def _resize_niche_size(self, new_niche_size: int):
-        if new_niche_size != self.num_niches:
+        if new_niche_size == self.num_niches:
             new_niche_size = nbint(new_niche_size)
             self.points = _add_niche_to_array(self.points, new_niche_size)
             self.scaled_points = _add_niche_to_array(self.scaled_points, new_niche_size)
@@ -696,37 +794,8 @@ class Population:
 
             indices = np.empty(new_pop_size, npintp)
 
-            # Other niches (diversity) are selected based on fitness
             for i in range(self.num_niches):
-                if i == 0:
-                    # Niche 0 (optimization) is selected based on objective value
-                    selection.selection(
-                        indices,
-                        self.penalized_objectives[0],
-                        self.maximize,
-                        self.champ_count,
-                        self.elite_count,
-                        self.tourn_count,
-                        self.tourn_size,
-                        self.pop_size,
-                        self.rng,
-                        self.stable_sort,
-                    )
-                else:
-                    selection.selection_with_fallback(
-                        indices,
-                        self.fitnesses[i],
-                        self.noptimal_mask[i],
-                        self.penalized_objectives[i],
-                        self.maximize,
-                        self.champ_count,
-                        self.elite_count,
-                        self.tourn_count,
-                        self.tourn_size,
-                        self.pop_size,
-                        self.rng,
-                        self.stable_sort,
-                    )
+                self._generate_selection_indices(i, indices)
 
                 new_points[i] = self.points[i, indices]
                 new_scaled_points[i] = self.scaled_points[i, indices]
@@ -867,6 +936,42 @@ class Population:
             for j in range(self.pop_size):
                 self.feasible_mask[i, j] = self.violations[i, j] == 0
 
+    def _find_global_extremum_idx(
+        self,
+        dim_k: int,
+        is_min: bool,
+        has_incumbent: bool,
+        incumbent_val: float,
+    ):
+        """
+        Scans all niches and individuals for a feasible & noptimal point that
+        improves upon `incumbent_val` along scaled dimension `dim_k`.
+        Returns (best_i, best_j). If no improvement is found, returns (-1, -1).
+        """
+        best_i = nbint(-1)
+        best_j = nbint(-1)
+        best_val = incumbent_val
+
+        for gi in range(self.num_niches):
+            for gj in range(self.pop_size):
+                if self.feasible_mask[gi, gj]:
+                    val = self.scaled_points[gi, gj, dim_k]
+                    if not has_incumbent:
+                        best_val = val
+                        best_i = gi
+                        best_j = gj
+                        has_incumbent = True
+                    elif is_min and val < best_val:
+                        best_val = val
+                        best_i = gi
+                        best_j = gj
+                    elif (not is_min) and val > best_val:
+                        best_val = val
+                        best_i = gi
+                        best_j = gj
+
+        return best_i, best_j
+
     def _find_global_best_idx(self):
         """
         Returns flat index (niche, individual) of global best feasible point.
@@ -883,7 +988,7 @@ class Population:
 
         return best_i, best_j
 
-    def _find_best_in_niche(self):
+    def _find_best_in_niche(self, start_idx: int = 1):
         """
         For each niche i>0, pick the representative index:
         1) best fitness among feasible & noptimal
@@ -893,7 +998,7 @@ class Population:
         """
         out = np.full(self.num_niches, -1, dtype=npintp)
 
-        for i in range(1, self.num_niches):
+        for i in range(start_idx, self.num_niches):
             if self.feasible_mask[i].sum() >= 1:
                 # option 1: feasible & noptimal
                 best_j = utils.argmax_with_mask(self.fitnesses[i], self.feasible_mask[i])
@@ -958,6 +1063,22 @@ def njit_deepcopy(new, old):
         flat_new[i] = flat_old[i]
 
 
+@njit
+def _append_1d_int(arr, vals):
+    res = np.empty(arr.size + vals.size, dtype=arr.dtype)
+    res[:arr.size] = arr
+    res[arr.size:] = vals
+    return res
+
+
+@njit
+def _append_1d_bool(arr, vals):
+    res = np.empty(arr.size + vals.size, dtype=arr.dtype)
+    res[:arr.size] = arr
+    res[arr.size:] = vals
+    return res
+
+
 def load_problem_to_population(
         population: Population,
         problem: OptimizationProblem,
@@ -974,5 +1095,4 @@ def load_problem_to_population(
         population._allocate_scaled_arrays()
 
     population.is_continuous_space = (population.integrality.sum() == 0)
-
     population.problem_loaded = True

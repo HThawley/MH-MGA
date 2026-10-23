@@ -47,7 +47,6 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         constraints=False,
     )
 
-    # 2. Configure the MGA algorithm
     algorithm = MGAProblem(
         problem=problem,
         x0=np.array([0.5, 0.5]),
@@ -55,12 +54,15 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         log_freq=-1,
         random_seed=seed,
         include_obj_in_fitness=True,
+        space_scaler=np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]]),
     )
 
-    algorithm.add_niches(num_niches=6)
+    # Allocate independently
+    algorithm.add_niches(extrema_dims="all", diversity=1)
+
     # algorithm.starting_points = np.full((20, 50, 2), 0.5)
     algorithm.update_hyperparameters(
-        max_iter=200,
+        max_iter=100,
         pop_size=50,
         champ_count=0,
         elite_count=0.2,
@@ -73,18 +75,17 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         niche_elitism=True,
         noptimal_rel=0.12,
         objective_scaler=0.01,
-        space_scaler=np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]]),
-        fitness_method="L2",
-        )
+        fitness_method="L1",
+    )
     algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
 
     # algorithm.add_niches(num_niches=10)
-    algorithm.update_hyperparameters(
-        max_iter=50,
-        fitness_method="angular",
-    )
-    algorithm.step()
+    # algorithm.update_hyperparameters(
+    #     max_iter=50,
+    #     fitness_method="angular",
+    # )
+    # algorithm.step()
 
     # algorithm.update_hyperparameters(
     #     max_iter=200,

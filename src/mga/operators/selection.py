@@ -60,6 +60,7 @@ def selection_with_fallback(
     noptimal_mask,
     penalized_objectives,
     maximize,
+    maximize_secondary,
     champ_count,
     elite_count,
     tourn_count,
@@ -69,7 +70,8 @@ def selection_with_fallback(
     stable,
 ):
     """
-    Selects based on fitness, falling back to penalized_objectives if not enough n-optimal individuals exist.
+    Selects based on the secondary array (fitness), falling back to penalized_objectives if not
+    enough noptimal individuals exist.
     """
     if champ_count > 0:
         _select_champ_with_fallback(
@@ -80,6 +82,7 @@ def selection_with_fallback(
             champ_count,
             0,
             maximize,
+            maximize_secondary,
         )
 
     if elite_count > 0:
@@ -91,6 +94,7 @@ def selection_with_fallback(
             elite_count,
             champ_count,
             maximize,
+            maximize_secondary,
             stable,
         )
     if tourn_count > 0:
@@ -105,6 +109,7 @@ def selection_with_fallback(
             niche_size,
             rng,
             maximize,
+            maximize_secondary,
         )
 
 
@@ -131,11 +136,14 @@ def _select_champ(out_indices, selection_criterion, n, start_idx, maximize):
 
 @njit
 def _select_champ_with_fallback(
-    out_indices, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize
+    out_indices, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize, maximize_secondary
 ):
     """ selects the champion (single best individual) and clones n times.
     Selects champion from noptimal solutions on fitness. Falls back to objective """
-    index = utils.argmax_with_mask(fitness, noptimal_mask)
+    if maximize_secondary:
+        index = utils.argmax_with_mask(fitness, noptimal_mask)
+    else:
+        index = utils.argmin_with_mask(fitness, noptimal_mask)
 
     if index == -1:
         index = utils.argm(penalized_objectives, maximize)
@@ -187,8 +195,9 @@ def _select_tournament_with_fallback(
     niche_size,
     rng,
     maximize,
+    maximize_secondary,
 ):
-    """select on fitness preferred. fitness always maximised.
+    """select on secondary array preferred, max/minimized based on maximize_secondary.
     penalized_objectives max/minimized based on value of `maximize`"""
     if n == 0:
         return
@@ -198,8 +207,8 @@ def _select_tournament_with_fallback(
     for m in range(start_idx, start_idx + n):
         _draw_tournament_indices(indices, niche_size, rng)
 
-        # first try select on fitness
-        _selected_idx = utils.argm_with_indices_mask(fitness, indices, noptimal_mask, True)
+        # first try select on secondary array
+        _selected_idx = utils.argm_with_indices_mask(fitness, indices, noptimal_mask, maximize_secondary)
 
         if _selected_idx == -1:
             # select on objective
@@ -271,9 +280,10 @@ def _select_elite_with_fallback(
     n,
     start_idx,
     maximize,
+    maximize_secondary,
     stable,
 ):
-    """Selects best `n` individuals based on fitness.
+    """Selects best `n` individuals based on the secondary array.
     If there are not `n` noptimal individuals, selects on penalized_objectives"""
     if n == 0:
         return
@@ -292,8 +302,14 @@ def _select_elite_with_fallback(
     if stable:
         _indices = np.argsort(noptimal_fitness)
         _stabilize_sort(_indices, noptimal_fitness)
-        indices[:] = noptimal_indices[_indices[-n:]]
+        if maximize_secondary:
+            indices[:] = noptimal_indices[_indices[-n:]]
+        else:
+            indices[:] = noptimal_indices[_indices[:n]]
     else:
-        indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, -n)[-n:]]
+        if maximize_secondary:
+            indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, -n)[-n:]]
+        else:
+            indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, n)[:n]]
 
     _assign_multiple_indices(out_indices, indices, n, start_idx)
