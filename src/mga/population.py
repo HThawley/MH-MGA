@@ -81,7 +81,8 @@ if JIT_ENABLED:
         ('objective_scaler', nbfloat),
         ('repulsion_weight', nbfloat),
         ('fitness_method', nbint),
-        ('extrema_epsilon', nbfloat),
+        ('extrema_epsilon_rel', nbfloat),
+        ('extrema_epsilon_abs', nbfloat),
 
         ('log_mutation_sigma', nbfloat[:]),
         ('current_mutation_prob', nbfloat),
@@ -169,7 +170,8 @@ class Population:
         self.objective_scaler = 1.0
         self.repulsion_weight = 0.0
         self.fitness_method = 2
-        self.extrema_epsilon = 1e-6
+        self.extrema_epsilon_rel = 1e-3
+        self.extrema_epsilon_abs = 1e-6
 
         self.scaled_ndim = nbint(ndim)
         self.do_skew_mutation = False
@@ -377,7 +379,8 @@ class Population:
         objective_scaler: float,
         repulsion_weight: float,
         fitness_method: int,
-        extrema_epsilon: float,
+        extrema_epsilon_rel: float,
+        extrema_epsilon_abs: float,
     ):
         self.champ_count = nbint(champ_count)
         self.elite_count = nbint(elite_count)
@@ -396,7 +399,8 @@ class Population:
         self.objective_scaler = nbfloat(objective_scaler)
         self.repulsion_weight = nbfloat(repulsion_weight)
         self.fitness_method = fitness_method
-        self.extrema_epsilon = nbfloat(extrema_epsilon)
+        self.extrema_epsilon_rel = nbfloat(extrema_epsilon_rel)
+        self.extrema_epsilon_abs = nbfloat(extrema_epsilon_abs)
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
@@ -447,7 +451,8 @@ class Population:
                 self.penalized_objectives[i],
                 self.maximize,
                 maximize_sec,
-                self.extrema_epsilon,
+                self.extrema_epsilon_rel,
+                self.extrema_epsilon_abs,
                 self.champ_count,
                 self.elite_count,
                 self.tourn_count,
@@ -979,12 +984,14 @@ class Population:
                     if is_min:
                         diff = -diff
 
-                    if diff > self.extrema_epsilon:
+                    eff_epsilon = abs(best_val) * self.extrema_epsilon_rel + self.extrema_epsilon_abs
+
+                    if diff > eff_epsilon:
                         best_val = val
                         best_obj = obj
                         best_i = gi
                         best_j = gj
-                    elif abs(diff) <= self.extrema_epsilon:
+                    elif abs(diff) <= eff_epsilon:
                         # Tie-breaker on secondary objective cost
                         obj_diff = obj - best_obj
                         if not self.maximize:

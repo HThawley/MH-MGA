@@ -76,6 +76,8 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         noptimal_rel=0.12,
         objective_scaler=0.01,
         fitness_method="L1",
+        extrema_epsilon_rel=0.01,
+        extrema_epsilon_abs=1e-6,
     )
     algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()

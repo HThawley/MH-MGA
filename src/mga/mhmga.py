@@ -42,7 +42,8 @@ class MGAProblem:
         "objective_scaler": None,
         "repulsion_weight": 1.0,
         "fitness_method": "l2",
-        "extrema_epsilon": 1e-6,
+        "extrema_epsilon_rel": 1e-3,
+        "extrema_epsilon_abs": 1e-6,
     }
 
     def __init__(
@@ -277,7 +278,8 @@ class MGAProblem:
         objective_scaler: float = _SENTINEL,
         repulsion_weight: float = _SENTINEL,
         fitness_method: str = _SENTINEL,
-        extrema_epsilon: float = _SENTINEL,
+        extrema_epsilon_rel: float = _SENTINEL,
+        extrema_epsilon_abs: float = _SENTINEL,
         mark_as_set: bool = True
     ):
         updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != 'self'}
@@ -286,16 +288,23 @@ class MGAProblem:
             return  # Nothing to update
 
         # Update simple scalar parameters
-        for attr, expected_type, ge in zip(
-            ("max_iter", "pop_size", "violation_factor", "noptimal_rel",
-             "noptimal_abs", "mutation_alpha", "repulsion_weight", "extrema_epsilon"),
-            ("integer", "integer", "float", "float", "float", "float", "float", "float"),
-            (1, 2, 1, 0, 0, None, 0, 0),
-        ):
+        simple_attr_specs = (
+            ("max_iter", "integer", None, 1),
+            ("pop_size", "integer", None, 2),
+            ("violation_factor", "float", None, 1),
+            ("noptimal_rel", "float", None, 0),
+            ("noptimal_abs", "float", None, 0),
+            ("mutation_alpha", "float", None, None),
+            ("repulsion_weight", "float", None, 0),
+            ("extrema_epsilon_rel", "float", None, 0),
+            ("extrema_epsilon_abs", "float", None, 0),
+        )
+
+        for (attr, expected_type, le, ge) in simple_attr_specs:
             if attr in updates:
                 var = updates[attr]
                 typing.sanitize_type(var, expected_type, attr)
-                typing.sanitize_range(var, attr, ge=ge)
+                typing.sanitize_range(var, attr, le=le, ge=ge)
                 clean_type = npint if expected_type == "integer" else npfloat
                 setattr(self, attr, clean_type(var))
 
@@ -793,7 +802,8 @@ class MGAProblem:
             self.objective_scaler,
             self.repulsion_weight,
             self.fitness_method_int,
-            self.extrema_epsilon,
+            self.extrema_epsilon_rel,
+            self.extrema_epsilon_abs,
         )
         self._update_parent_size()
 
