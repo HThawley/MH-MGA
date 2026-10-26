@@ -81,6 +81,7 @@ if JIT_ENABLED:
         ('objective_scaler', nbfloat),
         ('repulsion_weight', nbfloat),
         ('fitness_method', nbint),
+        ('extrema_epsilon', nbfloat),
 
         ('log_mutation_sigma', nbfloat[:]),
         ('current_mutation_prob', nbfloat),
@@ -168,6 +169,7 @@ class Population:
         self.objective_scaler = 1.0
         self.repulsion_weight = 0.0
         self.fitness_method = 2
+        self.extrema_epsilon = 1e-6
 
         self.scaled_ndim = nbint(ndim)
         self.do_skew_mutation = False
@@ -375,6 +377,7 @@ class Population:
         objective_scaler: float,
         repulsion_weight: float,
         fitness_method: int,
+        extrema_epsilon: float,
     ):
         self.champ_count = nbint(champ_count)
         self.elite_count = nbint(elite_count)
@@ -393,6 +396,7 @@ class Population:
         self.objective_scaler = nbfloat(objective_scaler)
         self.repulsion_weight = nbfloat(repulsion_weight)
         self.fitness_method = fitness_method
+        self.extrema_epsilon = nbfloat(extrema_epsilon)
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
@@ -443,6 +447,7 @@ class Population:
                 self.penalized_objectives[i],
                 self.maximize,
                 maximize_sec,
+                self.extrema_epsilon,
                 self.champ_count,
                 self.elite_count,
                 self.tourn_count,
@@ -600,12 +605,17 @@ class Population:
                     incumbent_noptimal = self.optima_penalized_objectives[i] < self.noptimal_threshold
 
             incumbent_val = self.optima_scaled_points[i, dim_k] if incumbent_noptimal else 0.0
-            ei, ej = self._find_global_extremum_idx(dim_k, is_min, incumbent_noptimal, incumbent_val)
+            incumbent_obj = (
+                self.optima_penalized_objectives[i]
+                if incumbent_noptimal
+                else (-np.inf if self.maximize else np.inf)
+            )
+
+            ei, ej = self._find_global_extremum_idx(dim_k, is_min, incumbent_noptimal, incumbent_val, incumbent_obj)
 
             if ei != -1:
                 self._set_optimum(i, ei, ej)
                 self.optima_noptimal_mask[i] = True
-
             elif not incumbent_noptimal:
                 best_j = utils.argm(self.penalized_objectives[i], self.maximize)
                 self._set_optimum(i, i, best_j)
@@ -939,6 +949,7 @@ class Population:
         is_min: bool,
         has_incumbent: bool,
         incumbent_val: float,
+        incumbent_obj: float,
     ):
         """
         Scans all niches and individuals for a feasible & noptimal point that
@@ -948,24 +959,42 @@ class Population:
         best_i = nbint(-1)
         best_j = nbint(-1)
         best_val = incumbent_val
+        best_obj = incumbent_obj
 
         for gi in range(self.num_niches):
             for gj in range(self.pop_size):
                 if self.feasible_mask[gi, gj]:
                     val = self.scaled_points[gi, gj, dim_k]
+                    obj = self.penalized_objectives[gi, gj]
+
                     if not has_incumbent:
                         best_val = val
+                        best_obj = obj
                         best_i = gi
                         best_j = gj
                         has_incumbent = True
-                    elif is_min and val < best_val:
+                        continue
+
+                    diff = val - best_val
+                    if is_min:
+                        diff = -diff
+
+                    if diff > self.extrema_epsilon:
                         best_val = val
+                        best_obj = obj
                         best_i = gi
                         best_j = gj
-                    elif (not is_min) and val > best_val:
-                        best_val = val
-                        best_i = gi
-                        best_j = gj
+                    elif abs(diff) <= self.extrema_epsilon:
+                        # Tie-breaker on secondary objective cost
+                        obj_diff = obj - best_obj
+                        if not self.maximize:
+                            obj_diff = -obj_diff
+
+                        if obj_diff > 0:
+                            best_val = val
+                            best_obj = obj
+                            best_i = gi
+                            best_j = gj
 
         return best_i, best_j
 

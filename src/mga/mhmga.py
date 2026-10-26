@@ -41,7 +41,8 @@ class MGAProblem:
         "mutation_scaler": "bounds",
         "objective_scaler": None,
         "repulsion_weight": 1.0,
-        "fitness_method": "l2"
+        "fitness_method": "l2",
+        "extrema_epsilon": 1e-6,
     }
 
     def __init__(
@@ -276,6 +277,7 @@ class MGAProblem:
         objective_scaler: float = _SENTINEL,
         repulsion_weight: float = _SENTINEL,
         fitness_method: str = _SENTINEL,
+        extrema_epsilon: float = _SENTINEL,
         mark_as_set: bool = True
     ):
         updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != 'self'}
@@ -286,9 +288,9 @@ class MGAProblem:
         # Update simple scalar parameters
         for attr, expected_type, ge in zip(
             ("max_iter", "pop_size", "violation_factor", "noptimal_rel",
-             "noptimal_abs", "mutation_alpha", "repulsion_weight"),
-            ("integer", "integer", "float", "float", "float", "float", "float"),
-            (1, 2, 1, 0, 0, None, 0),
+             "noptimal_abs", "mutation_alpha", "repulsion_weight", "extrema_epsilon"),
+            ("integer", "integer", "float", "float", "float", "float", "float", "float"),
+            (1, 2, 1, 0, 0, None, 0, 0),
         ):
             if attr in updates:
                 var = updates[attr]
@@ -772,7 +774,7 @@ class MGAProblem:
             )
 
     def _update_population_hyperparameters(self):
-        # numba does not like keyword arguments
+        # numba does not always like keyword arguments
         self.population.update_hyperparameters(
             self.champ_count,
             self.elite_count,
@@ -791,6 +793,7 @@ class MGAProblem:
             self.objective_scaler,
             self.repulsion_weight,
             self.fitness_method_int,
+            self.extrema_epsilon,
         )
         self._update_parent_size()
 

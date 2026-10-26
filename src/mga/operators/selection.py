@@ -61,6 +61,7 @@ def selection_with_fallback(
     penalized_objectives,
     maximize,
     maximize_secondary,
+    epsilon,
     champ_count,
     elite_count,
     tourn_count,
@@ -83,6 +84,7 @@ def selection_with_fallback(
             0,
             maximize,
             maximize_secondary,
+            epsilon,
         )
 
     if elite_count > 0:
@@ -95,6 +97,7 @@ def selection_with_fallback(
             champ_count,
             maximize,
             maximize_secondary,
+            epsilon,
             stable,
         )
     if tourn_count > 0:
@@ -110,6 +113,7 @@ def selection_with_fallback(
             rng,
             maximize,
             maximize_secondary,
+            epsilon,
         )
 
 
@@ -135,15 +139,65 @@ def _select_champ(out_indices, selection_criterion, n, start_idx, maximize):
 
 
 @njit
+def _get_best_lexicographic(
+    indices, fitness, noptimal_mask, penalized_objectives, maximize, maximize_secondary, epsilon
+):
+    """Core lexicographic loop evaluator for arrays."""
+    best_idx = -1
+    best_fit = -np.inf if maximize_secondary else np.inf
+    best_obj = -np.inf if maximize else np.inf
+
+    for idx in indices:
+        if not noptimal_mask[idx]:
+            continue
+
+        fit = fitness[idx]
+        obj = penalized_objectives[idx]
+
+        if best_idx == -1:
+            best_idx = idx
+            best_fit = fit
+            best_obj = obj
+            continue
+
+        diff = fit - best_fit
+        if not maximize_secondary:
+            diff = -diff
+
+        if diff > epsilon:
+            best_idx = idx
+            best_fit = fit
+            best_obj = obj
+        elif abs(diff) <= epsilon:
+            obj_diff = obj - best_obj
+            if not maximize:
+                obj_diff = -obj_diff
+            if obj_diff > 0:
+                best_idx = idx
+                best_fit = fit
+                best_obj = obj
+
+    return best_idx
+
+
+@njit
 def _select_champ_with_fallback(
-    out_indices, fitness, noptimal_mask, penalized_objectives, n, start_idx, maximize, maximize_secondary
+    out_indices,
+    fitness,
+    noptimal_mask,
+    penalized_objectives,
+    n,
+    start_idx,
+    maximize,
+    maximize_secondary,
+    epsilon,
 ):
     """ selects the champion (single best individual) and clones n times.
     Selects champion from noptimal solutions on fitness. Falls back to objective """
-    if maximize_secondary:
-        index = utils.argmax_with_mask(fitness, noptimal_mask)
-    else:
-        index = utils.argmin_with_mask(fitness, noptimal_mask)
+    indices = np.arange(len(fitness))
+    index = _get_best_lexicographic(
+        indices, fitness, noptimal_mask, penalized_objectives, maximize, maximize_secondary, epsilon
+    )
 
     if index == -1:
         index = utils.argm(penalized_objectives, maximize)
@@ -196,6 +250,7 @@ def _select_tournament_with_fallback(
     rng,
     maximize,
     maximize_secondary,
+    epsilon
 ):
     """select on secondary array preferred, max/minimized based on maximize_secondary.
     penalized_objectives max/minimized based on value of `maximize`"""
@@ -207,8 +262,9 @@ def _select_tournament_with_fallback(
     for m in range(start_idx, start_idx + n):
         _draw_tournament_indices(indices, niche_size, rng)
 
-        # first try select on secondary array
-        _selected_idx = utils.argm_with_indices_mask(fitness, indices, noptimal_mask, maximize_secondary)
+        _selected_idx = _get_best_lexicographic(
+            indices, fitness, noptimal_mask, penalized_objectives, maximize, maximize_secondary, epsilon
+        )
 
         if _selected_idx == -1:
             # select on objective
@@ -281,6 +337,7 @@ def _select_elite_with_fallback(
     start_idx,
     maximize,
     maximize_secondary,
+    epsilon,
     stable,
 ):
     """Selects best `n` individuals based on the secondary array.
@@ -297,19 +354,27 @@ def _select_elite_with_fallback(
 
     indices = np.empty(n, npintp)
     noptimal_indices = np.where(noptimal_mask)[0]
+
     noptimal_fitness = fitness[noptimal_indices]
+    noptimal_obj = penalized_objectives[noptimal_indices]
+
+    # Combine metrics: Round primary key to bin by epsilon, normalize secondary to act as the decimal tie-breaker
+    rounded_fit = np.round(noptimal_fitness / epsilon) * epsilon
+
+    p_key = -rounded_fit if maximize_secondary else rounded_fit
+    s_key = -noptimal_obj if maximize else noptimal_obj
+
+    s_min, s_max = s_key.min(), s_key.max()
+    s_norm = (s_key - s_min) / (s_max - s_min + 1e-12) if s_max > s_min else np.zeros_like(s_key)
+
+    # Scaling s_norm guarantees it solely breaks ties without overriding the primary p_key bin
+    score = p_key + (s_norm * epsilon * 0.99)
 
     if stable:
-        _indices = np.argsort(noptimal_fitness)
-        _stabilize_sort(_indices, noptimal_fitness)
-        if maximize_secondary:
-            indices[:] = noptimal_indices[_indices[-n:]]
-        else:
-            indices[:] = noptimal_indices[_indices[:n]]
+        _indices = np.argsort(score)
+        _stabilize_sort(_indices, score)
+        indices[:] = noptimal_indices[_indices[:n]]
     else:
-        if maximize_secondary:
-            indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, -n)[-n:]]
-        else:
-            indices[:] = noptimal_indices[np.argpartition(noptimal_fitness, n)[:n]]
+        indices[:] = noptimal_indices[np.argpartition(score, n)[:n]]
 
     _assign_multiple_indices(out_indices, indices, n, start_idx)
