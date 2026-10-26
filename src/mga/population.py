@@ -749,7 +749,7 @@ class Population:
                 np.round(self.points[:, :, k], out=self.points[:, :, k])
 
     def _resize_niche_size(self, new_niche_size: int):
-        if new_niche_size == self.num_niches:
+        if new_niche_size != self.num_niches:
             new_niche_size = nbint(new_niche_size)
             self.points = _add_niche_to_array(self.points, new_niche_size)
             self.scaled_points = _add_niche_to_array(self.scaled_points, new_niche_size)
