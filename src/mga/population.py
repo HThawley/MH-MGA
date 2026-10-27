@@ -301,6 +301,91 @@ class Population:
                 for k in range(self.ndim):
                     self.points[i, j, k] = self.rng.uniform(self.lower_bounds[k], self.upper_bounds[k])
 
+    def _populate_from_noptimal_pool(self, start_idx: int, end_idx: int):
+        """
+        Seeds newly added niches (`start_idx` to `end_idx`) from the existing pool of
+        n-optimal champions and feasible n-optimal population points:
+        - `points[i, 0]` receives a distinct existing n-optimal champion (cycling through
+          extrema and diversity champions).
+        - `points[i, 1:]` are generated via uniform crossover + Gaussian mutation of random
+          pairs drawn from the global feasible n-optimal pool.
+        """
+        # 1. Gather distinct n-optimal champions from existing niches [0, start_idx)
+        champ_indices = np.empty(start_idx, dtype=npintp)
+        n_champs = 0
+        for c in range(start_idx):
+            if self.optima_noptimal_mask[c]:
+                is_dup = False
+                for prev in range(n_champs):
+                    if selection.is_duplicate_point(
+                        self.optima_scaled_points[c],
+                        self.optima_scaled_points[champ_indices[prev]],
+                    ):
+                        is_dup = True
+                        break
+                if not is_dup:
+                    champ_indices[n_champs] = c
+                    n_champs += 1
+
+        # 2. Gather flat indices of all feasible & n-optimal individuals in [0, start_idx)
+        max_pool = start_idx * self.pop_size
+        pool_niche = np.empty(max_pool, dtype=npintp)
+        pool_ind = np.empty(max_pool, dtype=npintp)
+        n_pool = 0
+        for gi in range(start_idx):
+            for gj in range(self.pop_size):
+                if self.feasible_mask[gi, gj]:
+                    pool_niche[n_pool] = gi
+                    pool_ind[n_pool] = gj
+                    n_pool += 1
+
+        if n_champs == 0 and n_pool == 0:
+            self._populate_randomly(start_idx, end_idx)
+            return
+
+        sigma_vals = self.current_mutation_sigma * self.mutation_scaler
+        mut_prob = self.current_mutation_prob
+
+        for i in range(start_idx, end_idx):
+            # Seed slot 0 with a distinct n-optimal champion (preferring non-zero niches first)
+            if n_champs > 0:
+                # Offset by 1 if n_champs > 1 so new niches start from extrema/diversity corners before niche 0
+                c_idx = champ_indices[(i - start_idx + (1 if n_champs > 1 else 0)) % n_champs]
+                self.points[i, 0, :] = self.optima_points[c_idx, :]
+                self.optima_points[i, :] = self.optima_points[c_idx, :]
+                self.optima_scaled_points[i, :] = self.optima_scaled_points[c_idx, :]
+                self.optima_raw_objectives[i] = self.optima_raw_objectives[c_idx]
+                self.optima_violations[i] = self.optima_violations[c_idx]
+                self.optima_penalized_objectives[i] = self.optima_penalized_objectives[c_idx]
+                self.optima_noptimal_mask[i] = True
+            else:
+                p_idx = (i - start_idx) % n_pool
+                gi, gj = pool_niche[p_idx], pool_ind[p_idx]
+                self.points[i, 0, :] = self.points[gi, gj, :]
+                self._set_optimum(i, gi, gj)
+
+            # Seed slots 1..pop_size-1 by recombining and mutating pairs from the feasible n-optimal pool
+            for j in range(1, self.pop_size):
+                if n_pool >= 2:
+                    idx1 = self.rng.integers(0, n_pool)
+                    idx2 = self.rng.integers(0, n_pool)
+                    p1 = self.points[pool_niche[idx1], pool_ind[idx1]]
+                    p2 = self.points[pool_niche[idx2], pool_ind[idx2]]
+                elif n_champs >= 2:
+                    idx1 = self.rng.integers(0, n_champs)
+                    idx2 = self.rng.integers(0, n_champs)
+                    p1 = self.optima_points[champ_indices[idx1]]
+                    p2 = self.optima_points[champ_indices[idx2]]
+                else:
+                    p1 = self.points[i, 0]
+                    p2 = self.points[i, 0]
+
+                for k in range(self.ndim):
+                    val = p1[k] if self.rng.random() < 0.5 else p2[k]
+                    if self.rng.random() < mut_prob:
+                        val += self.rng.normal(0.0, 1.0) * sigma_vals[k]
+                    self.points[i, j, k] = val
+
     def add_diversity_niches(self, num_new_niches: int):
         if num_new_niches <= 0:
             return
@@ -327,9 +412,16 @@ class Population:
         self._add_niche_clean_up(num_old, num_total)
 
     def _add_niche_clean_up(self, num_old: int, num_total: int):
-        self._populate_randomly(num_old, num_total)
+        if (
+            self.problem_loaded and self.hyperparameters_set
+            and num_old > 0 and np.any(self.optima_noptimal_mask[:num_old])
+        ):
+            self._populate_from_noptimal_pool(num_old, num_total)
+        else:
+            self._populate_randomly(num_old, num_total)
         self._apply_integrality()
         self._apply_bounds()
+        self._scale_points()
 
     def add_niches(self, num_new_niches: int):
         """
@@ -475,11 +567,70 @@ class Population:
 
     def select_parents(self):
         """
-        Selects parents for the next generation.
+        Selects parents for the next generation:
+        - Niche 0 (cost optimum): global champ + global dedup'ed elites across all niches, local tournament.
+        - Extrema niches (type 1): global champ + global dedup'ed elites on `dim_k` across all niches, local tournament.
+        - Diversity niches (type 2): local niche selection.
         """
+        total_pop = self.num_niches * self.pop_size
+        flat_points = self.points.reshape((total_pop, self.ndim))
+        flat_scaled_points = self.scaled_points.reshape((total_pop, self.scaled_ndim))
+        flat_pen_obj = self.penalized_objectives.reshape(total_pop)
+        flat_nopt_mask = self.noptimal_mask.reshape(total_pop)
+        # Note: track_optima() sets self.feasible_mask *= self.noptimal_mask - check violations == 0 for raw feasibility
+        flat_feas_mask = (self.violations == 0.0).reshape(total_pop)
+
         for i in range(self.num_niches):
-            self._generate_selection_indices(i, self.parent_indices)
-            self.parents[i] = self.points[i, self.parent_indices]
+            local_offset = i * self.pop_size
+
+            if i == 0:
+                selection.selection_global_cost(
+                    self.parent_indices,
+                    flat_pen_obj,
+                    flat_scaled_points,
+                    local_offset,
+                    self.pop_size,
+                    self.maximize,
+                    self.champ_count,
+                    self.elite_count,
+                    self.tourn_count,
+                    self.tourn_size,
+                    self.rng,
+                    self.stable_sort,
+                )
+                self.parents[0] = flat_points[self.parent_indices]
+
+            elif self.niche_types[i] == 1:
+                dim_k = self.niche_target_dims[i]
+                flat_dim_vals = np.ascontiguousarray(self.scaled_points[:, :, dim_k]).reshape(total_pop)
+                maximize_sec = not self.niche_is_min[i]
+
+                selection.selection_global_extrema(
+                    self.parent_indices,
+                    flat_dim_vals,
+                    flat_nopt_mask,
+                    flat_feas_mask,
+                    flat_pen_obj,
+                    flat_scaled_points,
+                    self.noptimal_threshold,
+                    local_offset,
+                    self.pop_size,
+                    self.maximize,
+                    maximize_sec,
+                    self.extrema_epsilon_rel,
+                    self.extrema_epsilon_abs,
+                    self.champ_count,
+                    self.elite_count,
+                    self.tourn_count,
+                    self.tourn_size,
+                    self.rng,
+                    self.stable_sort,
+                )
+                self.parents[i] = flat_points[self.parent_indices]
+
+            else:
+                self._generate_selection_indices(i, self.parent_indices)
+                self.parents[i] = self.points[i, self.parent_indices]
 
     def generate_offspring(self):
         """
@@ -708,11 +859,7 @@ class Population:
                 self.optima_noptimal_mask[i] = True
 
     def _track_diversity_niches(self):
-        js = self._find_best_in_niche(1)
-        for i in range(1, self.num_niches):
-            if self.niche_types[i] != 2:
-                continue
-            self._set_optimum(i, i, js[i])
+        self._find_best_in_niche(1)
 
     def _track_pure_optimization(self):
         mean_abs_dif = 0.0
@@ -1051,24 +1198,52 @@ class Population:
 
     def _find_best_in_niche(self, start_idx: int = 1):
         """
-        For each niche i>0, pick the representative index:
-        1) best fitness among feasible & noptimal
-        2) else best penalized objective
-        Returns array of shape (num_niches,) giving chosen j for each niche.
-        Niche 0 should be ignored by caller (global optimum already set).
+        For each diversity niche i >= start_idx, pick the representative index:
+        1) best fitness among feasible, noptimal, and non-duplicate points
+           (checked against global optimum and all preceding n-optimal niches)
+        2) fallback to best feasible & noptimal (if all are duplicates)
+        3) else best penalized objective
         """
         out = np.full(self.num_niches, -1, dtype=npintp)
+        candidate_mask = np.empty(self.pop_size, dtype=np.bool_)
 
         for i in range(start_idx, self.num_niches):
-            if self.feasible_mask[i].sum() >= 1:
-                # option 1: feasible & noptimal
-                best_j = utils.argmax_with_mask(self.fitnesses[i], self.feasible_mask[i])
+            if self.niche_types[i] != 2:
+                continue
 
+            n_valid = 0
+            for j in range(self.pop_size):
+                if not self.feasible_mask[i, j]:
+                    candidate_mask[j] = False
+                    continue
+
+                # Check against global optimum (c=0) and already-assigned n-optimal champions (c < i)
+                is_dup = selection.is_duplicate_point(
+                    self.scaled_points[i, j], self.optima_scaled_points[0]
+                )
+                if not is_dup:
+                    for c in range(1, i):
+                        if self.optima_noptimal_mask[c]:
+                            if selection.is_duplicate_point(
+                                self.scaled_points[i, j], self.optima_scaled_points[c]
+                            ):
+                                is_dup = True
+                                break
+
+                candidate_mask[j] = not is_dup
+                if not is_dup:
+                    n_valid += 1
+
+            if n_valid >= 1:
+                best_j = utils.argmax_with_mask(self.fitnesses[i], candidate_mask)
+            elif self.feasible_mask[i].sum() >= 1:
+                best_j = utils.argmax_with_mask(self.fitnesses[i], self.feasible_mask[i])
             else:
-                # option 2: best penalized objective
                 best_j = utils.argm(self.penalized_objectives[i], self.maximize)
 
             out[i] = best_j
+            self._set_optimum(i, i, best_j)
+
         return out
 
 
@@ -1138,6 +1313,20 @@ def _append_1d_bool(arr, vals):
     res[:arr.size] = arr
     res[arr.size:] = vals
     return res
+
+
+@njit(inline="always")
+def _is_duplicate_point(p1, p2, rtol=1e-5, atol=1e-6):
+    """
+    Fast early-exit check for whether two points (1D arrays) are identical
+    within floating-point / near-clone tolerance.
+    """
+    for k in range(p1.shape[0]):
+        diff = abs(p1[k] - p2[k])
+        scale = max(abs(p1[k]), abs(p2[k]))
+        if diff > atol + rtol * scale:
+            return False
+    return True
 
 
 def load_problem_to_population(
