@@ -59,6 +59,9 @@ if JIT_ENABLED:
         ('optima_penalized_objectives', nbfloat[::1]),
         ('optima_fitnesses', nbfloat[::1]),
         ('optima_noptimal_mask', boolean[::1]),
+        ('extrema_true_points', nbfloat[:, ::1]),
+        ('extrema_true_vals', nbfloat[::1]),
+        ('extrema_true_penalized_objectives', nbfloat[::1]),
         ('current_optimum', nbfloat),
         ('noptimal_threshold', nbfloat),
 
@@ -202,9 +205,13 @@ class Population:
         self.optima_penalized_objectives = np.zeros((self.num_niches), dtype=npfloat)
         self.optima_fitnesses = np.zeros((self.num_niches), dtype=npfloat)
         self.optima_noptimal_mask = np.zeros((self.num_niches), dtype=np.bool_)
+        self.extrema_true_points = np.zeros((self.num_niches, self.ndim), dtype=npfloat)
+        self.extrema_true_vals = np.zeros((self.num_niches), dtype=npfloat)
+        self.extrema_true_penalized_objectives = np.full(
+            (self.num_niches), -np.inf if self.maximize else np.inf, dtype=npfloat
+        )
         self.noptimal_threshold = 0.0
         self.current_optimum = 0.0
-
         self._allocate_scaled_arrays()
 
     def _load_optimum(
@@ -440,9 +447,13 @@ class Population:
                 dim_k = self.niche_target_dims[i]
                 sec_obj = self.scaled_points[i, :, dim_k]
                 maximize_sec = not self.niche_is_min[i]
+                eps_rel = self.extrema_epsilon_rel
+                eps_abs = self.extrema_epsilon_abs
             else:  # Diversity niche (type 2)
                 sec_obj = self.fitnesses[i]
                 maximize_sec = True
+                eps_rel = 0.0
+                eps_abs = 0.0
 
             selection.selection_with_fallback(
                 out_indices,
@@ -451,8 +462,8 @@ class Population:
                 self.penalized_objectives[i],
                 self.maximize,
                 maximize_sec,
-                self.extrema_epsilon_rel,
-                self.extrema_epsilon_abs,
+                eps_rel,
+                eps_abs,
                 self.champ_count,
                 self.elite_count,
                 self.tourn_count,
@@ -540,10 +551,11 @@ class Population:
         # Elitism: preserve best individuals
         self.points[0, 0, :] = self.optima_points[0]
         if self.niche_elitism:
-            # This part could be enhanced, for now, we just preserve the best from each parent set
             for i in range(1, self.num_niches):
                 if self.optima_noptimal_mask[i]:  # only preserve if noptimal
                     self.points[i, 0, :] = self.optima_points[i, :]
+                    if self.niche_types[i] == 1 and self.pop_size > 1:
+                        self.points[i, 1, :] = self.extrema_true_points[i, :]
                 else:  # otherwise duplicate the current optimum
                     self.points[i, 0, :] = self.optima_points[0, :]
 
@@ -594,6 +606,47 @@ class Population:
 
         self.current_optimum = self.optima_penalized_objectives[0]
 
+    def _find_true_extremum(self, dim_k, is_min, has_true, true_val, true_obj):
+        """Scans the population for the strict true extremum."""
+        true_gi, true_gj = nbint(-1), nbint(-1)
+        for gi in range(self.num_niches):
+            for gj in range(self.pop_size):
+                if self.feasible_mask[gi, gj]:
+                    val = self.scaled_points[gi, gj, dim_k]
+                    obj = self.penalized_objectives[gi, gj]
+                    if not has_true:
+                        true_val, true_obj, true_gi, true_gj = val, obj, gi, gj
+                        has_true = True
+                    elif (is_min and val < true_val) or (not is_min and val > true_val):
+                        true_val, true_obj, true_gi, true_gj = val, obj, gi, gj
+                    elif val == true_val:
+                        if (self.maximize and obj > true_obj) or (not self.maximize and obj < true_obj):
+                            true_obj, true_gi, true_gj = obj, gi, gj
+        return has_true, true_val, true_obj, true_gi, true_gj
+
+    def _find_relaxed_champion(self, dim_k, is_min, true_val, eff_epsilon, has_champ, best_obj, best_val):
+        """Finds the lowest-cost champion within eff_epsilon of the true extremum."""
+        champ_gi, champ_gj = nbint(-1), nbint(-1)
+        for gi in range(self.num_niches):
+            for gj in range(self.pop_size):
+                if self.feasible_mask[gi, gj]:
+                    val = self.scaled_points[gi, gj, dim_k]
+                    dist = (val - true_val) if is_min else (true_val - val)
+                    if dist <= eff_epsilon:
+                        obj = self.penalized_objectives[gi, gj]
+                        if not has_champ:
+                            best_obj, best_val, champ_gi, champ_gj = obj, val, gi, gj
+                            has_champ = True
+                        else:
+                            obj_diff = (obj - best_obj) if self.maximize else (best_obj - obj)
+                            if obj_diff > 0.0:
+                                best_obj, best_val, champ_gi, champ_gj = obj, val, gi, gj
+                            elif obj_diff == 0.0:
+                                val_diff = (best_val - val) if is_min else (val - best_val)
+                                if val_diff > 0.0:
+                                    best_val, champ_gi, champ_gj = val, gi, gj
+        return champ_gi, champ_gj
+
     def _track_extrema_niches(self):
         for i in range(1, self.num_niches):
             if self.niche_types[i] != 1:
@@ -602,29 +655,57 @@ class Population:
             dim_k = self.niche_target_dims[i]
             is_min = self.niche_is_min[i]
 
-            incumbent_noptimal = False
+            champ_nopt, true_nopt = False, False
             if self.optima_noptimal_mask[i] and self.optima_violations[i] == 0.0:
                 if self.maximize:
-                    incumbent_noptimal = self.optima_penalized_objectives[i] > self.noptimal_threshold
+                    champ_nopt = self.optima_penalized_objectives[i] >= self.noptimal_threshold
+                    true_nopt = self.extrema_true_penalized_objectives[i] >= self.noptimal_threshold
                 else:
-                    incumbent_noptimal = self.optima_penalized_objectives[i] < self.noptimal_threshold
+                    champ_nopt = self.optima_penalized_objectives[i] <= self.noptimal_threshold
+                    true_nopt = self.extrema_true_penalized_objectives[i] <= self.noptimal_threshold
 
-            incumbent_val = self.optima_scaled_points[i, dim_k] if incumbent_noptimal else 0.0
-            incumbent_obj = (
-                self.optima_penalized_objectives[i]
-                if incumbent_noptimal
+            true_val = self.extrema_true_vals[i] if true_nopt else 0.0
+            true_obj = (
+                self.extrema_true_penalized_objectives[i]
+                if true_nopt
                 else (-np.inf if self.maximize else np.inf)
             )
 
-            ei, ej = self._find_global_extremum_idx(dim_k, is_min, incumbent_noptimal, incumbent_val, incumbent_obj)
+            has_true, true_val, true_obj, true_gi, true_gj = self._find_true_extremum(
+                dim_k, is_min, true_nopt, true_val, true_obj
+            )
 
-            if ei != -1:
-                self._set_optimum(i, ei, ej)
-                self.optima_noptimal_mask[i] = True
-            elif not incumbent_noptimal:
+            if not has_true:
                 best_j = utils.argm(self.penalized_objectives[i], self.maximize)
                 self._set_optimum(i, i, best_j)
+                self.extrema_true_points[i, :] = self.points[i, best_j, :]
+                self.extrema_true_vals[i] = self.scaled_points[i, best_j, dim_k]
+                self.extrema_true_penalized_objectives[i] = self.penalized_objectives[i, best_j]
                 self.optima_noptimal_mask[i] = False
+                continue
+
+            self.extrema_true_vals[i] = true_val
+            self.extrema_true_penalized_objectives[i] = true_obj
+            if true_gi != -1:
+                self.extrema_true_points[i, :] = self.points[true_gi, true_gj, :]
+
+            eff_epsilon = abs(true_val) * self.extrema_epsilon_rel + self.extrema_epsilon_abs
+            best_obj = -np.inf if self.maximize else np.inf
+            best_val = true_val
+            has_champ = False
+
+            if champ_nopt:
+                inc_val = self.optima_scaled_points[i, dim_k]
+                if ((inc_val - true_val) if is_min else (true_val - inc_val)) <= eff_epsilon:
+                    has_champ, best_obj, best_val = True, self.optima_penalized_objectives[i], inc_val
+
+            champ_gi, champ_gj = self._find_relaxed_champion(
+                dim_k, is_min, true_val, eff_epsilon, has_champ, best_obj, best_val
+            )
+
+            if champ_gi != -1:
+                self._set_optimum(i, champ_gi, champ_gj)
+                self.optima_noptimal_mask[i] = True
 
     def _track_diversity_niches(self):
         js = self._find_best_in_niche(1)
@@ -774,6 +855,11 @@ class Population:
             self.optima_penalized_objectives = _add_niche_to_array(self.optima_penalized_objectives, new_niche_size)
             self.optima_fitnesses = _add_niche_to_array(self.optima_fitnesses, new_niche_size)
             self.optima_noptimal_mask = _add_niche_to_array(self.optima_noptimal_mask, new_niche_size)
+            self.extrema_true_points = _add_niche_to_array(self.extrema_true_points, new_niche_size)
+            self.extrema_true_vals = _add_niche_to_array(self.extrema_true_vals, new_niche_size)
+            self.extrema_true_penalized_objectives = _add_niche_to_array(
+                self.extrema_true_penalized_objectives, new_niche_size
+            )
 
             self.num_niches = new_niche_size
 
@@ -924,16 +1010,15 @@ class Population:
     def _update_noptimal_mask(self):
         """
         evaluate noptimality of evaluated points
-        noptimality is based on raw objective, not penalized objective
         """
         if self.maximize:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.noptimal_mask[i, j] = self.penalized_objectives[i, j] > self.noptimal_threshold
+                    self.noptimal_mask[i, j] = self.penalized_objectives[i, j] >= self.noptimal_threshold
         else:
             for i in range(self.num_niches):
                 for j in range(self.pop_size):
-                    self.noptimal_mask[i, j] = self.penalized_objectives[i, j] < self.noptimal_threshold
+                    self.noptimal_mask[i, j] = self.penalized_objectives[i, j] <= self.noptimal_threshold
 
     def _update_noptimal_threshold(self):
         margin = abs(self.current_optimum) * (self.noptimal_rel) + self.noptimal_abs
@@ -947,63 +1032,6 @@ class Population:
         for i in range(self.num_niches):
             for j in range(self.pop_size):
                 self.feasible_mask[i, j] = self.violations[i, j] == 0
-
-    def _find_global_extremum_idx(
-        self,
-        dim_k: int,
-        is_min: bool,
-        has_incumbent: bool,
-        incumbent_val: float,
-        incumbent_obj: float,
-    ):
-        """
-        Scans all niches and individuals for a feasible & noptimal point that
-        improves upon `incumbent_val` along scaled dimension `dim_k`.
-        Returns (best_i, best_j). If no improvement is found, returns (-1, -1).
-        """
-        best_i = nbint(-1)
-        best_j = nbint(-1)
-        best_val = incumbent_val
-        best_obj = incumbent_obj
-
-        for gi in range(self.num_niches):
-            for gj in range(self.pop_size):
-                if self.feasible_mask[gi, gj]:
-                    val = self.scaled_points[gi, gj, dim_k]
-                    obj = self.penalized_objectives[gi, gj]
-
-                    if not has_incumbent:
-                        best_val = val
-                        best_obj = obj
-                        best_i = gi
-                        best_j = gj
-                        has_incumbent = True
-                        continue
-
-                    diff = val - best_val
-                    if is_min:
-                        diff = -diff
-
-                    eff_epsilon = abs(best_val) * self.extrema_epsilon_rel + self.extrema_epsilon_abs
-
-                    if diff > eff_epsilon:
-                        best_val = val
-                        best_obj = obj
-                        best_i = gi
-                        best_j = gj
-                    elif abs(diff) <= eff_epsilon:
-                        # Tie-breaker on secondary objective cost
-                        obj_diff = obj - best_obj
-                        if not self.maximize:
-                            obj_diff = -obj_diff
-
-                        if obj_diff > 0:
-                            best_val = val
-                            best_obj = obj
-                            best_i = gi
-                            best_j = gj
-
-        return best_i, best_j
 
     def _find_global_best_idx(self):
         """

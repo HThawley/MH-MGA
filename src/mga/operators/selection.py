@@ -143,54 +143,87 @@ def _select_champ(out_indices, selection_criterion, n, start_idx, maximize):
 
 
 @njit
-def _get_best_lexicographic(
-    indices,
-    fitness,
-    noptimal_mask,
-    penalized_objectives,
-    maximize,
-    maximize_secondary,
-    epsilon_rel,
-    epsilon_abs,
+def _find_lexicographic_target(indices, fitness, noptimal_mask, maximize_secondary):
+    """Ratchet target_fit strictly in the secondary direction."""
+    has_nopt = False
+    target_fit = -np.inf if maximize_secondary else np.inf
+    for idx in indices:
+        if noptimal_mask[idx]:
+            fit = fitness[idx]
+            if not has_nopt:
+                target_fit, has_nopt = fit, True
+            elif (maximize_secondary and fit > target_fit) or (not maximize_secondary and fit < target_fit):
+                target_fit = fit
+    return has_nopt, target_fit
+
+
+@njit
+def _find_best_lexicographic_candidate(
+    indices, fitness, noptimal_mask, penalized_objectives,
+    maximize, maximize_secondary, target_fit, eff_epsilon
 ):
-    """Core lexicographic loop evaluator for arrays."""
+    """Pick candidate within eff_epsilon of target_fit with the best primary objective."""
     best_idx = -1
-    best_fit = -np.inf if maximize_secondary else np.inf
     best_obj = -np.inf if maximize else np.inf
+    best_fit = target_fit
 
     for idx in indices:
         if not noptimal_mask[idx]:
             continue
-
         fit = fitness[idx]
-        obj = penalized_objectives[idx]
+        dist = (target_fit - fit) if maximize_secondary else (fit - target_fit)
 
-        if best_idx == -1:
-            best_idx = idx
-            best_fit = fit
-            best_obj = obj
-            continue
-
-        diff = fit - best_fit
-        if not maximize_secondary:
-            diff = -diff
-
-        eff_epsilon = abs(best_fit) * epsilon_rel + epsilon_abs
-
-        if diff > eff_epsilon:
-            best_idx = idx
-            best_fit = fit
-            best_obj = obj
-        elif abs(diff) <= eff_epsilon:
-            obj_diff = obj - best_obj
-            if not maximize:
-                obj_diff = -obj_diff
-            if obj_diff > 0:
-                best_idx = idx
-                best_fit = fit
-                best_obj = obj
-
+        if dist <= eff_epsilon:
+            obj = penalized_objectives[idx]
+            if best_idx == -1:
+                best_idx, best_obj, best_fit = idx, obj, fit
+            else:
+                obj_diff = (obj - best_obj) if maximize else (best_obj - obj)
+                if obj_diff > 0.0:
+                    best_idx, best_obj, best_fit = idx, obj, fit
+                elif obj_diff == 0.0:
+                    fit_diff = (fit - best_fit) if maximize_secondary else (best_fit - fit)
+                    if fit_diff > 0.0:
+                        best_idx, best_fit = idx, fit
     return best_idx
+
+
+@njit
+def _get_best_lexicographic(
+    indices, fitness, noptimal_mask, penalized_objectives,
+    maximize, maximize_secondary, epsilon_rel, epsilon_abs
+):
+    has_nopt, target_fit = _find_lexicographic_target(indices, fitness, noptimal_mask, maximize_secondary)
+    if not has_nopt:
+        return -1
+
+    eff_epsilon = abs(target_fit) * epsilon_rel + epsilon_abs
+    return _find_best_lexicographic_candidate(
+        indices, fitness, noptimal_mask, penalized_objectives,
+        maximize, maximize_secondary, target_fit, eff_epsilon
+    )
+
+
+@njit
+def _calculate_lexicographic_scores(
+    noptimal_fitness,
+    noptimal_obj,
+    maximize,
+    maximize_secondary,
+    eff_epsilon,
+    target_fit,
+):
+    """Calculates sorting scores, abstracting pure lexicographic vs. tiered epsilon logic."""
+    s_key = -noptimal_obj if maximize else noptimal_obj
+    s_min, s_max = s_key.min(), s_key.max()
+    s_norm = (s_key - s_min) / (s_max - s_min + 1e-12) if s_max > s_min else np.zeros_like(s_key)
+
+    if eff_epsilon <= 0.0:
+        return -noptimal_fitness if maximize_secondary else noptimal_fitness
+
+    dist_from_target = (target_fit - noptimal_fitness) if maximize_secondary else (noptimal_fitness - target_fit)
+    tier = np.floor(np.maximum(0.0, dist_from_target - 1e-12 * eff_epsilon) / eff_epsilon)
+    return tier + (s_norm * 0.99)
 
 
 @njit
@@ -365,40 +398,25 @@ def _select_elite_with_fallback(
 ):
     """Selects best `n` individuals based on the secondary array.
     If there are not `n` noptimal individuals, selects on penalized_objectives"""
-    if n == 0:
-        return
     _nopt = 0
     for i in range(len(noptimal_mask)):
         if noptimal_mask[i]:
             _nopt += 1
 
-    if _nopt <= n:  # not enough near-optimal points
+    if _nopt <= n:
         return _select_elite(out_indices, penalized_objectives, n, start_idx, maximize, stable)
 
     indices = np.empty(n, npintp)
     noptimal_indices = np.where(noptimal_mask)[0]
-
     noptimal_fitness = fitness[noptimal_indices]
     noptimal_obj = penalized_objectives[noptimal_indices]
 
-    # Calculate scalar effective epsilon for array binning
-    max_abs_fit = np.max(np.abs(noptimal_fitness))
-    eff_epsilon = max_abs_fit * epsilon_rel + epsilon_abs
+    target_fit = np.max(noptimal_fitness) if maximize_secondary else np.min(noptimal_fitness)
+    eff_epsilon = abs(target_fit) * epsilon_rel + epsilon_abs
 
-    if eff_epsilon < 1e-12:
-        eff_epsilon = 1e-12
-
-    # Combine metrics: Round primary key to bin by epsilon, normalize secondary to act as the decimal tie-breaker
-    rounded_fit = np.round(noptimal_fitness / eff_epsilon) * eff_epsilon
-
-    p_key = -rounded_fit if maximize_secondary else rounded_fit
-    s_key = -noptimal_obj if maximize else noptimal_obj
-
-    s_min, s_max = s_key.min(), s_key.max()
-    s_norm = (s_key - s_min) / (s_max - s_min + 1e-12) if s_max > s_min else np.zeros_like(s_key)
-
-    # Scaling s_norm guarantees it solely breaks ties without overriding the primary p_key bin
-    score = p_key + (s_norm * eff_epsilon * 0.99)
+    score = _calculate_lexicographic_scores(
+        noptimal_fitness, noptimal_obj, maximize, maximize_secondary, eff_epsilon, target_fit
+    )
 
     if stable:
         _indices = np.argsort(score)
