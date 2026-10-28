@@ -122,17 +122,21 @@ class Logger:
             file_name=f"{file_prefix}-diversity.csv",
             save_freq=save_freq,
             header=[
-                "iter",
-                "VESA",
-                "shannon",
-                "mean_std_fit",
-                "min_std_fit",
-                "max_std_fit",
-                "mean_var_fit",
-                "min_var_fit",
-                "max_var_fit",
-                "sum_fit",
-                "mean_fit",
+                "iter", "VESA", "shannon",
+                "mean_std_fit", "min_std_fit", "max_std_fit",
+                "mean_var_fit", "min_var_fit", "max_var_fit",
+                "sum_fit", "mean_fit",
+            ],
+            resume=resume,
+        )
+
+        self.extrema_printer = FilePrinter(
+            file_name=f"{file_prefix}-extrema_tracking.csv",
+            save_freq=save_freq,
+            header=[
+                "iter", "niche_id", "dim_k", "is_min",
+                "true_extremum", "relaxed_extremum",
+                "true_obj", "relaxed_obj"
             ],
             resume=resume,
         )
@@ -160,10 +164,6 @@ class Logger:
     def log_iteration(self, iteration: int, population):
         """
         Logs all relevant data for the current iteration.
-
-        Args:
-            iteration (int): The current iteration number.
-            population (Population): The population object containing current state.
         """
         metrics_data = [
             [
@@ -181,6 +181,24 @@ class Logger:
         # Log diversity metrics
         diversity_row = self._calculate_diversity_metrics(iteration, population)
         self.diversity_printer([diversity_row])
+
+        # Log Extrema Ratchet Metrics
+        extrema_data = []
+        for i in range(1, population.num_niches):
+            if population.niche_types[i] == 1:
+                dim_k = population.niche_target_dims[i]
+                extrema_data.append([
+                    iteration,
+                    f"nopt{i}",
+                    dim_k,
+                    int(population.niche_is_min[i]),
+                    population.extrema_true_vals[i],
+                    population.optima_scaled_points[i, dim_k],
+                    population.extrema_true_penalized_objectives[i],
+                    population.optima_penalized_objectives[i],
+                ])
+        if extrema_data:
+            self.extrema_printer(extrema_data)
 
         # Log detailed evolution of best points
         if self.detailed:
@@ -200,9 +218,6 @@ class Logger:
     def finalize(self, population):
         """
         Writes the final summary of n-optima and flushes all log files.
-
-        Args:
-            best_solutions (dict): The final dictionary of best solutions.
         """
         print("Finalizing logs...", end="")
         # Write final n-optima data
@@ -222,6 +237,7 @@ class Logger:
         # Flush all remaining data in buffers
         self.niche_metrics_printer._flush()
         self.diversity_printer._flush()
+        self.extrema_printer._flush()
         if self.detailed:
             self.evolution_printer._flush()
         self.noptima_printer._flush()

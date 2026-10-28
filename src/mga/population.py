@@ -758,11 +758,11 @@ class Population:
         self.current_optimum = self.optima_penalized_objectives[0]
 
     def _find_true_extremum(self, dim_k, is_min, has_true, true_val, true_obj):
-        """Scans the population for the strict true extremum."""
+        """Scans the population for the strict true extremum among n-optimal points."""
         true_gi, true_gj = nbint(-1), nbint(-1)
         for gi in range(self.num_niches):
             for gj in range(self.pop_size):
-                if self.feasible_mask[gi, gj]:
+                if self.feasible_mask[gi, gj] and self.noptimal_mask[gi, gj]:
                     val = self.scaled_points[gi, gj, dim_k]
                     obj = self.penalized_objectives[gi, gj]
                     if not has_true:
@@ -780,7 +780,7 @@ class Population:
         champ_gi, champ_gj = nbint(-1), nbint(-1)
         for gi in range(self.num_niches):
             for gj in range(self.pop_size):
-                if self.feasible_mask[gi, gj]:
+                if self.feasible_mask[gi, gj] and self.noptimal_mask[gi, gj]:
                     val = self.scaled_points[gi, gj, dim_k]
                     dist = (val - true_val) if is_min else (true_val - val)
                     if dist <= eff_epsilon:
@@ -853,6 +853,10 @@ class Population:
             champ_gi, champ_gj = self._find_relaxed_champion(
                 dim_k, is_min, true_val, eff_epsilon, has_champ, best_obj, best_val
             )
+
+            # Ensure the mask correctly invalidates if the old champ fell out of n-optimality
+            # and no new champion was found in the epsilon band
+            self.optima_noptimal_mask[i] = champ_nopt
 
             if champ_gi != -1:
                 self._set_optimum(i, champ_gi, champ_gj)
