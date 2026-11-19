@@ -19,9 +19,7 @@ if JIT_ENABLED:
         ('parent_size', nbint),
         ('stable_sort', boolean),
         ('include_obj_in_fitness', boolean),
-        ('pure_optimization', boolean),
 
-        ('pure_optimization', boolean),
         ('niche_types', nbint[::1]),
         ('niche_target_dims', nbint[::1]),
         ('niche_is_min', boolean[::1]),
@@ -82,7 +80,6 @@ if JIT_ENABLED:
         ('mutation_scaler', nbfloat[::1]),
         ('space_scaler', nbfloat[:, ::1]),
         ('objective_scaler', nbfloat),
-        ('repulsion_weight', nbfloat),
         ('fitness_method', nbint),
         ('extrema_epsilon_rel', nbfloat),
         ('extrema_epsilon_abs', nbfloat),
@@ -121,7 +118,6 @@ class Population:
         stable_sort: bool,
         rng: npy_rng,
         include_obj_in_fitness: bool,
-        pure_optimization: bool,
         niche_types: np.ndarray,
         niche_target_dims: np.ndarray,
         niche_is_min: np.ndarray,
@@ -134,12 +130,6 @@ class Population:
         self.stable_sort = stable_sort
         self.rng = rng
         self.include_obj_in_fitness = include_obj_in_fitness
-        self.pure_optimization = pure_optimization
-
-        if self.pure_optimization:
-            if self.include_obj_in_fitness:
-                print("Warning: include_obj_in_fitness has no effect when pure_optimization is True.")
-                self.include_obj_in_fitness = False
 
         self.niche_types = niche_types
         self.niche_target_dims = niche_target_dims
@@ -171,12 +161,10 @@ class Population:
         self.mutation_scaler = np.empty(ndim, dtype=npfloat)
         self.space_scaler = np.empty((1, ndim), dtype=npfloat)
         self.objective_scaler = 1.0
-        self.repulsion_weight = 0.0
         self.fitness_method = 2
         self.extrema_epsilon_rel = 1e-3
         self.extrema_epsilon_abs = 1e-6
 
-        self.scaled_ndim = nbint(ndim)
         self.do_skew_mutation = False
         self.use_cx_two_point = self.ndim > 2
 
@@ -474,10 +462,6 @@ class Population:
         noptimal_abs: float,
         violation_factor: float,
         mutation_scaler: np.ndarray[float],
-        space_scaler: np.ndarray[float],
-        objective_scaler: float,
-        repulsion_weight: float,
-        fitness_method: int,
         extrema_epsilon_rel: float,
         extrema_epsilon_abs: float,
     ):
@@ -495,25 +479,37 @@ class Population:
         self.noptimal_abs = nbfloat(noptimal_abs)
         self.violation_factor = nbfloat(violation_factor)
         self.mutation_scaler[:] = mutation_scaler.astype(nbfloat)
-        self.objective_scaler = nbfloat(objective_scaler)
-        self.repulsion_weight = nbfloat(repulsion_weight)
-        self.fitness_method = fitness_method
         self.extrema_epsilon_rel = nbfloat(extrema_epsilon_rel)
         self.extrema_epsilon_abs = nbfloat(extrema_epsilon_abs)
 
         self.do_skew_mutation = abs(self.mutation_alpha) > 1e-3
 
-        self.space_scaler = np.ascontiguousarray(space_scaler).astype(nbfloat)
-        if not self.scaling_in_obj_func:
-            new_scaled_ndim = space_scaler.shape[1]
-            if new_scaled_ndim != self.scaled_ndim:
-                self.scaled_ndim = nbint(new_scaled_ndim)
-                self._allocate_scaled_arrays()
-            self._rescale_bounds()
-
         self.dither_probabilities()
 
         self.hyperparameters_set = True
+
+    def update_settings(
+        self,
+        include_obj_in_fitness: bool,
+        fitness_method: int,
+        space_scaler: np.ndarray[float],
+        objective_scaler: float,
+    ):
+        new_inc_obj = boolean(include_obj_in_fitness)
+        realloc_centroids = new_inc_obj != self.include_obj_in_fitness
+        self.include_obj_in_fitness = new_inc_obj
+        self.fitness_method = fitness_method
+        self.objective_scaler = nbfloat(objective_scaler)
+
+        self.space_scaler = np.ascontiguousarray(space_scaler).astype(nbfloat)
+        if not self.scaling_in_obj_func:
+            new_scaled_ndim = space_scaler.shape[1]
+            if new_scaled_ndim != self.scaled_ndim or realloc_centroids:
+                self.scaled_ndim = nbint(new_scaled_ndim)
+                self._allocate_scaled_arrays()
+            self._rescale_bounds()
+        elif realloc_centroids:
+            self._allocate_scaled_arrays()
 
     def _generate_selection_indices(
         self,
@@ -710,10 +706,6 @@ class Population:
                 else:  # otherwise duplicate the current optimum
                     self.points[i, 0, :] = self.optima_points[0, :]
 
-        if self.pure_optimization:
-            for i in range(1, self.num_niches):
-                self.points[i, 0, :] = self.optima_points[0, :]
-
     def _set_optimum(
         self,
         target_niche: int,
@@ -738,9 +730,6 @@ class Population:
 
         self._track_extrema_niches()
         self._track_diversity_niches()
-
-        if self.pure_optimization:
-            self._track_pure_optimization()
 
     def _track_global_optimum(self):
         if np.any(self.feasible_mask):
@@ -865,42 +854,13 @@ class Population:
     def _track_diversity_niches(self):
         self._find_best_in_niche(1)
 
-    def _track_pure_optimization(self):
-        mean_abs_dif = 0.0
-        for i in range(1, self.num_niches):
-            diff = self.optima_penalized_objectives[i] - self.current_optimum
-            mean_abs_dif += -diff if self.maximize else diff
-
-        mean_abs_dif /= (self.num_niches - 1)
-        rel_dif = utils.safe_divide_scalar(mean_abs_dif, abs(self.current_optimum), mean_abs_dif)
-
-        target_weight = 0.005 / (rel_dif)
-        self.repulsion_weight = (0.8 * self.repulsion_weight) + (0.2 * target_weight)
-
     def evaluate_fitness(self):
         """
         Calculates fitness for each individual.
-        Skips distance/angular evaluation if all non-optimum niches are extrema niches.
         """
-        if self.pure_optimization:
-            self._evaluate_pure_optimization_fitness()
+        if self.num_niches <= 1:
             return
 
-        if self.num_niches > 1:
-            self._evaluate_diversity_fitness()
-
-    def _evaluate_pure_optimization_fitness(self):
-        self._find_scaled_centroids()
-        fitness.evaluate_fitness_pure_optimization(
-            self.fitnesses,
-            self.scaled_points,
-            self.scaled_centroids,
-            self.raw_objectives,
-            self.repulsion_weight,
-            self.fitness_method,
-        )
-
-    def _evaluate_diversity_fitness(self):
         self._find_scaled_centroids()
         if self.fitness_method == 0:
             fitness.evaluate_fitness_angular(
@@ -1083,9 +1043,7 @@ class Population:
         self.scaled_points = np.zeros((self.num_niches, self.pop_size, self.scaled_ndim))
         self.optima_scaled_points = np.zeros((self.num_niches, self.scaled_ndim))
 
-        if self.pure_optimization:
-            self.scaled_centroids = np.zeros((1, self.scaled_ndim), dtype=npfloat)
-        elif self.include_obj_in_fitness:
+        if self.include_obj_in_fitness:
             self.scaled_centroids = np.zeros((self.num_niches, self.scaled_ndim + 1), dtype=npfloat)
         else:
             self.scaled_centroids = np.zeros((self.num_niches, self.scaled_ndim), dtype=npfloat)

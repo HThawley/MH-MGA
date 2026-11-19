@@ -39,11 +39,25 @@ class MGAProblem:
         "noptimal_abs": 0.0,
         "niche_elitism": True,
         "mutation_scaler": "bounds",
-        "objective_scaler": None,
-        "repulsion_weight": 1.0,
-        "fitness_method": "l2",
         "extrema_epsilon_rel": 1e-3,
         "extrema_epsilon_abs": 1e-6,
+    }
+
+    _DEFAULT_SETTINGS = {
+        "include_obj_in_fitness": False,
+        "fitness_method": "l2",
+        "space_scaler": None,
+        "objective_scaler": None,
+    }
+
+    _DEFAULT_CONFIG = {
+        "log_dir": None,
+        "log_freq": -1,
+        "random_seed": None,
+        "parallelize": True,
+        "callback": None,
+        "disp_rate": 0,
+        "verbose": 0,
     }
 
     def __init__(
@@ -53,34 +67,27 @@ class MGAProblem:
         starting_points: np.ndarray[float] = None,
         starting_objectives: np.ndarray[float] = None,
         starting_constraints: np.ndarray[float] = None,
-        log_dir: str | None = None,
-        log_freq: int = -1,
-        random_seed: int | None = None,
-        parallelize: bool = True,
-        callback: Callable = None,
-        include_obj_in_fitness: bool = False,
-        pure_optimization: bool = False,
-        space_scaler: np.ndarray | str | None = None,
+        log_dir: str | None = _SENTINEL,
+        log_freq: int = _SENTINEL,
+        random_seed: int | None = _SENTINEL,
+        parallelize: bool = _SENTINEL,
+        callback: Callable | None = _SENTINEL,
+        include_obj_in_fitness: bool = _SENTINEL,
+        space_scaler: np.ndarray | str | None = _SENTINEL,
+        fitness_method: str = _SENTINEL,
+        objective_scaler: float | None = _SENTINEL,
+        disp_rate: int = _SENTINEL,
+        verbose: int = _SENTINEL,
     ):
         """
         Initializes the MGA algorithm
         """
         # sanitize inputs
         typing.sanitize_type(problem, OptimizationProblem, "problem")
-        typing.sanitize_type(log_dir, (str, "none"), "log_dir")
-        typing.sanitize_type(log_freq, "integer", "log_freq")
-        typing.sanitize_range(log_freq, "log_freq", ge=-1)
-        typing.sanitize_type(random_seed, ("integer", "none"), "random_seed")
-        typing.sanitize_type(parallelize, "boolean", "parallelize")
-        typing.sanitize_type(include_obj_in_fitness, "boolean", "include_obj_in_fitness")
-        typing.sanitize_type(pure_optimization, "boolean", "pure_optimization")
 
         # Instantiation
         self.problem = problem
-        self.rng = np.random.default_rng(random_seed)
-        self.stable_sort = random_seed is not None
-        self.logger = Logger(log_dir, log_freq, create_dir=True, ndim=self.problem.ndim) if log_dir else None
-        self.pure_optimization = pure_optimization
+        self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
 
         # Niche Configuration Recipe
         self.niche_types = [0]          # 0: optimum, 1: extrema, 2: diversity
@@ -113,34 +120,37 @@ class MGAProblem:
             "l1": npint(1),
             "l2": npint(2),
         }
-        self.verbosity = 0
-        self.disp_rate = 0
 
         # Base State Configuration
         self._is_populated = False
         self.current_best_obj = npfloat(0)
         self.mean_fitness = npfloat(0)
-        self.callback = callback
-        self.include_obj_in_fitness = include_obj_in_fitness
         self.hyperparameters_set = False
         self._stop_requested = False
 
+        # Execution Configuration Defaults & Overrides
+        self.reset_configuration()
+        self.configure(
+            log_dir=log_dir,
+            log_freq=log_freq,
+            random_seed=random_seed,
+            parallelize=parallelize,
+            callback=callback,
+            disp_rate=disp_rate,
+            verbose=verbose,
+        )
+
+        # Algorithm Settings Defaults & Overrides
+        self.reset_settings()
+        self.update_settings(
+            include_obj_in_fitness=include_obj_in_fitness,
+            fitness_method=fitness_method,
+            space_scaler=space_scaler,
+            objective_scaler=objective_scaler,
+        )
+
         # Hyperparameter Defaults
         self.reset_hyperparameters()
-        self.space_scaler = None
-        if space_scaler is not None:
-            self.update_hyperparameters(space_scaler=space_scaler, mark_as_set=False)
-
-        # Evaluation Paths
-        self._can_use_fast_path = self.problem.objective_jitted and not self.problem.fkwargs
-
-        self.evaluator = construct(
-            self._can_use_fast_path,
-            self.problem.vectorized,
-            self.problem.constraints,
-            self.problem.return_scaled,
-            parallelize,  # ignored if _can_use_fast_path is False
-        )
 
     @property
     def scaled_ndim(self) -> int:
@@ -167,9 +177,6 @@ class MGAProblem:
 
     def add_extrema_niches(self, target_dims: np.ndarray, is_min: np.ndarray):
         """Adds dedicated directional search niches for specific scaled dimensions."""
-        if self.pure_optimization:
-            raise ValueError("Pure optimisation does not support extrema niches.")
-
         target_dims = np.asarray(target_dims, dtype=npint)
         is_min = np.asarray(is_min, dtype=np.bool_)
 
@@ -257,6 +264,162 @@ class MGAProblem:
             typing.sanitize_type(diversity, "integer", "diversity")
             self.add_diversity_niches(diversity)
 
+    def configure(
+        self,
+        log_dir: str | None = _SENTINEL,
+        log_freq: int = _SENTINEL,
+        random_seed: int | None = _SENTINEL,
+        parallelize: bool = _SENTINEL,
+        callback: Callable | None = _SENTINEL,
+        disp_rate: int = _SENTINEL,
+        verbose: int = _SENTINEL,
+    ):
+        """
+        Configures runtime and execution options (logging, seeding, parallelization, callbacks, and verbosity).
+        """
+        updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != "self"}
+        if not updates:
+            return
+
+        if "log_dir" in updates or "log_freq" in updates:
+            new_log_dir = updates.get("log_dir", getattr(self, "log_dir", None))
+            new_log_freq = updates.get("log_freq", getattr(self, "log_freq", -1))
+            typing.sanitize_type(new_log_dir, (str, "none"), "log_dir")
+            typing.sanitize_type(new_log_freq, "integer", "log_freq")
+            typing.sanitize_range(new_log_freq, "log_freq", ge=-1)
+            self.log_dir = new_log_dir
+            self.log_freq = new_log_freq
+            self.logger = (
+                Logger(self.log_dir, self.log_freq, create_dir=True, ndim=self.problem.ndim)
+                if self.log_dir
+                else None
+            )
+
+        if "random_seed" in updates:
+            seed = updates["random_seed"]
+            typing.sanitize_type(seed, ("integer", "none"), "random_seed")
+            self.random_seed = seed
+            self.rng = np.random.default_rng(seed)
+            self.stable_sort = seed is not None
+            if self._is_populated and self.population is not None:
+                self.population.rng = self.rng
+                self.population.stable_sort = self.stable_sort
+
+        if "parallelize" in updates:
+            par = updates["parallelize"]
+            typing.sanitize_type(par, "boolean", "parallelize")
+            self.parallelize = par
+            self.evaluator = construct(
+                self._can_use_fast_path,
+                self.problem.vectorized,
+                self.problem.constraints,
+                self.problem.return_scaled,
+                self.parallelize,  # ignored if _can_use_fast_path is False
+            )
+
+        if "callback" in updates:
+            self.callback = updates["callback"]
+
+        if "disp_rate" in updates:
+            dr = updates["disp_rate"]
+            typing.sanitize_type(dr, "integer", "disp_rate")
+            typing.sanitize_range(dr, "disp_rate", ge=-1)
+            self.disp_rate = dr
+
+        if "verbose" in updates:
+            self.verbosity = updates["verbose"]
+
+    def reset_configuration(self):
+        """Restores all runtime and execution configuration options to their defaults."""
+        self.configure(**self._DEFAULT_CONFIG)
+
+    def update_settings(  # noqa: C901
+        self,
+        include_obj_in_fitness: bool = _SENTINEL,
+        fitness_method: str = _SENTINEL,
+        space_scaler: np.ndarray | str | None = _SENTINEL,
+        objective_scaler: float | None = _SENTINEL,
+    ):
+        """
+        Updates structural algorithm settings (fitness metric and space/objective scaling).
+        """
+        updates = {k: v for k, v in locals().items() if v is not _SENTINEL and k != "self"}
+        if not updates:
+            return
+
+        if "include_obj_in_fitness" in updates:
+            inc = updates["include_obj_in_fitness"]
+            typing.sanitize_type(inc, "boolean", "include_obj_in_fitness")
+            self.include_obj_in_fitness = inc
+
+        if "space_scaler" in updates:
+            ss = updates["space_scaler"]
+            if self.problem.return_scaled:
+                warnings.warn(
+                    "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
+                )
+                new_ss = np.ones((1, self.problem.ndim), dtype=npfloat)
+                new_scaled_ndim = self.problem.scaled_ndim
+            elif ss is None:
+                new_ss = np.ones((1, self.problem.ndim), dtype=npfloat)
+                new_scaled_ndim = self.problem.ndim
+            elif isinstance(ss, str):
+                if ss.lower() == "bounds":
+                    _scaler = 1.0 / (self.problem.upper_bounds - self.problem.lower_bounds)
+                    new_ss = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
+                    new_scaled_ndim = self.problem.ndim
+                else:
+                    raise ValueError(f"Received unknown space_scaler. Expected an array or 'bounds'. Got: {ss}")
+            else:
+                new_ss = np.array(ss, dtype=npfloat)
+                if new_ss.ndim == 1:
+                    if new_ss.shape[0] != self.problem.ndim:
+                        raise ValueError(f"1D space_scaler must have length {self.problem.ndim}")
+                    new_ss = new_ss.reshape(1, self.problem.ndim)
+                    new_scaled_ndim = self.problem.ndim
+                elif new_ss.ndim == 2:
+                    if new_ss.shape[0] != self.problem.ndim:
+                        raise ValueError(f"2D space_scaler must have shape ({self.problem.ndim}, k)")
+                    new_scaled_ndim = new_ss.shape[1]
+                else:
+                    raise ValueError("Array type space_scaler must be 1D or 2D")
+
+            # Fail-fast guardrail: Prevents orphaned extrema niches
+            if hasattr(self, "num_niches") and self.num_niches > 1:
+                if new_scaled_ndim != self.scaled_ndim:
+                    raise ValueError(
+                        f"Cannot alter space_scaler dimensionality (from {self.scaled_ndim} to {new_scaled_ndim}) "
+                        "after niches have been allocated. Please define space_scaler at initialization "
+                        "or call update_settings before add_niches."
+                    )
+
+            self.space_scaler = new_ss
+
+        if "objective_scaler" in updates:
+            os = updates["objective_scaler"]
+            if not self.include_obj_in_fitness:
+                warnings.warn("[MHMGA] include_obj_in_fitness is False. 'objective_scaler' ignored", UserWarning)
+
+            if os is None:
+                self.objective_scaler = npfloat(1.0)
+            else:
+                typing.sanitize_type(os, 'float', 'objective_scaler')
+                self.objective_scaler = npfloat(os)
+
+        if "fitness_method" in updates:
+            fm = updates["fitness_method"].lower()
+            if fm not in ("angular", "l1", "l2"):
+                raise ValueError(f"Unknown fitness method. Expected one of ('angular', 'l1', 'l2'). Got: '{fm}'")
+            self.fitness_method = fm
+
+        self.fitness_method_int = self.fitness_method_dict[self.fitness_method]
+
+    def reset_settings(self):
+        """Restores all algorithm settings to their defaults."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            self.update_settings(**self._DEFAULT_SETTINGS)
+
     def update_hyperparameters(  # noqa: C901
         self,
         max_iter: int = _SENTINEL,
@@ -274,10 +437,6 @@ class MGAProblem:
         noptimal_abs: float = _SENTINEL,
         niche_elitism: bool = _SENTINEL,
         mutation_scaler: np.ndarray | str = _SENTINEL,
-        space_scaler: np.ndarray | str = _SENTINEL,
-        objective_scaler: float = _SENTINEL,
-        repulsion_weight: float = _SENTINEL,
-        fitness_method: str = _SENTINEL,
         extrema_epsilon_rel: float = _SENTINEL,
         extrema_epsilon_abs: float = _SENTINEL,
         mark_as_set: bool = True
@@ -295,7 +454,6 @@ class MGAProblem:
             ("noptimal_rel", "float", None, 0),
             ("noptimal_abs", "float", None, 0),
             ("mutation_alpha", "float", None, None),
-            ("repulsion_weight", "float", None, 0),
             ("extrema_epsilon_rel", "float", None, 0),
             ("extrema_epsilon_abs", "float", None, 0),
         )
@@ -383,67 +541,6 @@ class MGAProblem:
                 typing.sanitize_array_type(ms, 'float', 'mutation_scaler', self.problem.ndim)
                 self.mutation_scaler = np.array(ms, dtype=npfloat)
 
-        if "space_scaler" in updates:
-            ss = updates["space_scaler"]
-            if self.problem.return_scaled:
-                warnings.warn(
-                    "[MHMGA] problem.return_scaled is set to True. 'space_scaler' will be ignored", UserWarning
-                )
-                new_ss = np.ones((1, self.problem.ndim), dtype=npfloat)
-                new_scaled_ndim = self.problem.scaled_ndim
-            elif ss is None:
-                new_ss = np.ones((1, self.problem.ndim), dtype=npfloat)
-                new_scaled_ndim = self.problem.ndim
-            elif isinstance(ss, str):
-                if ss.lower() == "bounds":
-                    _scaler = 1.0 / (self.problem.upper_bounds - self.problem.lower_bounds)
-                    new_ss = _scaler.reshape(1, self.problem.ndim).astype(npfloat)
-                    new_scaled_ndim = self.problem.ndim
-                else:
-                    raise ValueError(f"Received unknown space_scaler. Expected an array or 'bounds'. Got: {ss}")
-            else:
-                new_ss = np.array(ss, dtype=npfloat)
-                if new_ss.ndim == 1:
-                    if new_ss.shape[0] != self.problem.ndim:
-                        raise ValueError(f"1D space_scaler must have length {self.problem.ndim}")
-                    new_ss = new_ss.reshape(1, self.problem.ndim)
-                    new_scaled_ndim = self.problem.ndim
-                elif new_ss.ndim == 2:
-                    if new_ss.shape[0] != self.problem.ndim:
-                        raise ValueError(f"2D space_scaler must have shape ({self.problem.ndim}, k)")
-                    new_scaled_ndim = new_ss.shape[1]
-                else:
-                    raise ValueError("Array type space_scaler must be 1D or 2D")
-
-            # Fail-fast guardrail: Prevents orphaned extrema niches
-            if hasattr(self, "num_niches") and self.num_niches > 1:
-                if new_scaled_ndim != self.scaled_ndim:
-                    raise ValueError(
-                        f"Cannot alter space_scaler dimensionality (from {self.scaled_ndim} to {new_scaled_ndim}) "
-                        "after niches have been allocated. Please define space_scaler at initialization "
-                        "or call update_hyperparameters before add_niches."
-                    )
-
-            self.space_scaler = new_ss
-
-        if "objective_scaler" in updates:
-            os = updates["objective_scaler"]
-            if not self.include_obj_in_fitness:
-                warnings.warn("[MHMGA] include_obj_in_fitness is False. 'objective_scaler' ignored", UserWarning)
-
-            if os is None:
-                self.objective_scaler = npfloat(1.0)
-            else:
-                typing.sanitize_type(os, 'float', 'objective_scaler')
-                self.objective_scaler = npfloat(os)
-
-        if "fitness_method" in updates:
-            fm = updates["fitness_method"].lower()
-            if fm not in ("angular", "l1", "l2"):
-                raise ValueError(f"Unknown fitness method. Expected one of ('angular', 'l1', 'l2'). Got: '{fm}'")
-            self.fitness_method = fm
-
-        self.fitness_method_int = self.fitness_method_dict[self.fitness_method]
         self.hyperparameters_set = mark_as_set
 
     def reset_hyperparameters(self):
@@ -477,7 +574,7 @@ class MGAProblem:
         self._update_parent_size()
 
     def _init_population_container(self) -> None:
-        """Instantiates the Population jitclass and binds problem & hyperparameters."""
+        """Instantiates the Population jitclass and binds problem, settings & hyperparameters."""
         self.population = Population(
             num_niches=self.num_niches,
             pop_size=self.pop_size,
@@ -485,12 +582,12 @@ class MGAProblem:
             rng=self.rng,
             stable_sort=self.stable_sort,
             include_obj_in_fitness=self.include_obj_in_fitness,
-            pure_optimization=self.pure_optimization,
             niche_types=np.array(self.niche_types, dtype=npint),
             niche_target_dims=np.array(self.niche_target_dims, dtype=npint),
             niche_is_min=np.array(self.niche_is_min, dtype=np.bool_),
         )
         load_problem_to_population(self.population, self.problem)
+        self._update_population_settings()
         self._update_population_hyperparameters()
 
     def _seed_population_points(self, x0: np.ndarray = None, points: np.ndarray = None) -> None:
@@ -555,13 +652,9 @@ class MGAProblem:
         self.population.evaluate_fitness()
         self.population.track_optima()
 
-    def set_verbosity(self, disp_rate=None, verbose=None):
-        if disp_rate is not None:
-            typing.sanitize_type(disp_rate, "integer", "disp_rate")
-            typing.sanitize_range(disp_rate, "disp_rate", ge=-1)
-            self.disp_rate = disp_rate
-        if verbose is not None:
-            self.verbosity = verbose
+    def set_verbosity(self, disp_rate=_SENTINEL, verbose=_SENTINEL):
+        """Updates console display rate and verbosity level (alias for `configure(disp_rate=..., verbose=...)`)."""
+        self.configure(disp_rate=disp_rate, verbose=verbose)
 
     def step(  # noqa: C901
         self,
@@ -593,6 +686,7 @@ class MGAProblem:
             if self.callback is not None and evaluate_initial:
                 self.callback(self.population)
         else:
+            self._update_population_settings()
             self._update_population_hyperparameters()
 
         # Main algorithm loop
@@ -782,6 +876,14 @@ class MGAProblem:
                 self.population, self.problem.objective, self.problem.fargs, self.problem.fkwargs
             )
 
+    def _update_population_settings(self):
+        self.population.update_settings(
+            self.include_obj_in_fitness,
+            self.fitness_method_int,
+            self.space_scaler,
+            self.objective_scaler,
+        )
+
     def _update_population_hyperparameters(self):
         # numba does not always like keyword arguments
         self.population.update_hyperparameters(
@@ -798,10 +900,6 @@ class MGAProblem:
             self.noptimal_abs,
             self.violation_factor,
             self.mutation_scaler,
-            self.space_scaler,
-            self.objective_scaler,
-            self.repulsion_weight,
-            self.fitness_method_int,
             self.extrema_epsilon_rel,
             self.extrema_epsilon_abs,
         )

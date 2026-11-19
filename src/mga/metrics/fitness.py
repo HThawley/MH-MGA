@@ -52,23 +52,6 @@ def evaluate_fitness_distance(
         _distance_standard(fitness, points, centroids, power, inv_power)
 
 
-@njit
-def evaluate_fitness_pure_optimization(fitness, points, centroids, raw_objectives, repulsion_weight, method):
-    if method == 2:
-        power = 2.0
-        inv_power = 0.5
-    elif method == 1:
-        power = 1.0
-        inv_power = 1.0
-    else:
-        raise Exception
-
-    for i in range(1, points.shape[0]):
-        for j in range(points.shape[1]):
-            dist = _minkowski_distance(points[i, j], centroids[0], power, inv_power)
-            fitness[i, j] = (dist * repulsion_weight) + (raw_objectives[i, j] * (1.0 - repulsion_weight))
-
-
 # private helper functions
 @njit
 def _distance_with_objective(

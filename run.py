@@ -50,11 +50,19 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
     algorithm = MGAProblem(
         problem=problem,
         x0=np.array([0.5, 0.5]),
+    )
+    algorithm.configure(
         log_dir=file_prefix,
         log_freq=-1,
         random_seed=seed,
+        disp_rate=1,
+        verbose=2,
+    )
+    algorithm.update_settings(
         include_obj_in_fitness=True,
         space_scaler=np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]]),
+        objective_scaler=0.01,
+        fitness_method="L1",
     )
 
     # Allocate independently
@@ -74,18 +82,17 @@ def run(obj=complex_objective, seed=None, file_prefix="logs/testprob"):
         crossover_prob=0.0,
         niche_elitism=True,
         noptimal_rel=0.12,
-        objective_scaler=0.01,
-        fitness_method="L1",
         extrema_epsilon_rel=0.01,
         extrema_epsilon_abs=1e-6,
     )
-    algorithm.set_verbosity(disp_rate=1, verbose=2)
     algorithm.step()
 
-    # algorithm.add_niches(num_niches=10)
+    # algorithm.add_niches(diversity=10)
+    # algorithm.update_settings(
+    #     fitness_method="angular",
+    # )
     # algorithm.update_hyperparameters(
     #     max_iter=50,
-    #     fitness_method="angular",
     # )
     # algorithm.step()
 
@@ -177,6 +184,8 @@ def inspect_recomb(obj=complex_objective, points=None, random_seed=1, **hyperpar
         problem=problem,
         x0=None,
         starting_points=points,
+    )
+    algorithm.configure(
         log_dir=None,
         log_freq=-1,
         random_seed=random_seed,
@@ -185,7 +194,6 @@ def inspect_recomb(obj=complex_objective, points=None, random_seed=1, **hyperpar
     if points.ndim > 1:
         hyperparameters["pop_size"] = points.shape[0]
 
-    algorithm.add_niches(num_niches=1)
     algorithm.update_hyperparameters(**hyperparameters)
     result = algorithm.inspect_recombination(points)
 
